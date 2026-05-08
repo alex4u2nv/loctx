@@ -79,3 +79,85 @@ describe("chunkFile", () => {
     expect(a.map((c) => c.chunkSha)).toEqual(b.map((c) => c.chunkSha));
   });
 });
+
+describe("TreeSitterCodeChunker — Python", () => {
+  it("emits one chunk per top-level function and class with names", () => {
+    const source = [
+      "def hello():",
+      "    return 1",
+      "",
+      "",
+      "class Greeter:",
+      "    def greet(self):",
+      "        return hello()",
+      "",
+    ].join("\n");
+    const chunks = chunkFile("module.py", source);
+    expect(chunks.length).toBe(2);
+
+    const fn = chunks.find((c) => c.kind === "function");
+    const cls = chunks.find((c) => c.kind === "class");
+    expect(fn?.symbols).toEqual(["hello"]);
+    expect(cls?.symbols).toEqual(["Greeter"]);
+    expect(fn?.startLine).toBe(1);
+    expect(cls?.startLine).toBe(5);
+  });
+
+  it("recovers function name from a decorated definition", () => {
+    const source = ["@some.decorator", "def decorated():", "    return 'x'", ""].join("\n");
+    const chunks = chunkFile("decorated.py", source);
+    expect(chunks.length).toBe(1);
+    // decorated_definition wraps function_definition; symbols recurse to find the name.
+    expect(chunks[0]?.symbols).toEqual(["decorated"]);
+  });
+
+  it("falls back to line-window when there are no top-level definitions", () => {
+    const chunks = chunkFile("imports.py", "import os\nimport sys\n\nx = 1\n");
+    expect(chunks.length).toBe(1);
+    expect(chunks[0]?.kind).toBe("window");
+  });
+});
+
+describe("TreeSitterCodeChunker — TypeScript", () => {
+  it("emits chunks for functions, classes, and interfaces", () => {
+    const source = [
+      "export interface Greeter { greet(): string }",
+      "",
+      "export class Hi implements Greeter {",
+      "  greet() { return 'hi'; }",
+      "}",
+      "",
+      "function topLevel() { return 1; }",
+      "",
+    ].join("\n");
+    const chunks = chunkFile("a.ts", source);
+    const kinds = chunks.map((c) => c.kind);
+    expect(kinds).toContain("function");
+    expect(kinds.some((k) => k === "class" || k === "export")).toBe(true);
+    expect(kinds.some((k) => k === "interface" || k === "export")).toBe(true);
+  });
+});
+
+describe("TreeSitterCodeChunker — Go", () => {
+  it("emits chunks for top-level function and type declarations", () => {
+    const source = [
+      "package main",
+      "",
+      "type Greeter struct { Name string }",
+      "",
+      "func (g Greeter) Greet() string {",
+      "  return g.Name",
+      "}",
+      "",
+      "func main() {",
+      '  println("hi")',
+      "}",
+      "",
+    ].join("\n");
+    const chunks = chunkFile("main.go", source);
+    const kinds = chunks.map((c) => c.kind);
+    expect(kinds).toContain("function");
+    expect(kinds).toContain("method");
+    expect(kinds).toContain("type");
+  });
+});

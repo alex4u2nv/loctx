@@ -14,6 +14,13 @@ const nextConfig = {
     "@huggingface/transformers",
     "onnxruntime-node",
     "@modelcontextprotocol/sdk",
+    "tree-sitter",
+    "tree-sitter-python",
+    "tree-sitter-javascript",
+    "tree-sitter-typescript",
+    "tree-sitter-go",
+    "tree-sitter-rust",
+    "tree-sitter-java",
   ],
   // typedRoutes requires a Next build to populate `.next/types/...` before
   // tsc can typecheck Link hrefs. Off until the build pipeline runs Next
