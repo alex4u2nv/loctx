@@ -20,7 +20,23 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "license": "MIT",
+  "author": "Alex Mahabir",
+  "homepage": "https://github.com/alex4u2nv/loctx",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/alex4u2nv/loctx.git",
+    "directory": "packages/core"
+  },
+  "bugs": "https://github.com/alex4u2nv/loctx/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.0.0",

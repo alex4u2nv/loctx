@@ -31,6 +31,40 @@ npx loctx start --port 3000
 The first `loctx start` (or `loctx index`) downloads the default embedding
 model (~90MB) into the Hugging Face cache; subsequent runs are fast.
 
+## Install
+
+Two paths today.
+
+### Local development install
+
+```bash
+git clone git@github.com:alex4u2nv/loctx.git
+cd loctx
+npm install
+npm run build
+npm link --workspace @loctx/cli --workspace @loctx/mcp
+# → `loctx` and `loctx-mcp` are now on $PATH
+```
+
+The web app (`loctx start`'s admin UI) stays at the workspace path —
+`@loctx/web` is a Next.js app, not a publishable library, so the daemon
+needs the workspace's `apps/web/.next` build output. Run `loctx start`
+from any directory; it locates the workspace via the linked binary.
+
+### npm publish (planned, not yet shipped)
+
+`@loctx/core`, `@loctx/cli`, `@loctx/mcp` are publish-prepped (`files`,
+`publishConfig.access: public`, `prepublishOnly: npm run build`,
+`engines.node >= 22`). Once the npm scope is claimed, the install becomes:
+
+```bash
+npm install -g @loctx/cli @loctx/mcp
+```
+
+`@loctx/web` stays private — the integrated daemon UI lives in the
+workspace. A future top-level `loctx` umbrella package may bundle CLI +
+MCP under a single global install. See GH#38.
+
 ## CLI subcommands
 
 ```bash

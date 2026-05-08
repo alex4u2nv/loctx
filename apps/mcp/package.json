@@ -23,10 +23,26 @@
     "dev": "tsx src/server.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "prepublishOnly": "npm run build"
+  },
+  "license": "MIT",
+  "author": "Alex Mahabir",
+  "homepage": "https://github.com/alex4u2nv/loctx",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/alex4u2nv/loctx.git",
+    "directory": "apps/mcp"
+  },
+  "bugs": "https://github.com/alex4u2nv/loctx/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "dependencies": {
-    "@loctx/core": "*",
+    "@loctx/core": "^0.1.0",
     "@modelcontextprotocol/sdk": "^1.0.0"
   }
 }

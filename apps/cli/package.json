@@ -1,7 +1,7 @@
 {
   "name": "@loctx/cli",
   "version": "0.1.0",
-  "description": "Commander CLI for loctx.",
+  "description": "Commander CLI for loctx — index, search, and run the integrated daemon.",
   "type": "module",
   "bin": {
     "loctx": "./dist/cli.js"
@@ -14,10 +14,26 @@
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "start": "node dist/cli.js"
+    "start": "node dist/cli.js",
+    "prepublishOnly": "npm run build"
+  },
+  "license": "MIT",
+  "author": "Alex Mahabir",
+  "homepage": "https://github.com/alex4u2nv/loctx",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/alex4u2nv/loctx.git",
+    "directory": "apps/cli"
+  },
+  "bugs": "https://github.com/alex4u2nv/loctx/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "dependencies": {
-    "@loctx/core": "*",
+    "@loctx/core": "^0.1.0",
     "commander": "^12.1.0"
   }
 }
