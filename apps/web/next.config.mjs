@@ -22,10 +22,12 @@ const nextConfig = {
     "tree-sitter-rust",
     "tree-sitter-java",
   ],
-  // typedRoutes requires a Next build to populate `.next/types/...` before
-  // tsc can typecheck Link hrefs. Off until the build pipeline runs Next
-  // before tsc consistently.
-  typedRoutes: false,
+  // Type-safe `next/link` href validation. Requires `.next/types/...` to
+  // exist before tsc runs — apps/web's `typecheck` script runs `next build`
+  // first to populate them. Local `npm run verify` runs build before
+  // typecheck via the workspace pipeline, and CI explicitly does
+  // `npm run build && npm run verify`.
+  typedRoutes: true,
 };
 
 export default nextConfig;
