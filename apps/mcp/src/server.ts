@@ -2,14 +2,18 @@
 /**
  * MCP stdio binary.
  *
- * The transport-agnostic tool registry lives in `./registry.ts`. This file
- * is the stdio entry point: it builds the runtime once, attaches the
+ * Coding agents (Claude Code, Codex, Cursor) spawn this as a child process
+ * and talk JSON-RPC over stdio. The shared tool registry lives in
+ * `./registry.ts`; this file just builds the runtime, attaches the
  * registry to a Server, and pumps stdio.
  *
- * Real stdio wiring (Server + StdioServerTransport) lands in M6#2; this
- * file currently logs a notice and exits — the SSE route in
- * `apps/web/app/mcp/route.ts` (M6#3) is the other consumer of the registry.
+ * Logging goes to stderr — stdout is reserved for the JSON-RPC stream.
  */
+
+import { type Runtime, buildRuntime, loadConfig } from "@loctx/core";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { registerTools } from "./registry.js";
 
 export { TOOL_DEFINITIONS, ToolError, registerTools, tools } from "./registry.js";
 export type {
@@ -20,13 +24,34 @@ export type {
   StatusOutput,
 } from "./registry.js";
 
+const SERVER_INFO = { name: "loctx", version: "0.1.0" };
+
 async function main(): Promise<void> {
-  // TODO (M6#2): build runtime, create Server, attach StdioServerTransport,
-  // call registerTools(server, runtime), await server.connect(transport).
+  const runtime: Runtime = await buildRuntime(loadConfig());
+  const server = new Server(SERVER_INFO, { capabilities: { tools: {} } });
+  registerTools(server, runtime);
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  // Log to stderr — stdout is the JSON-RPC channel.
   console.error(
-    "[loctx-mcp] stdio wiring pending (M6#2). The tool registry is exported and " +
-      "consumed by the Next.js SSE route (M6#3). Run `loctx start` for the integrated daemon.",
+    `[loctx-mcp] connected (workspace_roots: ${runtime.config.workspaceRoots.join(", ")})`,
   );
+
+  const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
+    console.error(`[loctx-mcp] received ${signal}, shutting down...`);
+    try {
+      await server.close();
+    } catch (err) {
+      console.error(`[loctx-mcp] server.close error: ${(err as Error).message}`);
+    }
+    runtime.close();
+    process.exit(0);
+  };
+
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
