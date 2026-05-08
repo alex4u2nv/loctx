@@ -19,7 +19,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && chmod +x dist/server.js",
     "dev": "tsx src/server.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
