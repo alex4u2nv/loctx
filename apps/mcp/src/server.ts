@@ -1,103 +1,33 @@
 #!/usr/bin/env node
 /**
- * MCP stdio server skeleton.
+ * MCP stdio binary.
  *
- * Exposes three tools for MCP-capable coding agents (Claude Code, Codex, etc.):
- *   - search_workspace   — semantic search over the local index
- *   - workspace_status   — discovered projects + storage paths
- *   - refresh_workspace  — reindex one project (or all)
+ * The transport-agnostic tool registry lives in `./registry.ts`. This file
+ * is the stdio entry point: it builds the runtime once, attaches the
+ * registry to a Server, and pumps stdio.
  *
- * Real @modelcontextprotocol/sdk wiring is the next step. This file lays out
- * the request/response shapes and stubs the server entry point.
+ * Real stdio wiring (Server + StdioServerTransport) lands in M6#2; this
+ * file currently logs a notice and exits — the SSE route in
+ * `apps/web/app/mcp/route.ts` (M6#3) is the other consumer of the registry.
  */
 
-import { buildRuntime, loadConfig } from "@loctx/core";
-
-interface SearchToolInput {
-  readonly query: string;
-  readonly cwd?: string;
-  readonly scope?: "auto" | "project" | "subtree" | "all";
-  readonly limit?: number;
-  readonly language?: string;
-}
-
-interface StatusToolInput {
-  readonly include_indexed_counts?: boolean;
-}
-
-interface RefreshToolInput {
-  readonly path?: string;
-}
-
-async function handleSearch(input: SearchToolInput) {
-  const config = loadConfig();
-  const runtime = await buildRuntime(config);
-  try {
-    return await runtime.searcher.search({
-      query: input.query,
-      ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
-      scope: input.scope ?? "auto",
-      limit: input.limit ?? 10,
-      ...(input.language !== undefined ? { language: input.language } : {}),
-    });
-  } finally {
-    runtime.close();
-  }
-}
-
-async function handleStatus(input: StatusToolInput) {
-  const config = loadConfig();
-  const runtime = await buildRuntime(config);
-  try {
-    const projects = runtime.discovery.discoverProjects();
-    const baseline = {
-      configPath: config.source ?? null,
-      paths: config.paths,
-      embedding: config.embedding,
-      workspaceRoots: config.workspaceRoots,
-      projects: projects.map((p) => ({ id: p.id, name: p.name, root: p.root })),
-    };
-    if (!input.include_indexed_counts) return baseline;
-    return {
-      ...baseline,
-      indexedFileCounts: Object.fromEntries(
-        projects.map((p) => [p.id, runtime.state.listFiles(p.id).length] as const),
-      ),
-    };
-  } finally {
-    runtime.close();
-  }
-}
-
-async function handleRefresh(input: RefreshToolInput) {
-  const config = loadConfig();
-  const runtime = await buildRuntime(config);
-  try {
-    const projects = input.path
-      ? [runtime.discovery.resolveProject(input.path)].filter((p) => p !== null)
-      : runtime.discovery.discoverProjects();
-    const summaries = [];
-    for (const project of projects) {
-      summaries.push(await runtime.indexer.indexProject(project));
-    }
-    return summaries;
-  } finally {
-    runtime.close();
-  }
-}
+export { TOOL_DEFINITIONS, ToolError, registerTools, tools } from "./registry.js";
+export type {
+  RefreshInput,
+  RefreshOutput,
+  SearchInput,
+  StatusInput,
+  StatusOutput,
+} from "./registry.js";
 
 async function main(): Promise<void> {
-  // TODO: wire @modelcontextprotocol/sdk Server over stdio and register the
-  // three tools above. Keeping the handlers exported as plain async functions
-  // keeps them testable without the MCP transport.
+  // TODO (M6#2): build runtime, create Server, attach StdioServerTransport,
+  // call registerTools(server, runtime), await server.connect(transport).
   console.error(
-    "[loctx-mcp] stub — real @modelcontextprotocol/sdk wiring pending. " +
-      "Tool handlers (handleSearch / handleStatus / handleRefresh) are exported.",
+    "[loctx-mcp] stdio wiring pending (M6#2). The tool registry is exported and " +
+      "consumed by the Next.js SSE route (M6#3). Run `loctx start` for the integrated daemon.",
   );
 }
-
-export { handleRefresh, handleSearch, handleStatus };
-export type { RefreshToolInput, SearchToolInput, StatusToolInput };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   await main();
