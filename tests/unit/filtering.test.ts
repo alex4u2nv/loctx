@@ -1,0 +1,104 @@
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { makeProject } from "../../src/discovery.js";
+import {
+  FilterReason,
+  type FilteringRules,
+  ProjectFilter,
+  loadFilteringRules,
+  withOverrides,
+} from "../../src/filtering.js";
+import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
+
+let tmp: string;
+let projectRoot: string;
+let defaultRules: FilteringRules;
+
+beforeEach(() => {
+  tmp = mkTmpDir();
+  projectRoot = join(tmp, "repo");
+  mkdirSync(projectRoot, { recursive: true });
+  mkdirSync(join(projectRoot, ".git"));
+  defaultRules = loadFilteringRules({ overrideDir: join(tmp, "no-overrides") });
+});
+afterEach(() => {
+  rmTmpDir(tmp);
+});
+
+function write(path: string, content: string | Buffer = "") {
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, content);
+  return path;
+}
+
+function freshFilter(rules?: FilteringRules) {
+  return new ProjectFilter(makeProject(projectRoot), rules ?? defaultRules);
+}
+
+describe("ProjectFilter", () => {
+  it("skips ignored directories anywhere in the path", () => {
+    const f = write(join(projectRoot, "node_modules", "lib", "x.js"), "console.log(1)");
+    const decision = freshFilter().shouldIndex(f);
+    expect(decision.shouldIndex).toBe(false);
+    expect(decision.reason).toBe(FilterReason.IGNORED_DIRECTORY);
+    expect(decision.detail).toBe("node_modules");
+  });
+
+  it("skips .git/", () => {
+    const f = write(join(projectRoot, ".git", "HEAD"), "ref: x");
+    expect(freshFilter().shouldIndex(f).reason).toBe(FilterReason.IGNORED_DIRECTORY);
+  });
+
+  it("skips secret files", () => {
+    const f = write(join(projectRoot, ".env"), "API_KEY=hunter2");
+    expect(freshFilter().shouldIndex(f).reason).toBe(FilterReason.SECRET);
+  });
+
+  it("allows .env.example", () => {
+    const f = write(join(projectRoot, ".env.example"), "API_KEY=changeme");
+    expect(freshFilter().shouldIndex(f).shouldIndex).toBe(true);
+  });
+
+  it("allows named files without extension", () => {
+    const f = write(join(projectRoot, "Dockerfile"), "FROM scratch\n");
+    expect(freshFilter().shouldIndex(f).shouldIndex).toBe(true);
+  });
+
+  it("skips unsupported extensions", () => {
+    const f = write(join(projectRoot, "logo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    expect(freshFilter().shouldIndex(f).reason).toBe(FilterReason.UNSUPPORTED_EXTENSION);
+  });
+
+  it("skips oversized files", () => {
+    const rules = withOverrides(defaultRules, { maxFileSizeBytes: 64 });
+    const f = write(join(projectRoot, "big.py"), "x = 1\n".repeat(200));
+    expect(freshFilter(rules).shouldIndex(f).reason).toBe(FilterReason.OVERSIZED);
+  });
+
+  it("skips binary content even with supported extension", () => {
+    const f = write(join(projectRoot, "weird.py"), Buffer.from("print('hi')\x00\x01"));
+    expect(freshFilter().shouldIndex(f).reason).toBe(FilterReason.BINARY);
+  });
+
+  it("skips symlinks by default, follows when configured", () => {
+    const target = write(join(projectRoot, "real.py"), "x = 1\n");
+    const link = join(projectRoot, "link.py");
+    symlinkSync(target, link);
+    expect(freshFilter().shouldIndex(link).reason).toBe(FilterReason.SYMLINK);
+    const followRules = withOverrides(defaultRules, { followSymlinks: true });
+    expect(freshFilter(followRules).shouldIndex(link).shouldIndex).toBe(true);
+  });
+
+  it("skips paths outside project root", () => {
+    const outside = write(join(tmp, "elsewhere.py"), "x = 1\n");
+    expect(freshFilter().shouldIndex(outside).reason).toBe(FilterReason.OUTSIDE_PROJECT);
+  });
+
+  it("accepts a normal Python file", () => {
+    const f = write(join(projectRoot, "src", "app.py"), "def hi():\n    return 1\n");
+    const decision = freshFilter().shouldIndex(f);
+    expect(decision.shouldIndex).toBe(true);
+    expect(decision.reason).toBe(FilterReason.OK);
+  });
+});
