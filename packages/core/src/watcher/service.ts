@@ -15,6 +15,7 @@
 import { resolve } from "node:path";
 import type { ProjectIndexer } from "../indexing/index.js";
 import type { Project } from "../models.js";
+import { watcherBus } from "./bus.js";
 
 type WatchEvent = "add" | "change" | "unlink";
 
@@ -149,6 +150,13 @@ export class WatcherService {
       } else {
         await this.indexer.indexFile(this.project, absPath);
       }
+      watcherBus.publish({
+        projectId: this.project.id,
+        projectName: this.project.name,
+        relPath,
+        kind: event,
+        at: Date.now(),
+      });
     } catch (err) {
       this.onError(event, relPath, err as Error);
     } finally {

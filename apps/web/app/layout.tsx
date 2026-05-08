@@ -1,3 +1,4 @@
+import { LiveRefresh } from "@/components/live-refresh";
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -39,8 +40,20 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               search
             </Link>
           </nav>
-          <span style={{ marginLeft: "auto", color: "#7a85b8", fontSize: 13 }}>
-            mcp endpoint: <code style={{ color: "#9ba3c4" }}>/mcp</code>
+          <span
+            style={{
+              marginLeft: "auto",
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+              color: "#7a85b8",
+              fontSize: 13,
+            }}
+          >
+            <LiveRefresh />
+            <span>
+              mcp endpoint: <code style={{ color: "#9ba3c4" }}>/mcp</code>
+            </span>
           </span>
         </header>
         <main style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>{children}</main>
