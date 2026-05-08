@@ -1,0 +1,22 @@
+{
+  "name": "@loctx/cli",
+  "version": "0.1.0",
+  "description": "Commander CLI for loctx.",
+  "type": "module",
+  "bin": {
+    "loctx": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@loctx/core": "*",
+    "commander": "^12.1.0"
+  }
+}

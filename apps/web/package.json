@@ -1,0 +1,23 @@
+{
+  "name": "@loctx/web",
+  "version": "0.1.0",
+  "description": "Next.js admin / management UI for loctx.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@loctx/core": "*",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0"
+  }
+}

@@ -1,34 +1,26 @@
 {
-  "name": "loctx",
-  "version": "0.1.0",
-  "description": "Local-first code indexing and search for MCP-capable coding agents.",
+  "name": "loctx-monorepo",
+  "version": "0.0.0",
+  "private": true,
   "type": "module",
   "engines": {
     "node": ">=22"
   },
-  "bin": {
-    "loctx": "./dist/cli.js"
-  },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": "./dist/index.js"
-  },
-  "files": [
-    "dist",
-    "src/data",
-    "src/sql"
+  "workspaces": [
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
-    "dev": "tsx src/cli.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "lint": "biome check src tests",
-    "format": "biome format --write src tests",
-    "format:check": "biome format --check src tests",
-    "verify": "npm run lint && npm run typecheck && npm test"
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "biome check packages apps",
+    "format": "biome format --write packages apps",
+    "format:check": "biome format --check packages apps",
+    "verify": "npm run lint && npm run typecheck && npm test",
+    "dev:cli": "npm run dev --workspace @loctx/cli --",
+    "dev:web": "npm run dev --workspace @loctx/web",
+    "dev:mcp": "npm run dev --workspace @loctx/mcp"
   },
   "license": "MIT",
   "author": "Alex Mahabir",
@@ -37,24 +29,8 @@
     "type": "git",
     "url": "git+ssh://git@github.com/alex4u2nv/loctx.git"
   },
-  "keywords": [
-    "mcp",
-    "code-search",
-    "indexing",
-    "chromadb",
-    "embeddings"
-  ],
-  "dependencies": {
-    "better-sqlite3": "^11.5.0",
-    "chromadb": "^1.9.0",
-    "commander": "^12.1.0",
-    "env-paths": "^3.0.0",
-    "ignore": "^6.0.2",
-    "yaml": "^2.6.0"
-  },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
-    "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^22.7.5",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3",

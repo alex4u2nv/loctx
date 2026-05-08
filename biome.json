@@ -1,7 +1,19 @@
 {
   "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
   "files": {
-    "include": ["src/**/*", "tests/**/*"]
+    "include": [
+      "packages/*/src/**/*",
+      "packages/*/tests/**/*",
+      "apps/cli/src/**/*",
+      "apps/mcp/src/**/*",
+      "apps/web/app/**/*",
+      "apps/web/lib/**/*"
+    ],
+    "ignore": [
+      "**/dist/**",
+      "**/.next/**",
+      "**/node_modules/**"
+    ]
   },
   "formatter": {
     "enabled": true,

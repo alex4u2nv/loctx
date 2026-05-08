@@ -1,0 +1,22 @@
+{
+  "name": "@loctx/mcp",
+  "version": "0.1.0",
+  "description": "MCP stdio server exposing loctx workspace search to coding agents.",
+  "type": "module",
+  "bin": {
+    "loctx-mcp": "./dist/server.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/server.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@loctx/core": "*",
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

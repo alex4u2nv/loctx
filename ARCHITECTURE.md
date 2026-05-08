@@ -32,69 +32,64 @@ recovery commands.
 
 ## Project Layout
 
-ESM-only TypeScript with a `src` layout. Build with `tsc`, test with vitest,
-lint+format with biome.
+npm workspaces monorepo. ESM-only TypeScript everywhere. Build with `tsc`,
+test with vitest, lint+format with biome.
 
 ```text
-loctx/
-  README.md
-  ARCHITECTURE.md
-  package.json
-  tsconfig.json
-  biome.json
-  vitest.config.ts
-  src/
-    index.ts                    # public API barrel
-    cli.ts                      # Commander entrypoint
-    container.ts                # composition root
-    config.ts
-    paths.ts
-    models.ts
-    discovery.ts
-    filtering.ts
-    gitignore.ts
-    _validate.ts                # internal Validator + Spec
-    data/
-      filtering.yaml            # bundled defaults (shipped in package)
-    sql/
-      state.sql                 # named-section query file
-      loader.ts                 # parseSqlFile()
-    chunking/
-      base.ts
-      prose.ts                  # LineWindowChunker
-      code.ts                   # TreeSitterCodeChunker (follow-up)
-      index.ts                  # CompositeChunker / chunkFile
-    embeddings/
-      base.ts                   # EmbeddingProvider + FakeEmbeddingProvider
-      local.ts                  # @huggingface/transformers (lazy)
-      index.ts
-    storage/
-      state.ts                  # better-sqlite3
-      vectors.ts                # chromadb
-      index.ts
-    indexing/
-      indexer.ts                # ProjectIndexer
-      index.ts
-    retrieval/
-      searcher.ts               # WorkspaceSearcher
-      index.ts
-    watcher/                    # M4
-    mcp/                        # M3
-  tests/
-    unit/
-    integration/
-    fixtures/
+loctx/                                  # workspace root (private)
+  package.json                          # "workspaces": ["packages/*", "apps/*"]
+  tsconfig.base.json                    # shared compiler options
+  biome.json                            # workspace-wide lint+format
+
+  packages/
+    core/                               # @loctx/core — engine library
+      package.json
+      tsconfig.json                     # extends ../../tsconfig.base.json
+      vitest.config.ts
+      scripts/copy-assets.mjs           # post-build: copy SQL + YAML to dist/
+      src/
+        index.ts                        # public API barrel
+        _validate.ts                    # Validator + Spec
+        config.ts                       # YAML config loader
+        container.ts                    # buildRuntime() composition root
+        models.ts                       # types (Project, EmbeddingIdentity, ...)
+        paths.ts                        # XDG via env-paths
+        discovery.ts                    # WorkspaceDiscovery + identity helpers
+        filtering.ts                    # FilteringRules, ProjectFilter
+        gitignore.ts                    # ignore-package wrapper
+        data/filtering.yaml             # bundled filter defaults
+        sql/state.sql                   # named-section query file
+        sql/loader.ts                   # loadQueries()
+        chunking/                       # base, prose (LineWindow), code, index
+        embeddings/                     # base, local (HF transformers, lazy)
+        indexing/indexer.ts             # ProjectIndexer pipeline
+        retrieval/searcher.ts           # WorkspaceSearcher + scope resolution
+        storage/state.ts                # better-sqlite3 + named queries
+        storage/vectors.ts              # chromadb (lazy import)
+        watcher/service.ts              # chokidar fs watcher → indexer
+      tests/
+
+  apps/
+    cli/                                # @loctx/cli — bin: loctx
+      src/cli.ts                        # Commander entrypoint
+    mcp/                                # @loctx/mcp — bin: loctx-mcp
+      src/server.ts                     # @modelcontextprotocol/sdk over stdio
+    web/                                # @loctx/web — Next.js admin UI
+      next.config.mjs                   # transpilePackages + serverExternal
+      app/                              # App Router (server components)
+        layout.tsx
+        page.tsx
 ```
 
 ## Runtime Components
 
 ### Configuration
 
-`config.ts` owns config loading, validation, and defaults. The TOML config
-covers everything *except* filtering rules — those live in YAML and are
-loaded by the filtering layer (separate concerns, separate files).
+`config.ts` owns config loading, validation, and defaults. The main YAML
+config covers everything *except* filtering rules — those live in their own
+YAML override directory (separate concerns, separate files).
 
-Primary config path: `$XDG_CONFIG_HOME/loctx/config.toml`.
+Primary config path: `$XDG_CONFIG_HOME/loctx/config.yaml`.
 
 ```ts
 export interface Config {

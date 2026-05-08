@@ -1,0 +1,210 @@
+# loctx filtering defaults.
+#
+# This file ships with the package and forms the baseline filter rules. User
+# overrides go in ~/.loctx/config_overrides/*.yaml (and *.yml), loaded in
+# alphabetical filename order.
+#
+# Merge semantics:
+#   - scalars (max_file_size_bytes, follow_symlinks) → replaced by overrides
+#   - list keys (ignored_dirs, secret_globs, ...) → extended by overrides
+#   - remove_<key> entries subtract from the matching list (explicit removal,
+#     so a typo never silently drops a baseline entry)
+#
+# Project .gitignore, .git/info/exclude, and the git core.excludesfile (e.g.
+# ~/.gitignore_global) are layered on top at runtime as additive ignores.
+# Gitignore rules can only ADD ignores; they cannot un-ignore something the
+# loctx baseline marks as a secret or oversized file.
+
+max_file_size_bytes: 1048576  # 1 MiB
+follow_symlinks: false
+
+ignored_dirs:
+  # vcs
+  - .git
+  - .hg
+  - .svn
+  # python
+  - __pycache__
+  - .venv
+  - venv
+  - env
+  - ENV
+  - .tox
+  - .nox
+  - .mypy_cache
+  - .ruff_cache
+  - .pytest_cache
+  - .pytype
+  # node / js
+  - node_modules
+  - .next
+  - .nuxt
+  - .turbo
+  - .parcel-cache
+  - .yarn
+  - .pnp
+  # build outputs
+  - dist
+  - build
+  - out
+  - target
+  - .gradle
+  - .mvn
+  # coverage / test outputs
+  - coverage
+  - .nyc_output
+  - htmlcov
+  # editors / ides
+  - .idea
+  - .vscode
+  - .vs
+  # caches
+  - .cache
+  - .sass-cache
+  # ai tooling state
+  - .claude
+  - .cursor
+  - .aider
+
+secret_globs:
+  - .env
+  - .env.*
+  - "*.pem"
+  - "*.key"
+  - id_rsa
+  - id_dsa
+  - id_ecdsa
+  - id_ed25519
+  - "*.p12"
+  - "*.pfx"
+  - credentials.json
+  - secrets.json
+  - "*.kdbx"
+
+# Files matching these globs are NOT treated as secrets even if they look
+# like one (e.g. .env.example is a template, not a credential).
+secret_allowlist_globs:
+  - .env.example
+  - .env.template
+  - .env.sample
+  - .env.dist
+
+allowed_extensions:
+  # python
+  - .py
+  - .pyi
+  - .ipynb
+  # javascript / typescript
+  - .js
+  - .jsx
+  - .mjs
+  - .cjs
+  - .ts
+  - .tsx
+  - .vue
+  - .svelte
+  # jvm
+  - .java
+  - .kt
+  - .kts
+  - .scala
+  - .groovy
+  # native
+  - .c
+  - .h
+  - .cpp
+  - .cc
+  - .cxx
+  - .hpp
+  - .hh
+  - .m
+  - .mm
+  - .rs
+  - .go
+  - .swift
+  - .zig
+  # other languages
+  - .rb
+  - .php
+  - .pl
+  - .lua
+  - .ex
+  - .exs
+  - .erl
+  - .clj
+  - .cljs
+  - .cs
+  - .fs
+  - .dart
+  - .r
+  - .jl
+  # shell / scripts
+  - .sh
+  - .bash
+  - .zsh
+  - .fish
+  - .ps1
+  # config / data / markup
+  - .json
+  - .jsonc
+  - .toml
+  - .yaml
+  - .yml
+  - .ini
+  - .cfg
+  - .conf
+  - .xml
+  - .html
+  - .htm
+  - .css
+  - .scss
+  - .sass
+  - .less
+  # infra / iac
+  - .tf
+  - .tfvars
+  - .hcl
+  - .bicep
+  - .dockerfile
+  # query / schema
+  - .sql
+  - .graphql
+  - .gql
+  - .proto
+  - .prisma
+  # docs
+  - .md
+  - .mdx
+  - .rst
+  - .adoc
+  - .txt
+
+allowed_named_files:
+  - Dockerfile
+  - Containerfile
+  - Makefile
+  - GNUmakefile
+  - Rakefile
+  - Gemfile
+  - Procfile
+  - Vagrantfile
+  - Brewfile
+  - Justfile
+  - CMakeLists.txt
+  - BUILD
+  - WORKSPACE
+  - Cargo.toml
+  - go.mod
+  - go.sum
+  - package.json
+  - pyproject.toml
+  - uv.lock
+  - poetry.lock
+  - Pipfile
+  - Pipfile.lock
+  - requirements.txt
+  - tsconfig.json
+  - README
+  - LICENSE
+  - NOTICE
+  - CHANGELOG
