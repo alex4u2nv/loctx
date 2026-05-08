@@ -1,11 +1,12 @@
 /**
  * Per-project file eligibility decisions.
  *
- * The full rule set lives in YAML (`data/filtering.yaml` shipped in the
- * package) and is layered with user overrides from
- * `~/.loctx/config_overrides/*.{yaml,yml}` in alphabetical filename order.
- * Gitignore (global + per-project) is layered as additional ignore rules at
- * filter-construction time.
+ * Baseline rules live in `filtering-defaults.ts` (inlined TS literal so
+ * webpack doesn't rewrite `new URL(..., import.meta.url)` and break Node's
+ * `fileURLToPath`). User overrides come from `~/.loctx/config_overrides/*.
+ * {yaml,yml}` in alphabetical filename order. Gitignore (global + per-
+ * project) is layered as additional ignore rules at filter-construction
+ * time.
  *
  * Decisions carry a stable `FilterReason` so `loctx doctor` and
  * `loctx status` can explain why a path was skipped.
@@ -59,7 +60,7 @@ export class FilteringConfigError extends Error {}
 // ---- loader -------------------------------------------------------------
 
 const DEFAULT_OVERRIDE_DIR = join(homedir(), ".loctx", "config_overrides");
-const BUNDLED_DEFAULTS = "filtering.yaml";
+const BUNDLED_SOURCE_LABEL = "<bundled filtering defaults>";
 const OVERRIDE_GLOBS = /\.ya?ml$/i;
 
 const LIST_KEYS = [
@@ -103,14 +104,13 @@ export interface LoadOptions {
 }
 
 export function loadFilteringRules(options: LoadOptions = {}): FilteringRules {
-  // Bundled defaults are an inlined TS literal — no FS read, no `new URL(...)`.
-  // Webpack rewrites `new URL(..., import.meta.url)` in ways that break Node's
-  // fileURLToPath, so the Next.js MCP route would 500. The user-override YAML
-  // path stays runtime-loaded since it's outside the bundle.
+  // Baseline rules are an inlined TS literal (filtering-defaults.ts) — no FS
+  // read at runtime. User overrides come from `~/.loctx/config_overrides/*`
+  // (per-user YAML).
   const acc = mergeYaml(
     newAccumulator(),
     FILTERING_DEFAULTS as Record<string, unknown>,
-    `<bundled ${BUNDLED_DEFAULTS}>`,
+    BUNDLED_SOURCE_LABEL,
   );
   for (const path of overrideFiles(options.overrideDir ?? DEFAULT_OVERRIDE_DIR)) {
     mergeYaml(acc, readYamlFile(path), path);

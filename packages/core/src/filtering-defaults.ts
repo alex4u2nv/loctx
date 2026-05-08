@@ -1,5 +1,5 @@
 /**
- * Bundled filtering defaults.
+ * Canonical filtering defaults.
  *
  * Inlined as a TypeScript constant rather than loaded from a YAML file at
  * runtime. Reading a sibling YAML via `new URL("./data/filtering.yaml",
@@ -7,13 +7,12 @@
  * because webpack rewrites the URL into a polyfilled instance that fails
  * Node's `fileURLToPath` instanceof check.
  *
- * Authoring still happens in YAML — see `scripts/sync-filtering-defaults.mjs`
- * for regenerating this file from `src/data/filtering.yaml` when the
- * defaults change.
+ * Edit this file directly when adding/removing baseline ignore rules. The
+ * old `src/data/filtering.yaml` was retired in M7#34 — this constant is the
+ * single source of truth.
  *
  * User overrides continue to load from `~/.loctx/config_overrides/*.{yaml,yml}`
- * at runtime (those files don't exist at build time so webpack can't bundle
- * them anyway).
+ * at runtime.
  */
 
 export const FILTERING_DEFAULTS = {
