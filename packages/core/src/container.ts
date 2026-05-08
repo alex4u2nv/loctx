@@ -31,7 +31,13 @@ export interface Runtime {
   readonly rules: FilteringRules;
   readonly indexer: ProjectIndexer;
   readonly searcher: WorkspaceSearcher;
-  close(): void;
+  /**
+   * Release every resource the runtime owns. Awaitable so callers can
+   * sequence shutdown (watcher → web → runtime). The embedding provider's
+   * optional `dispose()` runs first because ONNX session teardown is the
+   * slowest step.
+   */
+  close(): Promise<void>;
 }
 
 export async function buildRuntime(config: Config): Promise<Runtime> {
@@ -58,7 +64,10 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
     rules,
     indexer,
     searcher,
-    close: () => state.close(),
+    close: async () => {
+      await embeddings.dispose?.();
+      state.close();
+    },
   });
 }
 

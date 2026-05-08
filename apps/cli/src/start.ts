@@ -73,12 +73,34 @@ export async function start(config: Config, options: StartOptions): Promise<void
     .join("\n");
   console.error(banner);
 
-  await waitForShutdownSignal();
-  console.error("\n[loctx start] shutting down...");
+  // Pragmatic shutdown: install signal handlers that close the SQLite state
+  // synchronously (so WAL flushes) and process.exit immediately. Trying to
+  // await Next.js app.close(), chokidar.close(), or HF transformers'
+  // dispose() reliably hangs on Node 25 + onnxruntime-node — see GH#33.
+  // The OS releases the port, watcher fds, and ONNX session as soon as
+  // we exit.
+  const shutdown = (signal: string): void => {
+    console.error(`\n[loctx start] shutting down (${signal})`);
+    try {
+      runtime.state.close();
+    } catch {
+      // best effort
+    }
+    // SIGKILL ourselves so onnxruntime-node's C++ destructors don't run on
+    // the way out — they crash with `libc++abi: mutex lock failed` (GH#33).
+    // The state DB has already been closed; nothing else needs orderly
+    // teardown that the OS won't reclaim.
+    process.kill(process.pid, "SIGKILL");
+  };
+  process.once("SIGINT", () => shutdown("SIGINT"));
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
 
-  await Promise.allSettled(watchers.map((w) => w.stop()));
-  await httpStop();
-  runtime.close();
+  // Block until the signal handler exits the process.
+  await new Promise<void>(() => undefined);
+
+  // Unreachable; satisfies TypeScript's flow analysis.
+  void watchers;
+  void httpStop;
 }
 
 // ---- watchers ----------------------------------------------------------
@@ -144,16 +166,4 @@ function resolveWebDir(): string {
   // we find apps/web/package.json with name @loctx/web.
   const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, ROOT_RELATIVE_WEB_DIR);
-}
-
-function waitForShutdownSignal(): Promise<void> {
-  return new Promise((resolve) => {
-    const onSignal = () => {
-      process.off("SIGINT", onSignal);
-      process.off("SIGTERM", onSignal);
-      resolve();
-    };
-    process.once("SIGINT", onSignal);
-    process.once("SIGTERM", onSignal);
-  });
 }

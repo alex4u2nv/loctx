@@ -16,6 +16,12 @@ export interface EmbeddingProvider {
    * (FakeEmbeddingProvider) leave it undefined; callers should `?.()` it.
    */
   ensureReady?(): Promise<EmbeddingIdentity>;
+  /**
+   * Optional teardown hook. Implementations holding native resources
+   * (e.g. ONNX sessions) release them here. Best-effort: callers should
+   * tolerate failures and time-outs and continue shutting down.
+   */
+  dispose?(): Promise<void>;
 }
 
 export interface FakeProviderOptions {

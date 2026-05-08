@@ -95,7 +95,7 @@ program
         }
       }
     } finally {
-      runtime.close();
+      await runtime.close();
     }
   });
 
@@ -165,7 +165,7 @@ program
         }
         throw err;
       } finally {
-        runtime.close();
+        await runtime.close();
       }
     },
   );
@@ -251,7 +251,7 @@ program
       console.error("\n[loctx watch] shutting down...");
       await Promise.allSettled(watchers.map((w) => w.stop()));
     } finally {
-      runtime.close();
+      await runtime.close();
     }
   });
 

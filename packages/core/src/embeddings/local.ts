@@ -88,4 +88,28 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     })();
     return this.pipelineP;
   }
+
+  /**
+   * Release ONNX session held by the HF pipeline. Without this, exiting Node
+   * with a warm pipeline produces "mutex lock failed" on stderr and ties up
+   * the bound TCP port for ~10s. We give dispose() 2s to clean up; if it
+   * hangs we proceed anyway.
+   */
+  async dispose(): Promise<void> {
+    if (this.pipelineP === null) return;
+    const promise = this.pipelineP;
+    this.pipelineP = null;
+    this.cachedIdentity = null;
+    try {
+      const pipe = await promise;
+      const dispose = (pipe as unknown as { dispose?: () => Promise<void> }).dispose;
+      if (typeof dispose !== "function") return;
+      await Promise.race([
+        dispose.call(pipe),
+        new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+      ]);
+    } catch {
+      // best-effort — keep shutting down even if dispose throws
+    }
+  }
 }

@@ -46,7 +46,7 @@ async function main(): Promise<void> {
     } catch (err) {
       console.error(`[loctx-mcp] server.close error: ${(err as Error).message}`);
     }
-    runtime.close();
+    await runtime.close();
     process.exit(0);
   };
 
