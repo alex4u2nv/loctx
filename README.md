@@ -7,10 +7,10 @@ This is a TypeScript / Node monorepo with three top-level concerns:
 - **`packages/core`** — `@loctx/core`: the indexing engine. Discovery, filtering,
   chunking, embeddings, SQLite state, Chroma vectors, indexer, searcher,
   filesystem watcher.
-- **`apps/cli`** — `@loctx/cli`: Commander CLI (`loctx index|search|status|...`).
-- **`apps/mcp`** — `@loctx/mcp`: MCP stdio server exposing `search_workspace`,
-  `workspace_status`, `refresh_workspace` to coding agents.
-- **`apps/web`** — `@loctx/web`: Next.js admin / management UI.
+- **`apps/cli`** — `@loctx/cli`: Commander CLI. `loctx index|search|status|watch|start`.
+- **`apps/mcp`** — `@loctx/mcp`: MCP stdio server (`loctx-mcp`) for agents that
+  spawn the server as a child process.
+- **`apps/web`** — `@loctx/web`: Next.js admin UI + MCP HTTP transport at `/mcp`.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
 
@@ -18,28 +18,109 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
 
 ```bash
 npm install
-npm run build      # builds @loctx/core, then the CLI + MCP
+npm run build
 
-# CLI (smoke workflow)
-npx loctx status
-npx loctx index
-npx loctx search "embedding identity guard"
+# One command boots the watcher + admin UI + /mcp endpoint on a single port:
+npx loctx start --port 3000
 
-# Next.js admin UI
-npm run dev:web    # → http://localhost:3000
+# → admin UI at http://localhost:3000/
+# → MCP endpoint at http://localhost:3000/mcp
+# → watcher live-indexing every file change under configured workspace_roots
 ```
 
-The first `loctx index` or `loctx search` downloads the default embedding
+The first `loctx start` (or `loctx index`) downloads the default embedding
 model (~90MB) into the Hugging Face cache; subsequent runs are fast.
+
+## CLI subcommands
+
+```bash
+loctx start [--port 3000] [--hostname localhost] [--no-watch] [--no-web]
+    Run the integrated daemon: watcher + Next.js admin UI + /mcp on one port.
+
+loctx index [path]
+    One-shot index of a single project, or every discovered project when path is omitted.
+
+loctx search <query> [--scope auto|project|subtree|all] [--limit N] [--language L]
+    Search the local index from the terminal.
+
+loctx watch [--path <project>]
+    Headless watcher mode — reindex on every file change, no web/MCP. Logs events to stdout.
+
+loctx status
+    Show resolved config, storage paths, and discovered projects.
+
+loctx-mcp                  # separate binary
+    MCP stdio server for agents that spawn the server as a child process.
+```
+
+## Admin UI
+
+Once `loctx start` is running, visit `http://localhost:3000`:
+
+- **`/`** — workspace status: config source, storage paths, embedding identity, discovered projects.
+- **`/projects`** — per-project file counts, error counts, and last-indexed timestamp.
+- **`/search`** — interactive search: query, scope, language, limit. Results render server-side.
+- **`/mcp`** — MCP HTTP endpoint (Streamable HTTP transport). Not browser-friendly; agents only.
+- **`/api/events`** — SSE stream of watcher events. The header dot turns green when connected;
+  open admin pages auto-refresh on each change.
+
+## Connecting MCP clients
+
+### stdio (binary spawned as child process)
+
+Configure your agent to launch `loctx-mcp` as the MCP server. Example for
+Claude Code's MCP config:
+
+```json
+{
+  "mcpServers": {
+    "loctx": {
+      "command": "npx",
+      "args": ["loctx-mcp"]
+    }
+  }
+}
+```
+
+### HTTP (integrated daemon)
+
+If `loctx start` is running, point your client at the HTTP endpoint:
+
+```json
+{
+  "mcpServers": {
+    "loctx": {
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+Both transports expose the same three tools: `search_workspace`,
+`workspace_status`, `refresh_workspace`.
 
 ## Configuration
 
-Filtering rules live in `packages/core/src/data/filtering.yaml`. User overrides go in
-`~/.loctx/config_overrides/*.{yaml,yml}` — alphabetical merge order, scalars
-replace, lists extend, `remove_<key>` subtracts from the baseline.
+Main config: `$XDG_CONFIG_HOME/loctx/config.yaml` (created with defaults on
+first run).
 
-Main config (`$XDG_CONFIG_HOME/loctx/config.yaml`) covers workspace roots,
-embedding choice, and watcher tuning.
+```yaml
+workspace_roots:
+  - ~/Workspaces
+
+embedding:
+  provider: huggingface-transformers
+  model: Xenova/all-MiniLM-L6-v2
+  normalize: true
+
+watcher:
+  debounce_ms: 300
+```
+
+Filtering rules live in `packages/core/src/data/filtering.yaml` (bundled
+defaults). User overrides go in `~/.loctx/config_overrides/*.{yaml,yml}` —
+alphabetical merge order, scalars replace, lists extend, `remove_<key>`
+subtracts from the baseline.
 
 Storage:
 
@@ -54,9 +135,9 @@ npm test              # vitest, every package
 npm run lint          # biome check
 npm run verify        # lint + typecheck + test
 
-npm run dev:cli -- status        # tsx-driven CLI
-npm run dev:web                  # Next.js dev server
-npm run dev:mcp                  # MCP stub
+npm run dev:cli -- start         # tsx-driven daemon for development
+npm run dev:web                  # Next.js dev server alone (admin UI without watcher/MCP)
+npm run dev:mcp                  # stdio MCP binary
 ```
 
 ## Layout
@@ -66,16 +147,28 @@ loctx/
   package.json                       # workspace root (npm workspaces)
   tsconfig.base.json                 # shared compiler options
   biome.json                         # workspace-wide lint + format
+
   packages/
     core/                            # @loctx/core
       src/
         _validate.ts, config.ts, container.ts, discovery.ts, ...
-        chunking/, embeddings/, indexing/, retrieval/, storage/, watcher/
-        data/filtering.yaml          # bundled defaults
-        sql/state.sql                # named-section query file
+        chunking/, embeddings/, indexing/, retrieval/, storage/
+        watcher/{service.ts,bus.ts}  # filesystem watcher + event bus
+        data/filtering.yaml
+        sql/state.sql
       tests/
+
   apps/
     cli/                             # @loctx/cli  → bin: loctx
     mcp/                             # @loctx/mcp  → bin: loctx-mcp
     web/                             # @loctx/web  → next dev / next build
+      app/
+        layout.tsx                   # nav + live-refresh dot
+        page.tsx                     # /  status
+        projects/page.tsx            # /projects
+        search/page.tsx              # /search
+        mcp/route.ts                 # /mcp Streamable HTTP transport
+        api/events/route.ts          # /api/events SSE stream
+      components/live-refresh.tsx
+      lib/admin-context.ts
 ```
