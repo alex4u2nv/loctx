@@ -1,14 +1,10 @@
 /**
  * MCP HTTP transport mounted on the Next.js port.
  *
- * Single endpoint at `/mcp` handles both POST (JSON-RPC requests) and GET
- * (SSE upgrade) per the MCP Streamable HTTP spec. The shared tool registry
- * from `apps/mcp/src/registry.ts` is wired onto a Server instance once at
- * module load — subsequent requests reuse the same Runtime + Server.
- *
- * Stateless mode: every request is a self-contained call. No session IDs.
- * Suitable for the integrated daemon where one Next.js server hosts both
- * the admin UI (other routes) and the MCP endpoint.
+ * GET / POST / DELETE on `/mcp` flow through the MCP Streamable HTTP spec.
+ * Stateless mode — every request gets a fresh Server + Transport pair
+ * connected to the same shared Runtime (heavy: holds the embedding model
+ * and SQLite handle, built once on first request).
  */
 
 import { type Runtime, buildRuntime, loadConfig } from "@loctx/core";
@@ -21,40 +17,33 @@ export const dynamic = "force-dynamic";
 
 const SERVER_INFO = { name: "loctx", version: "0.1.0" };
 
-// Build the runtime + server once, lazily, on first request. Cached promise
-// so concurrent first-touches don't double-build.
-let bootP: Promise<{
-  runtime: Runtime;
-  transport: WebStandardStreamableHTTPServerTransport;
-}> | null = null;
+let runtimeP: Promise<Runtime> | null = null;
 
-function boot() {
-  if (bootP !== null) return bootP;
-  bootP = (async () => {
-    const runtime = await buildRuntime(loadConfig());
-    const server = new Server(SERVER_INFO, { capabilities: { tools: {} } });
-    registerTools(server, runtime);
+function getRuntime(): Promise<Runtime> {
+  if (runtimeP === null) runtimeP = buildRuntime(loadConfig());
+  return runtimeP;
+}
 
-    // Stateless mode — no session IDs. Pass an empty options object;
-    // omitting `sessionIdGenerator` selects stateless per the SDK.
-    const transport = new WebStandardStreamableHTTPServerTransport({});
-    await server.connect(transport);
-    return { runtime, transport };
-  })();
-  return bootP;
+async function handle(request: Request): Promise<Response> {
+  const rt = await getRuntime();
+  const server = new Server(SERVER_INFO, { capabilities: { tools: {} } });
+  registerTools(server, rt);
+  // Stateless: each request gets a fresh transport. Closing it eagerly
+  // truncates the streamed response — the SDK and GC clean up after the
+  // client consumes the body.
+  const transport = new WebStandardStreamableHTTPServerTransport({});
+  await server.connect(transport);
+  return transport.handleRequest(request);
 }
 
 export async function GET(request: Request): Promise<Response> {
-  const { transport } = await boot();
-  return transport.handleRequest(request);
+  return handle(request);
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const { transport } = await boot();
-  return transport.handleRequest(request);
+  return handle(request);
 }
 
 export async function DELETE(request: Request): Promise<Response> {
-  const { transport } = await boot();
-  return transport.handleRequest(request);
+  return handle(request);
 }

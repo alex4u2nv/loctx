@@ -13,8 +13,16 @@ import { parse as parseYaml } from "yaml";
 import { BOOL, INT_NON_NEG, STR, Validator } from "./_validate.js";
 import { type StoragePaths, defaultPaths, ensurePaths } from "./paths.js";
 
-const DEFAULT_WORKSPACE_ROOTS: ReadonlyArray<string> = ["~/Workspaces"];
 const DEFAULT_DEBOUNCE_MS = 500;
+
+/**
+ * Default workspace roots when no config file is present: the current
+ * working directory of whatever command launched loctx. Indexes "where
+ * you start it." Override via `workspace_roots` in `config.yaml`.
+ */
+function defaultWorkspaceRoots(): ReadonlyArray<string> {
+  return [process.cwd()];
+}
 
 export interface EmbeddingConfig {
   readonly provider: string;
@@ -57,7 +65,7 @@ export function loadConfig(path?: string): Config {
 
   if (!existsSync(configPath)) {
     return {
-      workspaceRoots: DEFAULT_WORKSPACE_ROOTS,
+      workspaceRoots: defaultWorkspaceRoots(),
       paths,
       embedding: DEFAULT_EMBEDDING,
       watcher: DEFAULT_WATCHER,
@@ -73,7 +81,7 @@ export function loadConfig(path?: string): Config {
   }
   if (raw === null || raw === undefined) {
     return {
-      workspaceRoots: DEFAULT_WORKSPACE_ROOTS,
+      workspaceRoots: defaultWorkspaceRoots(),
       paths,
       embedding: DEFAULT_EMBEDDING,
       watcher: DEFAULT_WATCHER,
@@ -92,7 +100,7 @@ export function loadConfig(path?: string): Config {
     );
   }
 
-  const roots = v.getStrArray(data, "workspace_roots") ?? DEFAULT_WORKSPACE_ROOTS;
+  const roots = v.getStrArray(data, "workspace_roots") ?? defaultWorkspaceRoots();
 
   return {
     workspaceRoots: roots,

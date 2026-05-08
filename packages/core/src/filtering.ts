@@ -14,9 +14,9 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { Validator } from "./_validate.js";
+import { FILTERING_DEFAULTS } from "./filtering-defaults.js";
 import type { GitignoreSpec } from "./gitignore.js";
 import type { Project } from "./models.js";
 
@@ -103,17 +103,19 @@ export interface LoadOptions {
 }
 
 export function loadFilteringRules(options: LoadOptions = {}): FilteringRules {
-  const acc = mergeYaml(newAccumulator(), readBundled(), `<bundled ${BUNDLED_DEFAULTS}>`);
+  // Bundled defaults are an inlined TS literal — no FS read, no `new URL(...)`.
+  // Webpack rewrites `new URL(..., import.meta.url)` in ways that break Node's
+  // fileURLToPath, so the Next.js MCP route would 500. The user-override YAML
+  // path stays runtime-loaded since it's outside the bundle.
+  const acc = mergeYaml(
+    newAccumulator(),
+    FILTERING_DEFAULTS as Record<string, unknown>,
+    `<bundled ${BUNDLED_DEFAULTS}>`,
+  );
   for (const path of overrideFiles(options.overrideDir ?? DEFAULT_OVERRIDE_DIR)) {
     mergeYaml(acc, readYamlFile(path), path);
   }
   return finalize(acc);
-}
-
-function readBundled(): Record<string, unknown> {
-  const url = new URL("./data/filtering.yaml", import.meta.url);
-  const text = readFileSync(fileURLToPath(url), "utf-8");
-  return parseYamlText(text, `<bundled ${BUNDLED_DEFAULTS}>`);
 }
 
 function readYamlFile(path: string): Record<string, unknown> {

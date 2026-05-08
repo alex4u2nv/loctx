@@ -37,7 +37,9 @@ type NextFactory = (config: {
   port?: number;
 }) => NextLikeApp;
 
-const ROOT_RELATIVE_WEB_DIR = "../../../web";
+// From `apps/cli/dist/start.js` to `apps/web`:
+//   apps/cli/dist  +  ../../web  =  apps/web
+const ROOT_RELATIVE_WEB_DIR = "../../web";
 
 export async function start(config: Config, options: StartOptions): Promise<void> {
   const runtime = await buildRuntime(config);

@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "description": "Local-first code indexing and search engine. Library used by the CLI, MCP server, and web app.",
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "default": "./src/index.ts"
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": [
