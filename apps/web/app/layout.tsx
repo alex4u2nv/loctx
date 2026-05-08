@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
@@ -23,12 +24,23 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             borderBottom: "1px solid #1f2540",
             display: "flex",
             alignItems: "center",
-            gap: 12,
+            gap: 24,
           }}
         >
           <strong>loctx</strong>
-          <span style={{ color: "#7a85b8", fontSize: 14 }}>
-            local indexer · mcp search · workspace admin
+          <nav style={{ display: "flex", gap: 16, fontSize: 14 }}>
+            <Link href="/" style={{ color: "#9ba3c4", textDecoration: "none" }}>
+              status
+            </Link>
+            <Link href="/projects" style={{ color: "#9ba3c4", textDecoration: "none" }}>
+              projects
+            </Link>
+            <Link href="/search" style={{ color: "#9ba3c4", textDecoration: "none" }}>
+              search
+            </Link>
+          </nav>
+          <span style={{ marginLeft: "auto", color: "#7a85b8", fontSize: 13 }}>
+            mcp endpoint: <code style={{ color: "#9ba3c4" }}>/mcp</code>
           </span>
         </header>
         <main style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>{children}</main>

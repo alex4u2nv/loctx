@@ -79,15 +79,12 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
   private async getPipeline(): Promise<FeatureExtractionPipeline> {
     if (this.pipelineP !== null) return this.pipelineP;
     this.pipelineP = (async () => {
-      // Lazy: pulls in onnxruntime + downloads model on first use. The package
-      // is treated as an optional runtime dependency — installed only when
-      // someone actually uses LocalEmbeddingProvider. The string-typed import
-      // bypasses TS module resolution at compile time.
-      const moduleName = "@huggingface/transformers";
-      const mod = (await import(moduleName)) as unknown as {
+      // Lazy: keeps the import out of cold-path tooling (typecheck, biome).
+      // First call pulls in onnxruntime-node and downloads the model.
+      const { pipeline } = (await import("@huggingface/transformers")) as unknown as {
         pipeline: (task: string, model: string) => Promise<FeatureExtractionPipeline>;
       };
-      return mod.pipeline("feature-extraction", this.modelName);
+      return pipeline("feature-extraction", this.modelName);
     })();
     return this.pipelineP;
   }
