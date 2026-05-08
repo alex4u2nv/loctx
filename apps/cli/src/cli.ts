@@ -9,6 +9,7 @@ import {
   ConfigError,
   type Scope,
   SearcherError,
+  WatcherService,
   WorkspaceDiscovery,
   buildRuntime,
   defaultConfigFile,
@@ -206,6 +207,52 @@ program
       enableWatch: opts.watch,
       enableWeb: opts.web,
     });
+  });
+
+// ---- watch --------------------------------------------------------------
+
+program
+  .command("watch")
+  .description("Run a foreground watcher that reindexes files on every change.")
+  .option("--path <path>", "Watch a single project root instead of every discovered project.")
+  .action(async (opts: { path?: string }) => {
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    const runtime = await buildRuntime(config);
+    try {
+      const projects = opts.path
+        ? [makeProject(resolve(opts.path))]
+        : runtime.discovery.discoverProjects();
+      if (projects.length === 0) {
+        console.error("No projects to watch.");
+        process.exit(1);
+      }
+
+      const watchers: WatcherService[] = [];
+      for (const project of projects) {
+        const w = new WatcherService(project, runtime.indexer, {
+          onEvent: (event, relPath) => console.log(`${event}\t${project.name}/${relPath}`),
+        });
+        await w.start();
+        watchers.push(w);
+      }
+      console.error(`[loctx watch] running on ${projects.length} project(s); Ctrl+C to stop.`);
+
+      await new Promise<void>((resolve) => {
+        const onSignal = () => {
+          process.off("SIGINT", onSignal);
+          process.off("SIGTERM", onSignal);
+          resolve();
+        };
+        process.once("SIGINT", onSignal);
+        process.once("SIGTERM", onSignal);
+      });
+
+      console.error("\n[loctx watch] shutting down...");
+      await Promise.allSettled(watchers.map((w) => w.stop()));
+    } finally {
+      runtime.close();
+    }
   });
 
 // ---- serve / doctor stubs ----------------------------------------------
