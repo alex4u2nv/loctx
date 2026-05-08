@@ -10,6 +10,12 @@ export interface EmbeddingProvider {
   readonly identity: EmbeddingIdentity;
   embedDocuments(texts: ReadonlyArray<string>): Promise<number[][]>;
   embedQuery(text: string): Promise<number[]>;
+  /**
+   * Optional warmup hook. Lazy providers (LocalEmbeddingProvider) load the
+   * model on first call so they implement this. In-process providers
+   * (FakeEmbeddingProvider) leave it undefined; callers should `?.()` it.
+   */
+  ensureReady?(): Promise<EmbeddingIdentity>;
 }
 
 export interface FakeProviderOptions {

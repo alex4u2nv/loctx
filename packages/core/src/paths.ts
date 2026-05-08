@@ -1,5 +1,13 @@
 /**
  * XDG path resolution for loctx storage and configuration.
+ *
+ * Defaults to `env-paths`'s platform conventions (e.g.
+ * `~/Library/Application Support/loctx` on macOS, XDG dirs on Linux).
+ * Two env vars override the defaults — primarily for tests that need
+ * isolated storage:
+ *
+ *   - `LOCTX_DATA_DIR` overrides the data dir (chroma, state.sqlite3, logs).
+ *   - `LOCTX_CONFIG_DIR` overrides the config dir (config.yaml).
  */
 
 import { mkdirSync } from "node:fs";
@@ -16,13 +24,20 @@ export interface StoragePaths {
   readonly logsDir: string;
 }
 
+function envOverride(key: string): string | undefined {
+  const value = process.env[key];
+  return value && value.length > 0 ? value : undefined;
+}
+
 export function defaultPaths(): StoragePaths {
+  const dataDir = envOverride("LOCTX_DATA_DIR") ?? PATHS.data;
+  const configDir = envOverride("LOCTX_CONFIG_DIR") ?? PATHS.config;
   return {
-    dataDir: PATHS.data,
-    configDir: PATHS.config,
-    chromaDir: join(PATHS.data, "chroma"),
-    stateDb: join(PATHS.data, "state.sqlite3"),
-    logsDir: join(PATHS.data, "logs"),
+    dataDir,
+    configDir,
+    chromaDir: join(dataDir, "chroma"),
+    stateDb: join(dataDir, "state.sqlite3"),
+    logsDir: join(dataDir, "logs"),
   };
 }
 
@@ -34,5 +49,5 @@ export function ensurePaths(paths: StoragePaths): void {
 }
 
 export function defaultConfigFile(): string {
-  return join(PATHS.config, "config.toml");
+  return join(envOverride("LOCTX_CONFIG_DIR") ?? PATHS.config, "config.yaml");
 }
