@@ -290,7 +290,8 @@
     "bundlePagesRouterDependencies": false,
     "configFileName": "next.config.mjs",
     "transpilePackages": [
-      "@loctx/core"
+      "@loctx/core",
+      "@loctx/mcp"
     ],
     "serverExternalPackages": [
       "better-sqlite3",

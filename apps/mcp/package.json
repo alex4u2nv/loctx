@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "MCP stdio server exposing loctx workspace search to coding agents.",
   "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./src/index.ts"
+    }
+  },
   "bin": {
     "loctx-mcp": "./dist/server.js"
   },
