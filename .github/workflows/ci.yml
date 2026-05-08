@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: lint + typecheck + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build all workspaces
+        # @loctx/mcp + @loctx/web resolve @loctx/core through `dist/index.js`,
+        # so the build must run before the test suite (and before tsc, since
+        # apps/web's tsconfig pulls from .next/types if present).
+        run: npm run build
+
+      - name: Verify (lint + typecheck + test)
+        run: npm run verify
+        env:
+          # The e2e test in apps/cli swaps to FakeEmbeddingProvider via this
+          # env var, but it sets it on the spawned child too. Keeping it
+          # unset at the top level so lib tests still exercise the default
+          # provider's type contract.
+          CI: "true"
