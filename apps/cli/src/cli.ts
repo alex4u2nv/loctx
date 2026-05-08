@@ -182,16 +182,40 @@ function indent(text: string): string {
     .join("\n");
 }
 
-// ---- serve / watch / doctor stubs --------------------------------------
+// ---- start --------------------------------------------------------------
+
+program
+  .command("start")
+  .description("Run the integrated daemon: watcher + Next.js admin UI + MCP at /mcp on one port.")
+  .option(
+    "-p, --port <n>",
+    "HTTP port for the admin UI + MCP endpoint.",
+    (v) => Number.parseInt(v, 10),
+    3000,
+  )
+  .option("--hostname <host>", "Bind hostname.", "localhost")
+  .option("--no-watch", "Skip the filesystem watcher.")
+  .option("--no-web", "Skip the Next.js admin UI / MCP HTTP transport.")
+  .action(async (opts: { port: number; hostname: string; watch: boolean; web: boolean }) => {
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    const { start: runStart } = await import("./start.js");
+    await runStart(config, {
+      port: opts.port,
+      hostname: opts.hostname,
+      enableWatch: opts.watch,
+      enableWeb: opts.web,
+    });
+  });
+
+// ---- serve / doctor stubs ----------------------------------------------
 
 program
   .command("serve")
-  .description("Start the FastMCP stdio server.")
-  .action(() => unimplemented("serve", "(M3)"));
-program
-  .command("watch")
-  .description("Run the foreground file watcher service.")
-  .action(() => unimplemented("watch", "(M4)"));
+  .description("Start the MCP stdio server (use `loctx start` for the integrated daemon).")
+  .action(() =>
+    unimplemented("serve", "— use `loctx-mcp` (stdio) or `loctx start` (HTTP at /mcp) instead"),
+  );
 program
   .command("doctor")
   .description("Check configuration, storage, and embedding readiness.")
