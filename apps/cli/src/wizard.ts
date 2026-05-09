@@ -67,16 +67,22 @@ export async function runInitWizard(options: WizardOptions): Promise<string> {
   console.error(`\n[loctx init] wrote ${options.target}`);
   if (downloadModel) {
     console.error("[loctx init] downloading the embedding model...");
-    const { LocalEmbeddingProvider, setAllowedOutboundReasons } = await import("@loctx/core");
+    const { LocalEmbeddingProvider, defaultPaths, markModelTrusted, setAllowedOutboundReasons } =
+      await import("@loctx/core");
     // The wizard is interactive opt-in; if the user said yes to download,
     // explicitly allow the outbound call. Other commands keep the
     // local-first default (blocked).
     setAllowedOutboundReasons(["model-download"]);
+    const dataDir = defaultPaths().dataDir;
     const provider = new LocalEmbeddingProvider({
       modelName: model.name,
       normalize: model.normalize,
+      dataDir,
     });
     await provider.ensureReady();
+    // Persist the consent so subsequent commands skip the gate for this
+    // model.
+    markModelTrusted(dataDir, model.name);
     console.error("[loctx init] download complete.");
   }
   console.error("[loctx init] run 'loctx start' to begin indexing.");

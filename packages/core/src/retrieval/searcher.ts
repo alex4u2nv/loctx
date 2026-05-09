@@ -15,6 +15,7 @@
  * first" round-trip.
  */
 
+import { realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { detectLanguage } from "../chunking/index.js";
 import type { RetrievalConfig } from "../config.js";
@@ -202,7 +203,19 @@ export class WorkspaceSearcher {
       return Object.freeze({ mode: "all", project: null, relPrefix: null, inputPath: null });
     }
 
-    const absPath = isAbsolute(request.path) ? request.path : resolve(request.path);
+    // Realpath here too: discovery.resolveProject walks via realpath
+    // internally, and on macOS `/var/folders` → `/private/var/folders` so
+    // the input path and project root would otherwise sit on opposite
+    // sides of the symlink. Falls back to plain `resolve` when the path
+    // doesn't exist on disk yet (so the "outside any project" warning
+    // still fires sensibly for typo'd paths).
+    const resolved = isAbsolute(request.path) ? request.path : resolve(request.path);
+    let absPath: string;
+    try {
+      absPath = realpathSync(resolved);
+    } catch {
+      absPath = resolved;
+    }
     const project = this.discovery.resolveProject(absPath);
     if (project === null) {
       warnings.push(`path ${absPath} is not inside any indexed project; searching every project.`);
