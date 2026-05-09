@@ -11,7 +11,9 @@
     "build": "next build",
     "dev": "next dev",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "next start"
+    "start": "next start",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@loctx/core": "*",
@@ -22,6 +24,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0"
   }
