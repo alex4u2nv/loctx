@@ -9,11 +9,7 @@
       "apps/web/app/**/*",
       "apps/web/lib/**/*"
     ],
-    "ignore": [
-      "**/dist/**",
-      "**/.next/**",
-      "**/node_modules/**"
-    ]
+    "ignore": ["**/dist/**", "**/.next/**", "**/node_modules/**"]
   },
   "formatter": {
     "enabled": true,

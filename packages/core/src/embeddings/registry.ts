@@ -46,7 +46,8 @@ export const EMBEDDING_REGISTRY: ReadonlyArray<EmbeddingModelInfo> = Object.free
   },
   {
     name: "Xenova/all-mpnet-base-v2",
-    description: "Higher quality on both code and prose. ~3x slower than MiniLM, ~5% more accurate.",
+    description:
+      "Higher quality on both code and prose. ~3x slower than MiniLM, ~5% more accurate.",
     sizeMB: 420,
     dimension: 768,
     normalize: true,

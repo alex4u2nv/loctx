@@ -106,7 +106,6 @@ describe("StateStore", () => {
     // Reach into the same SQLite file the store opened. Using the public API
     // here would couple this test to whatever read helper we add in #75; what
     // we actually want to verify is the migration ran.
-    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
     const db = (store as unknown as { db: { prepare(sql: string): { all(): Row[] } } })["db"];
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' OR type='view' ORDER BY name")
@@ -120,7 +119,6 @@ describe("StateStore", () => {
     const dbPath = join(tmp, "state.db");
     const store = new StateStore(dbPath);
     type Row = { name: string };
-    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
     const db = (store as unknown as { db: { prepare(sql: string): { all(): Row[] } } })["db"];
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -156,7 +154,6 @@ describe("StateStore", () => {
     }
     const store = new StateStore(dbPath);
     type Row = { name: string };
-    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
     const db = (store as unknown as { db: { prepare(sql: string): { all(): Row[] } } })["db"];
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='symbol_refs'")
@@ -191,7 +188,6 @@ describe("StateStore", () => {
     }
     const store = new StateStore(dbPath);
     type Row = { name: string };
-    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
     const db = (store as unknown as { db: { prepare(sql: string): { all(): Row[] } } })["db"];
     const fts = db.prepare("SELECT name FROM sqlite_master WHERE name='chunks_fts'").all();
     expect(fts).toHaveLength(1);
@@ -247,7 +243,6 @@ describe("StateStore", () => {
 
     // Reach into the same DB to confirm chunks_fts populated.
     type Row = { chunk_id: string; document: string; symbols: string };
-    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
     const db = (store as unknown as { db: { prepare(sql: string): { all(): Row[] } } })["db"];
     const ftsRows = db
       .prepare("SELECT chunk_id, document, symbols FROM chunks_fts ORDER BY chunk_id")
@@ -284,7 +279,6 @@ describe("StateStore", () => {
     store.replaceChunks(fs.fileId, [v2]);
 
     type Row = { chunk_id: string };
-    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
     const db = (store as unknown as { db: { prepare(sql: string): { all(): Row[] } } })["db"];
     const ftsRows = db
       .prepare(`SELECT chunk_id FROM chunks_fts WHERE file_id = '${fs.fileId}'`)
@@ -319,7 +313,6 @@ describe("StateStore", () => {
 
     expect(store.listChunks(fs.fileId)).toEqual([]);
     type Row = { count: number };
-    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
     const db = (store as unknown as { db: { prepare(sql: string): { get(): Row } } })["db"];
     const row = db
       .prepare(`SELECT COUNT(*) AS count FROM chunks_fts WHERE file_id = '${fs.fileId}'`)
@@ -351,7 +344,6 @@ describe("StateStore", () => {
     ]);
 
     type CountRow = { count: number };
-    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
     const db = (
       store as unknown as { db: { prepare(sql: string): { get(...args: unknown[]): CountRow } } }
     )["db"];
@@ -415,7 +407,6 @@ describe("StateStore", () => {
     ]);
 
     type Row = { chunk_id: string; rank: number };
-    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
     const db = (
       store as unknown as { db: { prepare(sql: string): { all(...args: unknown[]): Row[] } } }
     )["db"];
