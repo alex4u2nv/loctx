@@ -50,7 +50,18 @@ function pad(n: number): string {
 }
 
 export function makeProject(root: string): Project {
-  const resolved = resolve(root);
+  // Realpath when possible — `discovery.resolveProject` walks via realpath,
+  // and any symlink mismatch between the CLI's `--path` argument and the
+  // indexed project root produces a different ProjectId at search time.
+  // macOS `/var/folders` → `/private/var/folders` is the common offender.
+  // Fall back to resolve() when the path doesn't exist on disk yet (e.g.
+  // synthetic paths in tests).
+  let resolved: string;
+  try {
+    resolved = realpathSync(resolve(root));
+  } catch {
+    resolved = resolve(root);
+  }
   return {
     id: projectIdFor(resolved),
     name: resolved.split(sep).pop() ?? resolved,
