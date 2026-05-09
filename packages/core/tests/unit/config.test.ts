@@ -99,4 +99,29 @@ describe("loadConfig precedence chain", () => {
       else process.env["LOCTX_DATA_DIR"] = prev;
     }
   });
+
+  it("surfaces LOCTX_EMBEDDING_PROVIDER as embedding.providerOverride", () => {
+    const prev = process.env["LOCTX_EMBEDDING_PROVIDER"];
+    process.env["LOCTX_EMBEDDING_PROVIDER"] = "fake";
+    try {
+      const config = loadConfig({ configPath, cwd: tmp });
+      expect(config.embedding.providerOverride).toBe("fake");
+      expect(config.sources["embedding.providerOverride"]).toBe("env");
+    } finally {
+      if (prev === undefined) Reflect.deleteProperty(process.env, "LOCTX_EMBEDDING_PROVIDER");
+      else process.env["LOCTX_EMBEDDING_PROVIDER"] = prev;
+    }
+  });
+
+  it("omits providerOverride when LOCTX_EMBEDDING_PROVIDER is unset", () => {
+    const prev = process.env["LOCTX_EMBEDDING_PROVIDER"];
+    Reflect.deleteProperty(process.env, "LOCTX_EMBEDDING_PROVIDER");
+    try {
+      const config = loadConfig({ configPath, cwd: tmp });
+      expect(config.embedding.providerOverride).toBeUndefined();
+      expect(config.sources["embedding.providerOverride"]).toBeUndefined();
+    } finally {
+      if (prev !== undefined) process.env["LOCTX_EMBEDDING_PROVIDER"] = prev;
+    }
+  });
 });

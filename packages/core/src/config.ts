@@ -21,8 +21,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, parse as parsePath, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { BOOL, INT_NON_NEG, STR, Validator } from "./_validate.js";
-import { type StoragePaths, defaultPaths, ensurePaths } from "./paths.js";
+import { BOOL, INT_NON_NEG, STR, STR_ARRAY, type Spec, Validator } from "./_validate.js";
+import {
+  type PathOrigin,
+  type StoragePaths,
+  defaultPaths,
+  ensurePaths,
+  pathOrigin,
+} from "./paths.js";
 
 const DEFAULT_DEBOUNCE_MS = 500;
 const DEFAULT_DAEMON_PORT = 3000;
@@ -33,6 +39,13 @@ export interface EmbeddingConfig {
   readonly provider: string;
   readonly model: string;
   readonly normalize: boolean;
+  /**
+   * Run-time override sourced from `LOCTX_EMBEDDING_PROVIDER`. When set to
+   * `"fake"` the container substitutes the deterministic fake provider; any
+   * other value defers to `provider`/`model`. Read once at `loadConfig` so
+   * `buildRuntime(config)` is fully derivable from `Config`.
+   */
+  readonly providerOverride?: string;
 }
 
 export interface WatcherConfig {
@@ -100,6 +113,9 @@ export function loadConfig(options?: string | LoadConfigOptions): Config {
   const opts: LoadConfigOptions =
     typeof options === "string" ? { configPath: options } : (options ?? {});
 
+  // Read every LOCTX_* env var once; nothing downstream consults process.env.
+  const env = readLoctxEnv();
+  const origin = pathOrigin();
   const paths = defaultPaths();
   ensurePaths(paths);
 
@@ -113,10 +129,9 @@ export function loadConfig(options?: string | LoadConfigOptions): Config {
   if (projectPath !== null) rejectFilteringSection(projectRaw, projectPath);
 
   const sources: Record<string, ConfigSource> = {};
-  const merged = mergeFields(globalRaw, projectRaw, sources);
+  const merged = mergeFields(globalRaw, projectRaw, env, sources);
 
-  const pathSources = sourcesForPaths(paths);
-  for (const [k, v] of Object.entries(pathSources)) sources[k] = v;
+  for (const [k, v] of Object.entries(sourcesForPaths(origin))) sources[k] = v;
 
   return Object.freeze({
     workspaceRoots: merged.workspaceRoots,
@@ -128,6 +143,15 @@ export function loadConfig(options?: string | LoadConfigOptions): Config {
     projectSource: projectRaw === null ? null : projectPath,
     sources: Object.freeze(sources),
   });
+}
+
+interface LoctxEnv {
+  readonly embeddingProvider: string | undefined;
+}
+
+function readLoctxEnv(): LoctxEnv {
+  const raw = process.env["LOCTX_EMBEDDING_PROVIDER"];
+  return { embeddingProvider: raw && raw.length > 0 ? raw : undefined };
 }
 
 // ---- discovery + parsing -----------------------------------------------
@@ -181,18 +205,13 @@ interface MergedFields {
 function mergeFields(
   global: Record<string, unknown> | null,
   project: Record<string, unknown> | null,
+  env: LoctxEnv,
   sources: Record<string, ConfigSource>,
 ): MergedFields {
+  const pickRoot = makePicker(project, global, sources);
   return {
-    workspaceRoots: pickArray(
-      "workspaceRoots",
-      project,
-      global,
-      "workspace_roots",
-      [process.cwd()],
-      sources,
-    ),
-    embedding: mergeEmbedding(project, global, sources),
+    workspaceRoots: pickRoot("workspaceRoots", "workspace_roots", STR_ARRAY, [process.cwd()]),
+    embedding: mergeEmbedding(project, global, env, sources),
     watcher: mergeWatcher(project, global, sources),
     daemon: mergeDaemon(project, global, sources),
   };
@@ -201,29 +220,22 @@ function mergeFields(
 function mergeEmbedding(
   project: Record<string, unknown> | null,
   global: Record<string, unknown> | null,
+  env: LoctxEnv,
   sources: Record<string, ConfigSource>,
 ): EmbeddingConfig {
   const projE = sectionRecord(project, "embedding", "<project>");
   const gloE = sectionRecord(global, "embedding", "<global>");
-  return Object.freeze({
-    provider: pickStr(
-      "embedding.provider",
-      projE,
-      gloE,
-      "provider",
-      DEFAULT_EMBEDDING.provider,
-      sources,
-    ),
-    model: pickStr("embedding.model", projE, gloE, "model", DEFAULT_EMBEDDING.model, sources),
-    normalize: pickBool(
-      "embedding.normalize",
-      projE,
-      gloE,
-      "normalize",
-      DEFAULT_EMBEDDING.normalize,
-      sources,
-    ),
-  });
+  const pick = makePicker(projE, gloE, sources);
+  const base = {
+    provider: pick("embedding.provider", "provider", STR, DEFAULT_EMBEDDING.provider),
+    model: pick("embedding.model", "model", STR, DEFAULT_EMBEDDING.model),
+    normalize: pick("embedding.normalize", "normalize", BOOL, DEFAULT_EMBEDDING.normalize),
+  };
+  if (env.embeddingProvider !== undefined) {
+    sources["embedding.providerOverride"] = "env";
+    return Object.freeze({ ...base, providerOverride: env.embeddingProvider });
+  }
+  return Object.freeze(base);
 }
 
 function mergeWatcher(
@@ -231,17 +243,13 @@ function mergeWatcher(
   global: Record<string, unknown> | null,
   sources: Record<string, ConfigSource>,
 ): WatcherConfig {
-  const projW = sectionRecord(project, "watcher", "<project>");
-  const gloW = sectionRecord(global, "watcher", "<global>");
+  const pick = makePicker(
+    sectionRecord(project, "watcher", "<project>"),
+    sectionRecord(global, "watcher", "<global>"),
+    sources,
+  );
   return Object.freeze({
-    debounceMs: pickIntNonNeg(
-      "watcher.debounceMs",
-      projW,
-      gloW,
-      "debounce_ms",
-      DEFAULT_WATCHER.debounceMs,
-      sources,
-    ),
+    debounceMs: pick("watcher.debounceMs", "debounce_ms", INT_NON_NEG, DEFAULT_WATCHER.debounceMs),
   });
 }
 
@@ -250,114 +258,45 @@ function mergeDaemon(
   global: Record<string, unknown> | null,
   sources: Record<string, ConfigSource>,
 ): DaemonConfig {
-  const projD = sectionRecord(project, "daemon", "<project>");
-  const gloD = sectionRecord(global, "daemon", "<global>");
+  const pick = makePicker(
+    sectionRecord(project, "daemon", "<project>"),
+    sectionRecord(global, "daemon", "<global>"),
+    sources,
+  );
   return Object.freeze({
-    port: pickIntNonNeg("daemon.port", projD, gloD, "port", DEFAULT_DAEMON.port, sources),
-    hostname: pickStr("daemon.hostname", projD, gloD, "hostname", DEFAULT_DAEMON.hostname, sources),
+    port: pick("daemon.port", "port", INT_NON_NEG, DEFAULT_DAEMON.port),
+    hostname: pick("daemon.hostname", "hostname", STR, DEFAULT_DAEMON.hostname),
   });
 }
 
-// ---- per-leaf pickers --------------------------------------------------
+// ---- per-leaf picker ---------------------------------------------------
 
-function pickStr(
-  trackKey: string,
+/**
+ * Curry the project/global mappings + the source-tracking record, then return
+ * a generic picker that resolves a single leaf against any `Spec<T>`. Walks
+ * project → global → fallback and stamps the source map as it goes.
+ */
+function makePicker(
   proj: Record<string, unknown> | null,
   glo: Record<string, unknown> | null,
-  yamlKey: string,
-  fallback: string,
   sources: Record<string, ConfigSource>,
-): string {
-  const projVal =
-    proj === null ? undefined : new Validator(ConfigError, "<project>").get(proj, yamlKey, STR);
-  if (projVal !== undefined) {
-    sources[trackKey] = "project";
-    return projVal;
-  }
-  const gloVal =
-    glo === null ? undefined : new Validator(ConfigError, "<global>").get(glo, yamlKey, STR);
-  if (gloVal !== undefined) {
-    sources[trackKey] = "global";
-    return gloVal;
-  }
-  sources[trackKey] = "default";
-  return fallback;
-}
-
-function pickBool(
-  trackKey: string,
-  proj: Record<string, unknown> | null,
-  glo: Record<string, unknown> | null,
-  yamlKey: string,
-  fallback: boolean,
-  sources: Record<string, ConfigSource>,
-): boolean {
-  const projVal =
-    proj === null ? undefined : new Validator(ConfigError, "<project>").get(proj, yamlKey, BOOL);
-  if (projVal !== undefined) {
-    sources[trackKey] = "project";
-    return projVal;
-  }
-  const gloVal =
-    glo === null ? undefined : new Validator(ConfigError, "<global>").get(glo, yamlKey, BOOL);
-  if (gloVal !== undefined) {
-    sources[trackKey] = "global";
-    return gloVal;
-  }
-  sources[trackKey] = "default";
-  return fallback;
-}
-
-function pickIntNonNeg(
-  trackKey: string,
-  proj: Record<string, unknown> | null,
-  glo: Record<string, unknown> | null,
-  yamlKey: string,
-  fallback: number,
-  sources: Record<string, ConfigSource>,
-): number {
-  const projVal =
-    proj === null
-      ? undefined
-      : new Validator(ConfigError, "<project>").get(proj, yamlKey, INT_NON_NEG);
-  if (projVal !== undefined) {
-    sources[trackKey] = "project";
-    return projVal;
-  }
-  const gloVal =
-    glo === null
-      ? undefined
-      : new Validator(ConfigError, "<global>").get(glo, yamlKey, INT_NON_NEG);
-  if (gloVal !== undefined) {
-    sources[trackKey] = "global";
-    return gloVal;
-  }
-  sources[trackKey] = "default";
-  return fallback;
-}
-
-function pickArray(
-  trackKey: string,
-  proj: Record<string, unknown> | null,
-  glo: Record<string, unknown> | null,
-  yamlKey: string,
-  fallback: ReadonlyArray<string>,
-  sources: Record<string, ConfigSource>,
-): ReadonlyArray<string> {
-  const projVal =
-    proj === null ? undefined : new Validator(ConfigError, "<project>").getStrArray(proj, yamlKey);
-  if (projVal !== undefined) {
-    sources[trackKey] = "project";
-    return projVal;
-  }
-  const gloVal =
-    glo === null ? undefined : new Validator(ConfigError, "<global>").getStrArray(glo, yamlKey);
-  if (gloVal !== undefined) {
-    sources[trackKey] = "global";
-    return gloVal;
-  }
-  sources[trackKey] = "default";
-  return fallback;
+) {
+  const projectV = new Validator(ConfigError, "<project>");
+  const globalV = new Validator(ConfigError, "<global>");
+  return <T>(trackKey: string, yamlKey: string, spec: Spec<T>, fallback: T): T => {
+    const projVal = proj === null ? undefined : projectV.get(proj, yamlKey, spec);
+    if (projVal !== undefined) {
+      sources[trackKey] = "project";
+      return projVal;
+    }
+    const gloVal = glo === null ? undefined : globalV.get(glo, yamlKey, spec);
+    if (gloVal !== undefined) {
+      sources[trackKey] = "global";
+      return gloVal;
+    }
+    sources[trackKey] = "default";
+    return fallback;
+  };
 }
 
 function sectionRecord(
@@ -375,15 +314,13 @@ function sectionRecord(
   return inner as Record<string, unknown>;
 }
 
-function sourcesForPaths(paths: StoragePaths): Record<string, ConfigSource> {
-  const out: Record<string, ConfigSource> = {};
-  out["paths.dataDir"] = process.env["LOCTX_DATA_DIR"] ? "env" : "default";
-  out["paths.configDir"] = process.env["LOCTX_CONFIG_DIR"] ? "env" : "default";
-  // The remaining path fields are derived from dataDir; flagging them here
-  // would just be redundant noise, so we omit them — `config show` formats
-  // them as "(derived)".
-  void paths;
-  return out;
+function sourcesForPaths(origin: PathOrigin): Record<string, ConfigSource> {
+  return {
+    "paths.dataDir": origin.dataDirFromEnv ? "env" : "default",
+    "paths.configDir": origin.configDirFromEnv ? "env" : "default",
+    // Remaining path fields are derived from dataDir; `config show` formats
+    // them as "(derived)" so listing them here would be noise.
+  };
 }
 
 // ---- template ----------------------------------------------------------
