@@ -67,8 +67,15 @@ describe("LineWindowChunker", () => {
 });
 
 describe("chunkFile", () => {
-  it("falls back to line-window for prose", () => {
+  it("routes .md through the markdown chunker (section-aware)", () => {
     const chunks = chunkFile("notes.md", "# Title\n\nbody text here\n");
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks[0]?.kind).toBe("section-h1");
+    expect(chunks[0]?.symbols[0]).toBe("Title");
+  });
+
+  it("falls back to line-window for unsupported extensions", () => {
+    const chunks = chunkFile("notes.txt", "no headings, just prose lines\nline two\nline three\n");
     expect(chunks.length).toBeGreaterThan(0);
     expect(chunks.every((c) => c.kind === "window")).toBe(true);
   });

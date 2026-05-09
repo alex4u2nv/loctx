@@ -32,6 +32,10 @@ export const LANGUAGE_BY_EXTENSION: Readonly<Record<string, string>> = Object.fr
   ".go": "go",
   ".rs": "rust",
   ".java": "java",
+  ".md": "markdown",
+  ".mdx": "markdown",
+  ".markdown": "markdown",
+  ".mkd": "markdown",
 });
 
 // Top-level node types that we treat as standalone chunks per language.
