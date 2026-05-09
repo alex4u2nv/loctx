@@ -1,11 +1,17 @@
 /**
  * Gitignore-aware path matching.
  *
- * Layers (any may be absent):
+ * Layers (any may be absent), applied in this order so per-project rules
+ * can override system defaults but the loctx baseline still wins:
+ *
  *   1. Git's global excludes (`git config --global core.excludesfile`,
  *      falling back to `~/.config/git/ignore`).
  *   2. Per-project `.gitignore` at the project root.
  *   3. Per-project `.git/info/exclude`.
+ *   4. Per-project `.loctxignore` — same syntax as `.gitignore`, but
+ *      addressed at loctx's indexer specifically. Useful when a path
+ *      should be tracked by git but not embedded (e.g. `vendor/`,
+ *      generated fixtures, large binary corpora).
  *
  * These rules are applied as additional ignores on top of the loctx baseline.
  * They can only ADD ignores; they cannot un-ignore a file the loctx baseline
@@ -44,8 +50,18 @@ export function loadGlobalGitignore(): GitignoreSpec | null {
 }
 
 export function loadProjectGitignore(root: string): GitignoreSpec | null {
-  return specFromFiles([join(root, ".gitignore"), join(root, ".git", "info", "exclude")]);
+  return specFromFiles([
+    join(root, ".gitignore"),
+    join(root, ".git", "info", "exclude"),
+    join(root, LOCTXIGNORE_FILENAME),
+  ]);
 }
+
+/**
+ * Per-project ignore file specific to loctx. Same syntax as .gitignore but
+ * lets a project tell loctx to skip paths it still wants tracked in git.
+ */
+export const LOCTXIGNORE_FILENAME = ".loctxignore";
 
 export function combinedGitignore(root: string): GitignoreSpec | null {
   const lines: string[] = [
@@ -53,6 +69,7 @@ export function combinedGitignore(root: string): GitignoreSpec | null {
     ...readLines(DEFAULT_FALLBACK),
     ...readLines(join(root, ".gitignore")),
     ...readLines(join(root, ".git", "info", "exclude")),
+    ...readLines(join(root, LOCTXIGNORE_FILENAME)),
   ];
   return lines.length > 0 ? ignore().add(lines) : null;
 }
