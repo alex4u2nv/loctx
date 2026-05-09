@@ -479,12 +479,17 @@ modelCmd
   .command("download <name>")
   .description("Pre-download a model into the Hugging Face cache. Useful offline prep.")
   .action(async (name: string) => {
-    const { findModel, LocalEmbeddingProvider } = await import("@loctx/core");
+    const { findModel, LocalEmbeddingProvider, setAllowedOutboundReasons } = await import(
+      "@loctx/core"
+    );
     const info = findModel(name);
     if (info === null) {
       console.error(`Unknown model '${name}'. Run 'loctx model list' to see options.`);
       process.exit(1);
     }
+    // Explicit user opt-in for an outbound fetch. Other commands keep
+    // the default (blocked) behaviour from #43.
+    setAllowedOutboundReasons(["model-download"]);
     console.error(`[loctx model download] fetching ${info.name} (~${info.sizeMB} MB)...`);
     const provider = new LocalEmbeddingProvider({
       modelName: info.name,

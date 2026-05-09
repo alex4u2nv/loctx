@@ -7,6 +7,7 @@
  */
 
 import type { EmbeddingIdentity } from "../models.js";
+import { requireOutboundAllowed } from "../network.js";
 import type { EmbeddingProvider } from "./base.js";
 
 export const DEFAULT_LOCAL_MODEL = "Xenova/all-MiniLM-L6-v2";
@@ -60,6 +61,11 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
   /** Load the model and produce a probe embedding to learn the dimension. */
   async ensureReady(): Promise<EmbeddingIdentity> {
     if (this.cachedIdentity !== null) return this.cachedIdentity;
+    // The HF cache may already hold the model — but we can't tell from
+    // outside the library, and a wrong-cache fallback would silently issue
+    // a network call. Gate up front; users who want it run
+    // `loctx model download` (or `loctx init`) which sets the allow flag.
+    requireOutboundAllowed("model-download");
     const pipe = await this.getPipeline();
     const probe = await pipe("loctx-init-probe", {
       pooling: "mean",
