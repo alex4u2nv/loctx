@@ -22,7 +22,7 @@ recovery commands.
   storage, and watching are separate modules with narrow interfaces.
 - Agent-oriented output: search responses include paths, line ranges,
   snippets, scores, match reasons, and resolved scope.
-- One writer: Chroma and SQLite writes flow through a coordinated indexing
+- One writer: LanceDB and SQLite writes flow through a coordinated indexing
   path to avoid corrupting local state.
 - Configurable but safe by default: generated files, dependencies, build
   artifacts, binaries, oversized files, and secrets are skipped unless
@@ -65,7 +65,7 @@ loctx/                                  # workspace root (private)
         indexing/indexer.ts             # ProjectIndexer pipeline
         retrieval/searcher.ts           # WorkspaceSearcher + scope resolution
         storage/state.ts                # better-sqlite3 + named queries
-        storage/vectors.ts              # chromadb (lazy import)
+        storage/vectors.ts              # @lancedb/lancedb (embedded, lazy import)
         watcher/service.ts              # chokidar fs watcher → indexer
       tests/
 
@@ -107,8 +107,9 @@ export interface Config {
 
 ```text
 $XDG_DATA_HOME/loctx/
-  chroma/
-  state.sqlite3
+  vectors/             # LanceDB (one Lance table per embedding identity)
+  state.sqlite3        # better-sqlite3 (file/chunk metadata, identity registry)
+  loctx.pid            # single-instance daemon lock (see daemon-lock.ts)
   logs/
 ```
 
@@ -149,18 +150,22 @@ so `loctx doctor` and `loctx status` can explain skipped files.
 - `FakeEmbeddingProvider` for tests (deterministic SHA-derived vectors)
 
 `EmbeddingIdentity` includes provider, model, dimension, and normalize flag.
-Chroma collection naming derives from this identity to prevent
-mixed-dimension data corruption.
+The Lance table name derives from this identity to prevent mixed-dimension
+data corruption; the StateStore independently records the (table → identity)
+binding so reusing a directory with a different model raises
+`CollectionIdentityMismatch` before the first write.
 
 ### Storage
 
-Storage is split between SQLite state and Chroma vectors.
+Storage is split between SQLite state and a LanceDB vector index.
 
 `storage/state.ts` (better-sqlite3) tracks projects, files, chunks, content
 hashes, mtime/size, indexed_at, embedding identity, and per-file error state.
 
-`storage/vectors.ts` (chromadb npm) wraps Chroma operations: upsert,
-delete-by-file, delete-by-project, query.
+`storage/vectors.ts` (`@lancedb/lancedb`, native NAPI bindings, in-process
+— no server) wraps LanceDB operations: `mergeInsert`-based upsert,
+delete-by-file, delete-by-project, and cosine vector search with optional
+SQL `WHERE` predicate pushdown for `project_id` / `language` filters.
 
 ### Indexing
 
@@ -244,12 +249,12 @@ Integration tests cover: temporary workspace with two fake git projects,
 indexing and querying, all four scope modes, file deletion and orphan
 pruning, MCP tool response schemas (later).
 
-Tests use `FakeEmbeddingProvider` and a tmp-dir StateStore + Chroma client.
+Tests use `FakeEmbeddingProvider` and a tmp-dir StateStore + LanceDB table.
 
 ## Initial Implementation Order
 
 1. Package skeleton, Commander CLI, config, and paths.
-2. Discovery, filtering, identity, SQLite state, and Chroma wrappers.
+2. Discovery, filtering, identity, SQLite state, and LanceDB wrappers.
 3. Chunking, embeddings, project indexing, and CLI search/status.
 4. Retrieval ranking and evaluation fixtures.
 5. MCP server and tools.
