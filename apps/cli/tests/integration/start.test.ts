@@ -20,6 +20,8 @@ const CLI_PATH = resolve(__dirname, "..", "..", "dist", "cli.js");
 let workspace: string;
 let port: number;
 let child: ChildProcess;
+let stdoutBuffer = "";
+let stderrBuffer = "";
 
 beforeAll(async () => {
   workspace = mkdtempSync(join(tmpdir(), "loctx-e2e-"));
@@ -56,14 +58,28 @@ beforeAll(async () => {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  child.stdout?.on("data", () => {
-    /* drain */
+  // Capture so we can dump on failure. Drained either way to avoid back-
+  // pressure stalling the child process.
+  child.stdout?.on("data", (chunk: Buffer) => {
+    stdoutBuffer += chunk.toString();
   });
-  child.stderr?.on("data", () => {
-    /* drain */
+  child.stderr?.on("data", (chunk: Buffer) => {
+    stderrBuffer += chunk.toString();
   });
 
-  await waitForReady(port, 30_000);
+  try {
+    await waitForReady(port, 30_000);
+  } catch (err) {
+    // Surface diagnostic info so CI failures aren't a black hole.
+    const exit =
+      child.exitCode === null ? "still running" : `exit=${child.exitCode}`;
+    console.error(
+      `\n[loctx-e2e] daemon failed to come up (${exit}). Dumping captured output:\n` +
+        `--- stdout ---\n${stdoutBuffer.slice(-4000) || "(empty)"}\n` +
+        `--- stderr ---\n${stderrBuffer.slice(-4000) || "(empty)"}\n--- end ---\n`,
+    );
+    throw err;
+  }
 }, 60_000);
 
 afterAll(async () => {
