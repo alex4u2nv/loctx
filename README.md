@@ -243,3 +243,8 @@ loctx/
       components/live-refresh.tsx
       lib/admin-context.ts
 ```
+
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).

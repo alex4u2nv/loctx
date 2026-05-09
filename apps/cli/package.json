@@ -17,7 +17,7 @@
     "start": "node dist/cli.js",
     "prepublishOnly": "npm run build"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "Alex Mahabir",
   "homepage": "https://github.com/alex4u2nv/loctx",
   "repository": {
