@@ -35,22 +35,26 @@ beforeAll(async () => {
   );
   writeFileSync(join(project, "README.md"), "# Demo project\n", "utf-8");
 
-  child = spawn(
-    process.execPath,
-    [CLI_PATH, "start", "--port", String(port), "--no-watch"],
-    {
-      cwd: workspace,
-      env: {
-        ...process.env,
-        LOCTX_EMBEDDING_PROVIDER: "fake",
-        LOCTX_DATA_DIR: join(workspace, "data"),
-        LOCTX_CONFIG_DIR: join(workspace, "config"),
-        // Suppress the chatty HF dtype line in case it slips through.
-        TRANSFORMERS_VERBOSITY: "error",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    },
+  // Port comes from the project-level `.loctx.yaml` since CLI flags no longer
+  // override config. Walk-up discovery finds this from `cwd: workspace`.
+  writeFileSync(
+    join(workspace, ".loctx.yaml"),
+    `daemon:\n  port: ${port}\n  hostname: localhost\n`,
+    "utf-8",
   );
+
+  child = spawn(process.execPath, [CLI_PATH, "start", "--no-watch"], {
+    cwd: workspace,
+    env: {
+      ...process.env,
+      LOCTX_EMBEDDING_PROVIDER: "fake",
+      LOCTX_DATA_DIR: join(workspace, "data"),
+      LOCTX_CONFIG_DIR: join(workspace, "config"),
+      // Suppress the chatty HF dtype line in case it slips through.
+      TRANSFORMERS_VERBOSITY: "error",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
   child.stdout?.on("data", () => {
     /* drain */

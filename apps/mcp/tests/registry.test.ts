@@ -13,16 +13,19 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
   const baseline = {
     config: {
       source: "/cfg/loctx/config.yaml",
+      projectSource: null,
+      sources: {},
       workspaceRoots: ["/ws"] as ReadonlyArray<string>,
       paths: {
         dataDir: "/data",
         configDir: "/cfg",
-        chromaDir: "/data/chroma",
+        vectorDir: "/data/vectors",
         stateDb: "/data/state.sqlite3",
         logsDir: "/data/logs",
       },
       embedding: { provider: "fake", model: "hash", normalize: true },
       watcher: { debounceMs: 300 },
+      daemon: { port: 3000, hostname: "localhost" },
     },
     discovery: {
       discoverProjects: () => projects,
@@ -32,10 +35,12 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
     },
     state: {
       listFiles: (id: string) => (id === "proj-a" ? [{}, {}, {}] : [{}]),
+      listProjects: () =>
+        projects.map((p) => ({ ...p, lastIndexedAt: "2026-05-08T00:00:00.000Z" })),
     },
     searcher: {
       search: async () => ({
-        resolvedScope: { mode: "all", project: null, relPrefix: null },
+        resolvedScope: { mode: "all", project: null, relPrefix: null, inputPath: null },
         results: [
           {
             projectId: "proj-a",
@@ -102,29 +107,37 @@ describe("tools.search", () => {
         search: async (req) => {
           captured = req;
           return {
-            resolvedScope: { mode: "project", project: null, relPrefix: null },
+            resolvedScope: { mode: "project", project: null, relPrefix: null, inputPath: null },
             results: [],
             warnings: [],
           };
         },
       } as Runtime["searcher"],
     });
-    await tools.search(runtime, { query: "hello", scope: "project", limit: 3 });
-    expect(captured).toMatchObject({ query: "hello", scope: "project", limit: 3 });
+    await tools.search(runtime, {
+      query: "hello",
+      path: "/ws/alpha/src",
+      limit: 3,
+    });
+    expect(captured).toMatchObject({ query: "hello", path: "/ws/alpha/src", limit: 3 });
   });
 
-  it("defaults scope to auto and limit to 10", async () => {
-    let captured: { scope?: string; limit?: number } = {};
+  it("defaults limit to 10 and omits path when caller doesn't provide one", async () => {
+    let captured: { path?: string; limit?: number } = {};
     const runtime = stubRuntime({
       searcher: {
         search: async (req) => {
-          captured = req as { scope?: string; limit?: number };
-          return { resolvedScope: { mode: "all", project: null, relPrefix: null }, results: [], warnings: [] };
+          captured = req as { path?: string; limit?: number };
+          return {
+            resolvedScope: { mode: "all", project: null, relPrefix: null, inputPath: null },
+            results: [],
+            warnings: [],
+          };
         },
       } as Runtime["searcher"],
     });
     await tools.search(runtime, { query: "x" });
-    expect(captured.scope).toBe("auto");
+    expect(captured.path).toBeUndefined();
     expect(captured.limit).toBe(10);
   });
 });

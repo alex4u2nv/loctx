@@ -12,7 +12,7 @@
  *   - {@link registerTools}      — wires `tools/list` + `tools/call` onto an MCP Server.
  */
 
-import { type Runtime, type Scope, type SearchResponse, Validator } from "@loctx/core";
+import { type Runtime, type SearchResponse, Validator, inventoryProjects } from "@loctx/core";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
@@ -20,8 +20,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 
 export interface SearchInput {
   readonly query: string;
-  readonly cwd?: string;
-  readonly scope?: Scope;
+  readonly path?: string;
   readonly limit?: number;
   readonly language?: string;
 }
@@ -34,12 +33,27 @@ export interface RefreshInput {
   readonly path?: string;
 }
 
+export interface ProjectStatusEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly root: string;
+  /**
+   * "active": being watched and re-indexed.
+   * "orphaned": data still in SQLite + LanceDB and search hits return; no
+   * longer maintained because workspace_roots changed or the root moved.
+   */
+  readonly status: "active" | "orphaned";
+  /** Only set on orphaned entries. */
+  readonly orphanReason?: "outside-roots" | "missing";
+  readonly lastIndexedAt: string | null;
+}
+
 export interface StatusOutput {
   readonly configPath: string | null;
   readonly paths: Runtime["config"]["paths"];
   readonly embedding: Runtime["config"]["embedding"];
   readonly workspaceRoots: ReadonlyArray<string>;
-  readonly projects: ReadonlyArray<{ id: string; name: string; root: string }>;
+  readonly projects: ReadonlyArray<ProjectStatusEntry>;
   readonly indexedFileCounts?: Readonly<Record<string, number>>;
 }
 
@@ -67,8 +81,7 @@ export const tools = {
 
     return runtime.searcher.search({
       query,
-      ...(v.getStr(data, "cwd") !== undefined ? { cwd: v.getStr(data, "cwd") as string } : {}),
-      scope: (v.getStr(data, "scope") as Scope | undefined) ?? "auto",
+      ...(v.getStr(data, "path") !== undefined ? { path: v.getStr(data, "path") as string } : {}),
       limit: v.getInt(data, "limit", { nonNegative: true }) ?? 10,
       ...(v.getStr(data, "language") !== undefined
         ? { language: v.getStr(data, "language") as string }
@@ -81,13 +94,34 @@ export const tools = {
     const data = v.requireRecord(input ?? {}, "arguments");
     const includeCounts = v.getBool(data, "include_indexed_counts") ?? false;
 
-    const projects = runtime.discovery.discoverProjects();
+    const inventory = inventoryProjects(runtime.discovery, runtime.state);
+    const entries: ProjectStatusEntry[] = [
+      ...inventory.active.map(
+        (a): ProjectStatusEntry => ({
+          id: a.project.id,
+          name: a.project.name,
+          root: a.project.root,
+          status: "active",
+          lastIndexedAt: a.lastIndexedAt,
+        }),
+      ),
+      ...inventory.orphaned.map(
+        (o): ProjectStatusEntry => ({
+          id: o.project.id,
+          name: o.project.name,
+          root: o.project.root,
+          status: "orphaned",
+          orphanReason: o.reason,
+          lastIndexedAt: o.lastIndexedAt,
+        }),
+      ),
+    ];
     const baseline: StatusOutput = {
       configPath: runtime.config.source ?? null,
       paths: runtime.config.paths,
       embedding: runtime.config.embedding,
       workspaceRoots: runtime.config.workspaceRoots,
-      projects: projects.map((p) => ({ id: p.id, name: p.name, root: p.root })),
+      projects: entries,
     };
     if (!includeCounts) return baseline;
 
@@ -95,7 +129,14 @@ export const tools = {
       ...baseline,
       indexedFileCounts: Object.freeze(
         Object.fromEntries(
-          projects.map((p) => [p.id, runtime.state.listFiles(p.id).length] as const),
+          entries.map(
+            (p) =>
+              [
+                p.id,
+                runtime.state.listFiles(p.id as Parameters<typeof runtime.state.listFiles>[0])
+                  .length,
+              ] as const,
+          ),
         ),
       ),
     };
@@ -131,22 +172,16 @@ export const TOOL_DEFINITIONS = [
   {
     name: "search_workspace",
     description:
-      "Semantic search over the locally-indexed workspace. Returns ranked code chunks with paths, line ranges, scores, and snippets.",
+      "Semantic search over the locally-indexed workspace. Returns ranked code chunks. Each result includes `absPath` (absolute path on disk), `relPath` (relative to project root), `projectRoot`, `projectName`, line range, score, and snippet — so a single call is enough to open, grep, or cite the file without follow-up lookups. Pass `path` to scope the search; omit it to search every indexed project.",
     inputSchema: {
       type: "object",
       required: ["query"],
       properties: {
         query: { type: "string", description: "Natural-language or code-fragment query." },
-        cwd: {
+        path: {
           type: "string",
-          description: "Override working directory used for scope resolution.",
-        },
-        scope: {
-          type: "string",
-          enum: ["auto", "project", "subtree", "all"],
-          default: "auto",
           description:
-            "auto: nearest project from cwd. project: same. subtree: project + path prefix. all: every indexed project.",
+            "Absolute file or directory path to scope the search. If `path` is a project root, the search is limited to that project. If `path` is inside a project, results are further restricted to that subtree. Omit to search every indexed project.",
         },
         limit: { type: "integer", minimum: 1, default: 10 },
         language: {

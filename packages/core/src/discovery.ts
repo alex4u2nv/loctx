@@ -14,6 +14,7 @@ import {
   fileId,
   projectId,
 } from "./models.js";
+import type { StateStore } from "./storage/state.js";
 
 const PROJECT_MARKER = ".git";
 const DEFAULT_MAX_DEPTH = 4;
@@ -133,6 +134,74 @@ export class WorkspaceDiscovery {
       yield* this.iterProjectRoots(child, depth + 1);
     }
   }
+}
+
+// ---- active vs orphaned categorization ---------------------------------
+
+export interface ActiveProject {
+  readonly project: Project;
+  readonly lastIndexedAt: string | null;
+}
+
+export interface OrphanedProject {
+  readonly project: Project;
+  readonly lastIndexedAt: string | null;
+  /** False if the recorded `root` no longer exists on disk. */
+  readonly rootExists: boolean;
+  /**
+   * Why this project is no longer active. "outside-roots" — recorded root
+   * isn't reachable from any configured workspace_root. "missing" — recorded
+   * root path doesn't exist on disk anymore.
+   */
+  readonly reason: "outside-roots" | "missing";
+}
+
+export interface ProjectInventory {
+  readonly active: ReadonlyArray<ActiveProject>;
+  readonly orphaned: ReadonlyArray<OrphanedProject>;
+}
+
+/**
+ * Split every project the StateStore knows about into "active" (currently
+ * discoverable under `workspace_roots`) and "orphaned" (still queryable —
+ * the rows live in SQLite + LanceDB — but no longer maintained).
+ *
+ * Orphaned reasons:
+ *   - "outside-roots" — workspace_roots changed; the project root sits
+ *     outside everything we now scan.
+ *   - "missing"        — the recorded root no longer exists on disk.
+ *
+ * Search and reset commands still operate on orphaned projects; only
+ * watching and re-indexing skip them.
+ */
+export function inventoryProjects(
+  discovery: WorkspaceDiscovery,
+  state: StateStore,
+): ProjectInventory {
+  const recorded = state.listProjects();
+  const recordedById = new Map(recorded.map((r) => [r.id, r]));
+  const discovered = discovery.discoverProjects();
+  const discoveredIds = new Set(discovered.map((p) => p.id));
+
+  const active: ActiveProject[] = discovered.map((project) => ({
+    project,
+    lastIndexedAt: recordedById.get(project.id)?.lastIndexedAt ?? null,
+  }));
+
+  const orphaned: OrphanedProject[] = [];
+  for (const r of recorded) {
+    if (discoveredIds.has(r.id)) continue;
+    const rootExists = isDir(r.root);
+    orphaned.push({
+      project: { id: r.id, name: r.name, root: r.root },
+      lastIndexedAt: r.lastIndexedAt,
+      rootExists,
+      reason: rootExists ? "outside-roots" : "missing",
+    });
+  }
+  // Stable ordering: orphaned by root path.
+  orphaned.sort((a, b) => a.project.root.localeCompare(b.project.root));
+  return Object.freeze({ active: Object.freeze(active), orphaned: Object.freeze(orphaned) });
 }
 
 // ---- helpers -----------------------------------------------------------

@@ -5,6 +5,7 @@
 export * from "./_validate.js";
 export * from "./config.js";
 export * from "./container.js";
+export * from "./daemon-lock.js";
 export * from "./discovery.js";
 export * from "./filtering.js";
 export * from "./gitignore.js";

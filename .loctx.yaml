@@ -1,0 +1,3 @@
+daemon:
+  port: 3022
+  hostname: localhost
