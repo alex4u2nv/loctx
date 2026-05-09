@@ -146,6 +146,42 @@ VALUES (?, ?, ?, ?, ?, ?);
 -- :name delete_chunks_fts_for_file
 DELETE FROM chunks_fts WHERE file_id = ?;
 
+-- :name search_lexical_all
+SELECT chunks_fts.chunk_id, chunks_fts.file_id, chunks_fts.project_id, chunks_fts.rel_path,
+       chunks_fts.document, chunks_fts.symbols,
+       c.start_line, c.end_line, c.kind,
+       bm25(chunks_fts) AS rank
+FROM chunks_fts
+INNER JOIN chunks AS c ON chunks_fts.chunk_id = c.chunk_id
+WHERE chunks_fts MATCH ?
+ORDER BY bm25(chunks_fts)
+LIMIT ?;
+
+-- :name search_lexical_project
+SELECT chunks_fts.chunk_id, chunks_fts.file_id, chunks_fts.project_id, chunks_fts.rel_path,
+       chunks_fts.document, chunks_fts.symbols,
+       c.start_line, c.end_line, c.kind,
+       bm25(chunks_fts) AS rank
+FROM chunks_fts
+INNER JOIN chunks AS c ON chunks_fts.chunk_id = c.chunk_id
+WHERE chunks_fts MATCH ?
+  AND chunks_fts.project_id = ?
+ORDER BY bm25(chunks_fts)
+LIMIT ?;
+
+-- :name search_lexical_subtree
+SELECT chunks_fts.chunk_id, chunks_fts.file_id, chunks_fts.project_id, chunks_fts.rel_path,
+       chunks_fts.document, chunks_fts.symbols,
+       c.start_line, c.end_line, c.kind,
+       bm25(chunks_fts) AS rank
+FROM chunks_fts
+INNER JOIN chunks AS c ON chunks_fts.chunk_id = c.chunk_id
+WHERE chunks_fts MATCH ?
+  AND chunks_fts.project_id = ?
+  AND chunks_fts.rel_path LIKE ?
+ORDER BY bm25(chunks_fts)
+LIMIT ?;
+
 -- :name get_collection_identity
 SELECT identity FROM collections WHERE name = ?;
 

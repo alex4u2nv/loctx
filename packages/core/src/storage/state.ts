@@ -62,6 +62,31 @@ export interface ChunkInsert extends ChunkState {
   readonly document: string;
 }
 
+/** Input for {@link StateStore.searchLexical}. */
+export interface LexicalQuery {
+  readonly query: string;
+  readonly limit?: number;
+  /** Restrict to a single project. Required when `relPathPrefix` is set. */
+  readonly projectId?: string;
+  /** Restrict to documents whose `rel_path` starts with this prefix (e.g. `src/auth/`). */
+  readonly relPathPrefix?: string;
+}
+
+/** A BM25-ranked match returned by {@link StateStore.searchLexical}. */
+export interface LexicalMatch {
+  readonly chunkId: string;
+  readonly fileId: FileId;
+  readonly projectId: ProjectId;
+  readonly relPath: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly kind: string;
+  readonly symbols: ReadonlyArray<string>;
+  readonly document: string;
+  /** SQLite BM25 rank — lower is a better match. */
+  readonly rank: number;
+}
+
 export class StateStore {
   private readonly db: Database.Database;
   private readonly stmts = new Map<string, Database.Statement>();
@@ -226,6 +251,33 @@ export class StateStore {
     return this.readAll<ChunkRow>("list_chunks", [fileId]).map(chunkStateFromRow);
   }
 
+  // ---- lexical search (FTS5 / BM25) -----------------------------------
+
+  /**
+   * BM25-ranked match over chunks_fts JOIN chunks. The FTS5 MATCH expression
+   * is the user's query; project + path-prefix predicates are pushed into
+   * SQL so subtree-scoped queries don't lose the top-ranked global hits the
+   * way a host-side post-filter does.
+   *
+   * Lower `rank` = better match (SQLite BM25 returns negative weights; the
+   * fewer the better). Callers that fuse with vector results should
+   * normalize via reciprocal rank — see WorkspaceSearcher.
+   */
+  searchLexical(query: LexicalQuery): LexicalMatch[] {
+    const limit = Math.max(1, query.limit ?? 50);
+    if (query.relPathPrefix !== undefined) {
+      const params = [query.query, query.projectId ?? "", `${query.relPathPrefix}%`, limit];
+      return this.readAll<LexicalRow>("search_lexical_subtree", params).map(lexicalMatchFromRow);
+    }
+    if (query.projectId !== undefined) {
+      const params = [query.query, query.projectId, limit];
+      return this.readAll<LexicalRow>("search_lexical_project", params).map(lexicalMatchFromRow);
+    }
+    return this.readAll<LexicalRow>("search_lexical_all", [query.query, limit]).map(
+      lexicalMatchFromRow,
+    );
+  }
+
   // ---- collections ----------------------------------------------------
 
   registerCollection(name: string, identity: EmbeddingIdentity): void {
@@ -269,6 +321,37 @@ interface ChunkRow {
   end_line: number;
   kind: string;
   symbols: string | null;
+}
+
+interface LexicalRow {
+  chunk_id: string;
+  file_id: string;
+  project_id: string;
+  rel_path: string;
+  document: string;
+  symbols: string | null;
+  start_line: number;
+  end_line: number;
+  kind: string;
+  rank: number;
+}
+
+function lexicalMatchFromRow(row: LexicalRow): LexicalMatch {
+  return {
+    chunkId: row.chunk_id,
+    fileId: row.file_id as FileId,
+    projectId: row.project_id as ProjectId,
+    relPath: row.rel_path,
+    startLine: row.start_line,
+    endLine: row.end_line,
+    kind: row.kind,
+    symbols:
+      row.symbols !== null && row.symbols !== ""
+        ? Object.freeze(row.symbols.split(",").filter((s) => s !== ""))
+        : Object.freeze([]),
+    document: row.document,
+    rank: row.rank,
+  };
 }
 
 function fileStateFromRow(row: FileRow): FileState {
