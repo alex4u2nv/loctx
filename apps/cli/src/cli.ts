@@ -235,6 +235,10 @@ function printConfig(config: Config): void {
   console.log("daemon:");
   console.log(row("port", config.daemon.port, tag("daemon.port")));
   console.log(row("hostname", config.daemon.hostname, tag("daemon.hostname")));
+  console.log("");
+  console.log("retrieval:");
+  console.log(row("mode", config.retrieval.mode, tag("retrieval.mode")));
+  console.log(row("rrfK", config.retrieval.rrfK, tag("retrieval.rrfK")));
 }
 
 // ---- start --------------------------------------------------------------
@@ -398,6 +402,107 @@ configCmd.action(() => {
   console.log("loctx config: specify a subcommand (e.g. 'show' or 'init').");
   console.log("Use --help for options.");
 });
+
+// ---- model --------------------------------------------------------------
+
+const modelCmd = program
+  .command("model")
+  .description("Manage the embedding model used for indexing. Requires a subcommand.");
+
+modelCmd
+  .command("list")
+  .description("Show available embedding models with size, dimension, and use case.")
+  .action(async () => {
+    const { EMBEDDING_REGISTRY } = await import("@loctx/core");
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    const current = config.embedding.model;
+    console.log("Available embedding models:");
+    for (const m of EMBEDDING_REGISTRY) {
+      const marker = m.name === current ? "*" : " ";
+      console.log(
+        `  ${marker} ${m.name.padEnd(46)} ${String(m.sizeMB).padStart(4)} MB  dim=${String(m.dimension).padStart(4)}  [${m.useCase}]`,
+      );
+      console.log(`      ${m.description}`);
+    }
+    console.log("");
+    console.log("* = active. Run 'loctx model use <name>' to switch.");
+  });
+
+modelCmd
+  .command("current")
+  .description("Print the active embedding model.")
+  .action(() => {
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    console.log(config.embedding.model);
+  });
+
+modelCmd
+  .command("use <name>")
+  .description("Switch the active embedding model. Reindex required afterward.")
+  .option("--project", "Write to ./.loctx.yaml in the current directory instead.", false)
+  .action(async (name: string, opts: { project: boolean }) => {
+    const { findModel } = await import("@loctx/core");
+    const info = findModel(name);
+    if (info === null) {
+      console.error(`Unknown model '${name}'. Run 'loctx model list' to see available options.`);
+      process.exit(1);
+    }
+    await writeModelChoice(opts.project, info.name, info.normalize);
+    console.error(`[loctx model use] switched embedding.model to ${info.name}.`);
+    console.error("[loctx model use] the existing index was built for the previous model;");
+    console.error("                  run 'loctx reset index' then 'loctx index' to rebuild it,");
+    console.error("                  or expect a CollectionIdentityMismatch on next start.");
+  });
+
+modelCmd
+  .command("download <name>")
+  .description("Pre-download a model into the Hugging Face cache. Useful offline prep.")
+  .action(async (name: string) => {
+    const { findModel, LocalEmbeddingProvider } = await import("@loctx/core");
+    const info = findModel(name);
+    if (info === null) {
+      console.error(`Unknown model '${name}'. Run 'loctx model list' to see options.`);
+      process.exit(1);
+    }
+    console.error(`[loctx model download] fetching ${info.name} (~${info.sizeMB} MB)...`);
+    const provider = new LocalEmbeddingProvider({
+      modelName: info.name,
+      normalize: info.normalize,
+    });
+    await provider.ensureReady();
+    console.error("[loctx model download] done.");
+  });
+
+modelCmd.action(() => {
+  console.log("loctx model: specify a subcommand (list, current, use, download).");
+  console.log("Use --help for options.");
+});
+
+async function writeModelChoice(
+  isProject: boolean,
+  modelName: string,
+  normalize: boolean,
+): Promise<void> {
+  const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
+  const { resolve } = await import("node:path");
+  const { parse: parseYaml, stringify: stringifyYaml } = await import("yaml");
+  const ctx = getCtx();
+  const target = isProject ? resolve(".loctx.yaml") : ctx.configPath;
+
+  type Mutable = Record<string, unknown> & { embedding?: Record<string, unknown> };
+  const existing: Mutable = existsSync(target)
+    ? ((parseYaml(readFileSync(target, "utf-8")) as Mutable | null) ?? {})
+    : {};
+
+  const embedding: Record<string, unknown> = { ...(existing.embedding ?? {}) };
+  embedding["model"] = modelName;
+  embedding["normalize"] = normalize;
+  existing.embedding = embedding;
+
+  writeFileSync(target, stringifyYaml(existing), "utf-8");
+}
 
 // ---- serve / doctor stubs ----------------------------------------------
 
