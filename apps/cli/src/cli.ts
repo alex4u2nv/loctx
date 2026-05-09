@@ -151,13 +151,11 @@ program
           ...(opts.language !== undefined ? { language: opts.language } : {}),
         });
 
-        let scopeLabel: string = response.resolvedScope.mode;
-        if (response.resolvedScope.project) {
-          scopeLabel = `${scopeLabel}(${response.resolvedScope.project.name})`;
-        }
-        if (response.resolvedScope.relPrefix) {
-          scopeLabel = `${scopeLabel}#${response.resolvedScope.relPrefix}`;
-        }
+        const scopeLabel = [
+          response.resolvedScope.mode,
+          response.resolvedScope.project ? `(${response.resolvedScope.project.name})` : "",
+          response.resolvedScope.relPrefix ? `#${response.resolvedScope.relPrefix}` : "",
+        ].join("");
         console.log(`# scope: ${scopeLabel}  results: ${response.results.length}`);
         for (const warning of response.warnings) {
           console.error(`# warning: ${warning}`);
@@ -167,8 +165,10 @@ program
           // Prefer absPath so editors and `cmd-click` resolve directly. Fall
           // back to relPath when the project's root is no longer registered.
           const path = result.absPath ?? result.relPath;
-          let header = `${result.score.toFixed(3)}  ${path}:${result.startLine}-${result.endLine}  [${result.kind}]`;
-          if (result.symbols.length > 0) header += `  ${result.symbols.join(", ")}`;
+          const header = [
+            `${result.score.toFixed(3)}  ${path}:${result.startLine}-${result.endLine}  [${result.kind}]`,
+            result.symbols.length > 0 ? `  ${result.symbols.join(", ")}` : "",
+          ].join("");
           console.log(header);
           console.log(indent(clip(result.snippet)));
           console.log();
@@ -327,14 +327,15 @@ program
         process.exit(1);
       }
 
-      const watchers: WatcherService[] = [];
-      for (const project of projects) {
-        const w = new WatcherService(project, runtime.indexer, {
-          onEvent: (event, relPath) => console.log(`${event}\t${project.name}/${relPath}`),
-        });
-        await w.start();
-        watchers.push(w);
-      }
+      const watchers = await Promise.all(
+        projects.map(async (project) => {
+          const w = new WatcherService(project, runtime.indexer, {
+            onEvent: (event, relPath) => console.log(`${event}\t${project.name}/${relPath}`),
+          });
+          await w.start();
+          return w;
+        }),
+      );
       console.error(`[loctx watch] running on ${projects.length} project(s); Ctrl+C to stop.`);
 
       await new Promise<void>((resolve) => {

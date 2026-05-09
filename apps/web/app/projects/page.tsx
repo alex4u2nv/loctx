@@ -13,14 +13,11 @@ import { type Project, inventoryProjects } from "@loctx/core";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-interface Row {
-  id: string;
-  name: string;
-  root: string;
+type Row = Project & {
   files: number;
   errors: number;
   lastIndexed: string | null;
-}
+};
 
 export default function ProjectsPage() {
   const { state, discovery } = getAdminContext();
