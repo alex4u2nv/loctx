@@ -12,7 +12,17 @@
  * `loctx status` can explain why a path was skipped.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import {
+  type Stats,
+  closeSync,
+  existsSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -266,9 +276,9 @@ export class ProjectFilter {
       return decide(false, FilterReason.UNSUPPORTED_EXTENSION, suffix);
     }
 
-    let stat: ReturnType<typeof statSync>;
+    let stat: Stats;
     try {
-      const lstat = require_lstat(absolute);
+      const lstat = lstatSync(absolute);
       if (lstat.isSymbolicLink() && !this.rules.followSymlinks) {
         return decide(false, FilterReason.SYMLINK, rel);
       }
@@ -332,29 +342,14 @@ function matchGlob(pattern: string, name: string): boolean {
 }
 
 function looksBinary(path: string): boolean {
-  const fd = require_open(path);
+  const fd = openSync(path, "r");
   try {
     const buf = Buffer.alloc(BINARY_PROBE_BYTES);
-    const bytesRead = require_read(fd, buf);
+    const bytesRead = readSync(fd, buf, 0, buf.length, 0);
     return buf.subarray(0, bytesRead).includes(0);
   } finally {
-    require_close(fd);
+    closeSync(fd);
   }
-}
-
-// Local node:fs wrappers — kept tiny so the binary-probe path stays readable.
-import { type Stats, closeSync, lstatSync, openSync, readSync } from "node:fs";
-function require_open(p: string): number {
-  return openSync(p, "r");
-}
-function require_close(fd: number): void {
-  closeSync(fd);
-}
-function require_read(fd: number, buf: Buffer): number {
-  return readSync(fd, buf, 0, buf.length, 0);
-}
-function require_lstat(p: string): Stats {
-  return lstatSync(p);
 }
 
 /** Build a variant of `rules` with one or more fields replaced. Useful in tests. */
