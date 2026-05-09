@@ -359,6 +359,25 @@ program
     }
   });
 
+// ---- init (interactive first-run wizard) -------------------------------
+
+program
+  .command("init")
+  .description(
+    "Interactive first-run setup: pick workspace roots, use case, embedding model, and daemon port. Writes a sensible config.",
+  )
+  .option("--force", "Overwrite an existing config file.", false)
+  .action(async (opts: { force: boolean }) => {
+    const { runInitWizard } = await import("./wizard.js");
+    const ctx = getCtx();
+    try {
+      await runInitWizard({ target: ctx.configPath, force: opts.force });
+    } catch (err) {
+      console.error(`[loctx init] ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
 // ---- config -------------------------------------------------------------
 
 const configCmd = program
