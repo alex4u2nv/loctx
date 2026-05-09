@@ -7,14 +7,18 @@ import { resolve } from "node:path";
 import {
   type Config,
   ConfigError,
-  type Scope,
+  DaemonLockHeldError,
   SearcherError,
+  StateStore,
   WatcherService,
   WorkspaceDiscovery,
   buildRuntime,
   defaultConfigFile,
+  inventoryProjects,
   loadConfig,
   makeProject,
+  readActiveDaemon,
+  stopActiveDaemon,
 } from "@loctx/core";
 import { Command } from "commander";
 
@@ -103,13 +107,18 @@ program
 
 program
   .command("search <query>")
-  .description("Search the indexed workspace.")
-  .option("--cwd <path>", "Override working directory used for scope resolution.")
-  .option("--scope <scope>", "auto | project | subtree | all", "auto")
+  .description(
+    "Search the indexed workspace. Default scope is the current directory's project; " +
+      "pass --path to scope to a specific project or subtree, --all to search everywhere.",
+  )
   .option(
-    "--mode <mode>",
-    "hybrid | semantic | keyword | path | symbol (only 'semantic' wired today)",
-    "semantic",
+    "--path <p>",
+    "Absolute or relative path to scope the search to (a project root or a subtree inside one).",
+  )
+  .option(
+    "--all",
+    "Search every indexed project, ignoring the current directory. Mutually exclusive with --path.",
+    false,
   )
   .option("--limit <n>", "Maximum results", (v) => Number.parseInt(v, 10), 10)
   .option("--language <lang>", "Filter results to a single language.")
@@ -117,24 +126,27 @@ program
     async (
       query: string,
       opts: {
-        cwd?: string;
-        scope: string;
-        mode: string;
+        path?: string;
+        all: boolean;
         limit: number;
         language?: string;
       },
     ) => {
-      if (opts.mode !== "semantic") {
-        console.error(`# --mode ${opts.mode} not yet implemented; running semantic search.`);
+      if (opts.path !== undefined && opts.all) {
+        console.error("--path and --all are mutually exclusive.");
+        process.exit(1);
       }
       const ctx = getCtx();
       const config = loadConfigOrFail(ctx);
       const runtime = await buildRuntime(config);
       try {
+        // CLI default: scope to whatever project contains the cwd. Pass
+        // `--all` to search the whole index instead, or `--path` to point
+        // at something specific.
+        const path = opts.all ? undefined : (opts.path ?? process.cwd());
         const response = await runtime.searcher.search({
           query,
-          ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
-          scope: opts.scope as Scope,
+          ...(path !== undefined ? { path } : {}),
           limit: opts.limit,
           ...(opts.language !== undefined ? { language: opts.language } : {}),
         });
@@ -152,7 +164,10 @@ program
         }
 
         for (const result of response.results) {
-          let header = `${result.score.toFixed(3)}  ${result.relPath}:${result.startLine}-${result.endLine}  [${result.kind}]`;
+          // Prefer absPath so editors and `cmd-click` resolve directly. Fall
+          // back to relPath when the project's root is no longer registered.
+          const path = result.absPath ?? result.relPath;
+          let header = `${result.score.toFixed(3)}  ${path}:${result.startLine}-${result.endLine}  [${result.kind}]`;
           if (result.symbols.length > 0) header += `  ${result.symbols.join(", ")}`;
           console.log(header);
           console.log(indent(clip(result.snippet)));
@@ -183,29 +198,113 @@ function indent(text: string): string {
     .join("\n");
 }
 
+function printConfig(config: Config): void {
+  // Pretty-print every leaf with its source. "(derived)" is reserved for
+  // path fields computed from dataDir — they have no independent source.
+  const tag = (key: string): string => {
+    const s = config.sources[key];
+    return s ? `[${s}]` : "[derived]";
+  };
+  const row = (label: string, value: string | number | boolean, source: string): string =>
+    `  ${label.padEnd(22)}: ${String(value).padEnd(48)} ${source}`;
+
+  console.log("loctx config (effective):");
+  console.log(`  global file           : ${config.source ?? "(none)"}`);
+  console.log(`  project file          : ${config.projectSource ?? "(none)"}`);
+  console.log("");
+  console.log("workspace_roots:");
+  for (const root of config.workspaceRoots) {
+    console.log(`  - ${root.padEnd(60)} ${tag("workspaceRoots")}`);
+  }
+  console.log("");
+  console.log("paths:");
+  console.log(row("dataDir", config.paths.dataDir, tag("paths.dataDir")));
+  console.log(row("configDir", config.paths.configDir, tag("paths.configDir")));
+  console.log(row("vectorDir", config.paths.vectorDir, "[derived]"));
+  console.log(row("stateDb", config.paths.stateDb, "[derived]"));
+  console.log(row("logsDir", config.paths.logsDir, "[derived]"));
+  console.log("");
+  console.log("embedding:");
+  console.log(row("provider", config.embedding.provider, tag("embedding.provider")));
+  console.log(row("model", config.embedding.model, tag("embedding.model")));
+  console.log(row("normalize", config.embedding.normalize, tag("embedding.normalize")));
+  console.log("");
+  console.log("watcher:");
+  console.log(row("debounceMs", config.watcher.debounceMs, tag("watcher.debounceMs")));
+  console.log("");
+  console.log("daemon:");
+  console.log(row("port", config.daemon.port, tag("daemon.port")));
+  console.log(row("hostname", config.daemon.hostname, tag("daemon.hostname")));
+}
+
 // ---- start --------------------------------------------------------------
 
 program
   .command("start")
-  .description("Run the integrated daemon: watcher + Next.js admin UI + MCP at /mcp on one port.")
-  .option(
-    "-p, --port <n>",
-    "HTTP port for the admin UI + MCP endpoint.",
-    (v) => Number.parseInt(v, 10),
-    3000,
+  .description(
+    "Run the integrated daemon: watcher + Next.js admin UI + MCP at /mcp on one port. " +
+      "Port and hostname come from `daemon.port` / `daemon.hostname` in config.",
   )
-  .option("--hostname <host>", "Bind hostname.", "localhost")
   .option("--no-watch", "Skip the filesystem watcher.")
   .option("--no-web", "Skip the Next.js admin UI / MCP HTTP transport.")
-  .action(async (opts: { port: number; hostname: string; watch: boolean; web: boolean }) => {
+  .option("--replace", "Stop any existing daemon for this data dir before starting.", false)
+  .action(async (opts: { watch: boolean; web: boolean; replace: boolean }) => {
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    const { start: runStart } = await import("./start.js");
+    try {
+      await runStart(config, {
+        enableWatch: opts.watch,
+        enableWeb: opts.web,
+        replace: opts.replace,
+      });
+    } catch (err) {
+      if (err instanceof DaemonLockHeldError) {
+        console.error(err.message);
+        console.error("Use `loctx start --replace` or `loctx restart` to take over.");
+        process.exit(1);
+      }
+      throw err;
+    }
+  });
+
+// ---- stop ---------------------------------------------------------------
+
+program
+  .command("stop")
+  .description("Stop the loctx daemon for the configured data dir.")
+  .option(
+    "--timeout <ms>",
+    "Milliseconds to wait for graceful shutdown before SIGKILL.",
+    (v) => Number.parseInt(v, 10),
+    8_000,
+  )
+  .action(async (opts: { timeout: number }) => {
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    const stopped = await stopActiveDaemon(config.paths.dataDir, { timeoutMs: opts.timeout });
+    if (stopped === null) {
+      console.error("[loctx stop] no running daemon found.");
+      return;
+    }
+    console.error(`[loctx stop] terminated daemon PID ${stopped.pid}.`);
+  });
+
+// ---- restart ------------------------------------------------------------
+
+program
+  .command("restart")
+  .description("Stop any running daemon for this data dir, then start a new one.")
+  .option("--no-watch", "Skip the filesystem watcher.")
+  .option("--no-web", "Skip the Next.js admin UI / MCP HTTP transport.")
+  .action(async (opts: { watch: boolean; web: boolean }) => {
     const ctx = getCtx();
     const config = loadConfigOrFail(ctx);
     const { start: runStart } = await import("./start.js");
     await runStart(config, {
-      port: opts.port,
-      hostname: opts.hostname,
       enableWatch: opts.watch,
       enableWeb: opts.web,
+      replace: true,
     });
   });
 
@@ -255,6 +354,50 @@ program
     }
   });
 
+// ---- config -------------------------------------------------------------
+
+const configCmd = program
+  .command("config")
+  .description("Inspect or scaffold the loctx config files. Requires a subcommand.");
+
+configCmd
+  .command("show")
+  .description("Print the effective merged config with the source of each value.")
+  .action(() => {
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    printConfig(config);
+  });
+
+configCmd
+  .command("init")
+  .description(
+    "Write a commented config template to $XDG_CONFIG_HOME/loctx/config.yaml " +
+      "(or to a project-level .loctx.yaml with --project). Never overwrites.",
+  )
+  .option("--project", "Write to ./.loctx.yaml in the current directory instead.", false)
+  .option("--force", "Overwrite an existing file.", false)
+  .action(async (opts: { project: boolean; force: boolean }) => {
+    const { existsSync, writeFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const { CONFIG_TEMPLATE } = await import("@loctx/core");
+    const ctx = getCtx();
+    const target = opts.project ? resolve(".loctx.yaml") : ctx.configPath;
+    if (existsSync(target) && !opts.force) {
+      console.error(
+        `[loctx config init] refused: ${target} already exists. Pass --force to overwrite.`,
+      );
+      process.exit(1);
+    }
+    writeFileSync(target, CONFIG_TEMPLATE, "utf-8");
+    console.error(`[loctx config init] wrote ${target}`);
+  });
+
+configCmd.action(() => {
+  console.log("loctx config: specify a subcommand (e.g. 'show' or 'init').");
+  console.log("Use --help for options.");
+});
+
 // ---- serve / doctor stubs ----------------------------------------------
 
 program
@@ -277,13 +420,25 @@ program
     const ctx = getCtx();
     const config = loadConfigOrFail(ctx);
     const discovery = new WorkspaceDiscovery(config.workspaceRoots);
-    const projects = discovery.discoverProjects();
+    const state = new StateStore(config.paths.stateDb);
+    let inventory: ReturnType<typeof inventoryProjects>;
+    try {
+      inventory = inventoryProjects(discovery, state);
+    } finally {
+      state.close();
+    }
+
+    const daemon = readActiveDaemon(config.paths.dataDir);
+    const daemonRow: string = daemon
+      ? `running (PID ${daemon.pid}${daemon.port ? `, http://${daemon.hostname ?? "localhost"}:${daemon.port}` : ""}, started ${daemon.startedAt})`
+      : "not running";
 
     console.log("loctx status:");
     const rows: ReadonlyArray<readonly [string, string]> = [
       ["config", config.source ?? `${ctx.configPath} (default)`],
+      ["daemon", daemonRow],
       ["data dir", config.paths.dataDir],
-      ["chroma dir", config.paths.chromaDir],
+      ["vector dir", config.paths.vectorDir],
       ["state db", config.paths.stateDb],
       ["logs dir", config.paths.logsDir],
       ["embedding", `${config.embedding.provider}/${config.embedding.model}`],
@@ -295,9 +450,17 @@ program
     for (const root of config.workspaceRoots) {
       console.log(`    - ${root}`);
     }
-    console.log(`  discovered projects (${projects.length}):`);
-    for (const project of projects) {
-      console.log(`    ${project.id}  ${project.name}  ${project.root}`);
+    console.log(`  active projects (${inventory.active.length}):`);
+    for (const { project, lastIndexedAt } of inventory.active) {
+      const stamp = lastIndexedAt ? `  (indexed ${lastIndexedAt})` : "";
+      console.log(`    ${project.id}  ${project.name}  ${project.root}${stamp}`);
+    }
+    if (inventory.orphaned.length > 0) {
+      console.log(`  orphaned projects (${inventory.orphaned.length}, still queryable):`);
+      for (const { project, reason, rootExists } of inventory.orphaned) {
+        const tag = rootExists ? `[${reason}]` : "[missing]";
+        console.log(`    ${project.id}  ${project.name}  ${project.root}  ${tag}`);
+      }
     }
   });
 
@@ -306,7 +469,7 @@ program
 const reset = program.command("reset").description("Reset local state. Requires a subcommand.");
 reset
   .command("index")
-  .description("Delete the entire local Chroma + SQLite state.")
+  .description("Delete the entire local LanceDB + SQLite state.")
   .option("--force", "Skip confirmation.", false)
   .action(() => unimplemented("reset index"));
 reset

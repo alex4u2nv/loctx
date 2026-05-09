@@ -14,13 +14,24 @@
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type Config, type Project, type Runtime, WatcherService, buildRuntime } from "@loctx/core";
+import {
+  type Config,
+  type DaemonLock,
+  DaemonLockHeldError,
+  type Project,
+  type Runtime,
+  WatcherService,
+  acquireDaemonLock,
+  buildRuntime,
+  stopActiveDaemon,
+} from "@loctx/core";
+
+const DAEMON_VERSION = "0.1.0";
 
 export interface StartOptions {
-  readonly port: number;
-  readonly hostname?: string;
   readonly enableWatch: boolean;
   readonly enableWeb: boolean;
+  readonly replace: boolean; // if true, terminate any existing daemon first
   readonly webDir?: string;
 }
 
@@ -42,7 +53,19 @@ type NextFactory = (config: {
 const ROOT_RELATIVE_WEB_DIR = "../../web";
 
 export async function start(config: Config, options: StartOptions): Promise<void> {
-  const runtime = await buildRuntime(config);
+  // Single-instance lock keyed on the data dir. Two daemons sharing the same
+  // SQLite + LanceDB would race on writes; the lock keeps one alive at a time
+  // regardless of how the second was launched (workspace, npm link, -g).
+  const lock = await acquireOrReplaceLock(config, options);
+
+  let runtime: Runtime;
+  try {
+    runtime = await buildRuntime(config);
+  } catch (err) {
+    lock.release();
+    throw err;
+  }
+
   const projects = runtime.discovery.discoverProjects();
 
   if (projects.length === 0) {
@@ -52,9 +75,9 @@ export async function start(config: Config, options: StartOptions): Promise<void
     );
   }
 
-  const watchers = options.enableWatch ? await startWatchers(runtime, projects) : [];
+  const watchers = options.enableWatch ? await startWatchers(runtime, projects, config) : [];
   const httpStop = options.enableWeb
-    ? await startWeb(options)
+    ? await startWeb(config, options)
     : async () => {
         /* no-op */
       };
@@ -62,10 +85,10 @@ export async function start(config: Config, options: StartOptions): Promise<void
   const banner = [
     `[loctx start] runtime ready (${projects.length} projects, ${runtime.config.embedding.model})`,
     options.enableWeb
-      ? `[loctx start] admin UI:    http://${options.hostname ?? "localhost"}:${options.port}/`
+      ? `[loctx start] admin UI:    http://${config.daemon.hostname}:${config.daemon.port}/`
       : null,
     options.enableWeb
-      ? `[loctx start] MCP endpoint: http://${options.hostname ?? "localhost"}:${options.port}/mcp`
+      ? `[loctx start] MCP endpoint: http://${config.daemon.hostname}:${config.daemon.port}/mcp`
       : null,
     options.enableWatch ? `[loctx start] watcher running on ${watchers.length} project(s)` : null,
   ]
@@ -83,6 +106,11 @@ export async function start(config: Config, options: StartOptions): Promise<void
     console.error(`\n[loctx start] shutting down (${signal})`);
     try {
       runtime.state.close();
+    } catch {
+      // best effort
+    }
+    try {
+      lock.release();
     } catch {
       // best effort
     }
@@ -108,10 +136,12 @@ export async function start(config: Config, options: StartOptions): Promise<void
 async function startWatchers(
   runtime: Runtime,
   projects: ReadonlyArray<Project>,
+  config: Config,
 ): Promise<WatcherService[]> {
   const watchers: WatcherService[] = [];
   for (const project of projects) {
     const w = new WatcherService(project, runtime.indexer, {
+      debounceMs: config.watcher.debounceMs,
       onEvent: (event, relPath) => {
         console.error(`[loctx watch] ${event}\t${project.name}/${relPath}`);
       },
@@ -124,10 +154,9 @@ async function startWatchers(
 
 // ---- web ---------------------------------------------------------------
 
-async function startWeb(options: StartOptions): Promise<() => Promise<void>> {
+async function startWeb(config: Config, options: StartOptions): Promise<() => Promise<void>> {
   const webDir = options.webDir ?? resolveWebDir();
-  const port = options.port;
-  const hostname = options.hostname ?? "localhost";
+  const { port, hostname } = config.daemon;
 
   // Lazy: pulls in next + react. Not needed when --no-web.
   const moduleName = "next";
@@ -166,4 +195,26 @@ function resolveWebDir(): string {
   // we find apps/web/package.json with name @loctx/web.
   const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, ROOT_RELATIVE_WEB_DIR);
+}
+
+async function acquireOrReplaceLock(config: Config, options: StartOptions): Promise<DaemonLock> {
+  const info = {
+    pid: process.pid,
+    port: config.daemon.port,
+    hostname: config.daemon.hostname,
+    startedAt: new Date().toISOString(),
+    version: DAEMON_VERSION,
+  };
+
+  try {
+    return acquireDaemonLock(config.paths.dataDir, info);
+  } catch (err) {
+    if (!(err instanceof DaemonLockHeldError) || !options.replace) throw err;
+
+    console.error(
+      `[loctx start] terminating existing daemon (PID ${err.holder.pid}) before starting...`,
+    );
+    await stopActiveDaemon(config.paths.dataDir);
+    return acquireDaemonLock(config.paths.dataDir, info);
+  }
 }

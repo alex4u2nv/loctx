@@ -2,14 +2,15 @@
 const nextConfig = {
   // Workspace packages and their native/URL-loading deps stay external —
   // webpack rewrites `new URL(..., import.meta.url)` in ways that break
-  // Node's fileURLToPath, and chromadb/onnxruntime/better-sqlite3 must run
-  // through Node's loader. Pages/components that touch @loctx/* must be
-  // server components.
+  // Node's fileURLToPath, and the native bindings (lancedb, onnxruntime,
+  // better-sqlite3, tree-sitter) must run through Node's loader.
+  // Pages/components that touch @loctx/* must be server components.
   serverExternalPackages: [
     "@loctx/core",
     "@loctx/mcp",
     "better-sqlite3",
-    "chromadb",
+    "@lancedb/lancedb",
+    "apache-arrow",
     "chokidar",
     "@huggingface/transformers",
     "onnxruntime-node",

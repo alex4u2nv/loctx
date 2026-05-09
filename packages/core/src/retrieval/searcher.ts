@@ -1,25 +1,37 @@
 /**
- * Workspace search over the local Chroma index.
+ * Workspace search over the local LanceDB index.
  *
- * Scope semantics:
- *   - "all":     no project filter; query the entire collection.
- *   - "auto":    resolve cwd to nearest project; if none, fall back to "all" with warning.
- *   - "project": resolve cwd to nearest project; error if none.
- *   - "subtree": same as "project" plus a relative-path prefix from cwd.
+ * Scope is driven by a single optional `path` parameter — a file or
+ * directory anywhere on disk. The searcher resolves it against the
+ * indexed projects:
+ *
+ *   - omitted              → search every indexed project ("all")
+ *   - path is a project root → project-scoped search
+ *   - path is inside a project → project + path-prefix subtree filter
+ *   - path is outside every indexed project → warn, fall back to "all"
+ *
+ * Path is the natural primitive for coding agents (they always have a
+ * file path or working directory) and avoids the "look up project id
+ * first" round-trip.
  */
 
-import { relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { WorkspaceDiscovery } from "../discovery.js";
 import type { EmbeddingProvider } from "../embeddings/index.js";
 import type { Project } from "../models.js";
 import type { VectorStore } from "../storage/index.js";
 
-export type Scope = "auto" | "project" | "subtree" | "all";
+/** What kind of slice the searcher applied. Reported back on the response. */
+export type Scope = "all" | "project" | "subtree";
 
 export interface SearchRequest {
   readonly query: string;
-  readonly cwd?: string;
-  readonly scope?: Scope;
+  /**
+   * Absolute file or directory path. Optional; when omitted the search
+   * spans every indexed project. Relative paths are resolved against
+   * `process.cwd()` for CLI ergonomics.
+   */
+  readonly path?: string;
   readonly limit?: number;
   readonly language?: string;
 }
@@ -27,12 +39,25 @@ export interface SearchRequest {
 export interface ResolvedScope {
   readonly mode: Scope;
   readonly project: Project | null;
+  /** Path-prefix relative to {@link project.root}, or null. */
   readonly relPrefix: string | null;
+  /** Absolute form of the input path after resolution, or null. */
+  readonly inputPath: string | null;
 }
 
 export interface SearchResult {
   readonly projectId: string;
+  readonly projectName: string;
+  /** Absolute project root, or null if the project is no longer on disk. */
+  readonly projectRoot: string | null;
+  /** Path relative to {@link projectRoot}. Always present. */
   readonly relPath: string;
+  /**
+   * Absolute filesystem path. Null only when the project that produced this
+   * chunk has been removed from `workspace_roots` since indexing — the chunk
+   * still scores, but the resolver has no current root to glue onto relPath.
+   */
+  readonly absPath: string | null;
   readonly startLine: number;
   readonly endLine: number;
   readonly score: number;
@@ -70,9 +95,17 @@ export class WorkspaceSearcher {
       ...(where !== null ? { where } : {}),
     });
 
-    let results: SearchResult[] = matches.map(toResult);
+    // Build a projectId → Project map so each result can carry its absolute
+    // root. The cost is one extra discovery pass, which is cached by the
+    // discovery layer.
+    const projectsById = new Map<string, Project>();
+    for (const p of this.discovery.discoverProjects()) projectsById.set(p.id, p);
+
+    let results: SearchResult[] = matches.map((m) => toResult(m, projectsById));
     if (scope.relPrefix !== null) {
-      // subtree post-filter: Chroma's where-clause doesn't support prefix matches.
+      // Subtree post-filter. We could push this into the SQL `where` with
+      // `starts_with(rel_path, ?)`, but doing it host-side keeps the
+      // per-backend predicate surface minimal.
       results = results.filter((r) => r.relPath.startsWith(scope.relPrefix as string));
     }
     results = results.slice(0, limit);
@@ -85,71 +118,79 @@ export class WorkspaceSearcher {
   }
 
   private resolveScope(request: SearchRequest, warnings: string[]): ResolvedScope {
-    const requested: Scope = request.scope ?? "auto";
-    if (requested === "all") {
-      return Object.freeze({ mode: "all", project: null, relPrefix: null });
+    if (request.path === undefined) {
+      return Object.freeze({ mode: "all", project: null, relPrefix: null, inputPath: null });
     }
 
-    const cwd = resolve(request.cwd ?? process.cwd());
-    const project = this.discovery.resolveProject(cwd);
-
-    if (requested === "auto") {
-      if (project === null) {
-        warnings.push("No project found for cwd; searching all indexed projects.");
-        return Object.freeze({ mode: "all", project: null, relPrefix: null });
-      }
-      return Object.freeze({ mode: "project", project, relPrefix: null });
-    }
-
+    const absPath = isAbsolute(request.path) ? request.path : resolve(request.path);
+    const project = this.discovery.resolveProject(absPath);
     if (project === null) {
-      throw new SearcherError(
-        `--scope ${requested} requires a project root, but no .git/ was found at or above ${cwd}.`,
-      );
+      warnings.push(`path ${absPath} is not inside any indexed project; searching every project.`);
+      return Object.freeze({ mode: "all", project: null, relPrefix: null, inputPath: absPath });
     }
 
-    if (requested === "project") {
-      return Object.freeze({ mode: "project", project, relPrefix: null });
+    // The path lands inside a project. If the path is the root itself, scope
+    // to the whole project; if it's deeper, treat the leftover as a subtree
+    // prefix the post-filter applies.
+    const rel = relative(resolve(project.root), absPath).split(sep).join("/");
+    if (rel === "" || rel === ".") {
+      return Object.freeze({ mode: "project", project, relPrefix: null, inputPath: absPath });
     }
-
-    // subtree
-    const rel = relative(resolve(project.root), cwd).split(sep).join("/");
     if (rel.startsWith("..")) {
+      // Defensive — `resolveProject` claimed this path, but the relative
+      // form escapes. Treat as project scope and warn.
       warnings.push(
-        `cwd ${cwd} is outside resolved project ${project.root}; falling back to project scope.`,
+        `resolved project ${project.root} doesn't contain ${absPath}; falling back to project scope.`,
       );
-      return Object.freeze({ mode: "project", project, relPrefix: null });
+      return Object.freeze({ mode: "project", project, relPrefix: null, inputPath: absPath });
     }
-    const prefix = rel === "" || rel === "." ? null : `${rel}/`;
-    return Object.freeze({ mode: "subtree", project, relPrefix: prefix });
+    return Object.freeze({
+      mode: "subtree",
+      project,
+      relPrefix: `${rel}/`,
+      inputPath: absPath,
+    });
   }
 }
 
 // ---- helpers -----------------------------------------------------------
 
-function buildWhere(scope: ResolvedScope, language?: string): Record<string, unknown> | null {
-  const clauses: Record<string, unknown>[] = [];
-  if (scope.project !== null) clauses.push({ project_id: scope.project.id });
-  if (language) clauses.push({ language });
+function buildWhere(scope: ResolvedScope, language?: string): string | null {
+  const clauses: string[] = [];
+  if (scope.project !== null) clauses.push(`project_id = ${quoteSql(scope.project.id)}`);
+  if (language) clauses.push(`language = ${quoteSql(language)}`);
   if (clauses.length === 0) return null;
-  if (clauses.length === 1) return clauses[0] ?? null;
-  return { $and: clauses };
+  return clauses.join(" AND ");
 }
 
-function toResult(match: {
-  chunkId: string;
-  score: number;
-  metadata: Readonly<Record<string, unknown>>;
-  document: string;
-}): SearchResult {
+function quoteSql(s: string): string {
+  return `'${s.replace(/'/g, "''")}'`;
+}
+
+function toResult(
+  match: {
+    chunkId: string;
+    score: number;
+    metadata: Readonly<Record<string, unknown>>;
+    document: string;
+  },
+  projectsById: ReadonlyMap<string, Project>,
+): SearchResult {
   const meta = match.metadata;
   const symbolsRaw = meta["symbols"];
   const symbols =
     typeof symbolsRaw === "string" && symbolsRaw.length > 0
       ? Object.freeze(symbolsRaw.split(",").filter((s) => s !== ""))
       : Object.freeze([]);
+  const projectId = String(meta["project_id"] ?? "");
+  const relPath = String(meta["rel_path"] ?? "");
+  const project = projectsById.get(projectId) ?? null;
   return Object.freeze({
-    projectId: String(meta["project_id"] ?? ""),
-    relPath: String(meta["rel_path"] ?? ""),
+    projectId,
+    projectName: project?.name ?? "",
+    projectRoot: project?.root ?? null,
+    relPath,
+    absPath: project !== null && relPath !== "" ? join(project.root, relPath) : null,
     startLine: Number(meta["start_line"] ?? 0),
     endLine: Number(meta["end_line"] ?? 0),
     score: match.score,

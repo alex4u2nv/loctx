@@ -5,7 +5,7 @@ Local-first code indexing and search service for MCP-capable coding agents.
 This is a TypeScript / Node monorepo with three top-level concerns:
 
 - **`packages/core`** — `@loctx/core`: the indexing engine. Discovery, filtering,
-  chunking, embeddings, SQLite state, Chroma vectors, indexer, searcher,
+  chunking, embeddings, SQLite state, LanceDB vectors, indexer, searcher,
   filesystem watcher.
 - **`apps/cli`** — `@loctx/cli`: Commander CLI. `loctx index|search|status|watch|start`.
 - **`apps/mcp`** — `@loctx/mcp`: MCP stdio server (`loctx-mcp`) for agents that
@@ -68,8 +68,17 @@ MCP under a single global install. See GH#38.
 ## CLI subcommands
 
 ```bash
-loctx start [--port 3000] [--hostname localhost] [--no-watch] [--no-web]
+loctx start [--no-watch] [--no-web] [--replace]
     Run the integrated daemon: watcher + Next.js admin UI + /mcp on one port.
+    Port and hostname come from `daemon.port` / `daemon.hostname` in config.
+    Refuses to start when another daemon holds the data-dir lock; pass
+    --replace (or use `loctx restart`) to take over.
+
+loctx stop [--timeout 8000]
+    Stop the running daemon for the configured data dir (SIGTERM, SIGKILL fallback).
+
+loctx restart [--no-watch] [--no-web]
+    Stop any running daemon for this data dir, then start a new one.
 
 loctx index [path]
     One-shot index of a single project, or every discovered project when path is omitted.
@@ -80,8 +89,14 @@ loctx search <query> [--scope auto|project|subtree|all] [--limit N] [--language 
 loctx watch [--path <project>]
     Headless watcher mode — reindex on every file change, no web/MCP. Logs events to stdout.
 
+loctx config show
+    Print the effective merged config with per-leaf source (default/global/project/env).
+
+loctx config init [--project] [--force]
+    Write a commented template to the global file (or to ./.loctx.yaml with --project).
+
 loctx status
-    Show resolved config, storage paths, and discovered projects.
+    Show resolved config, daemon state (PID, port, started-at), storage paths, and discovered projects.
 
 loctx-mcp                  # separate binary
     MCP stdio server for agents that spawn the server as a child process.
@@ -135,8 +150,18 @@ Both transports expose the same three tools: `search_workspace`,
 
 ## Configuration
 
-Main config: `$XDG_CONFIG_HOME/loctx/config.yaml` (created with defaults on
-first run).
+Layered, with later layers overriding earlier ones at the leaf level
+(precedence low → high):
+
+1. Built-in defaults
+2. **Global** — `$XDG_CONFIG_HOME/loctx/config.yaml`
+3. **Project** — `.loctx.yaml` discovered by walking up from `cwd` (opt-in
+   by file existence; useful for pinning a model or daemon port per repo)
+4. Environment — `LOCTX_DATA_DIR`, `LOCTX_CONFIG_DIR`,
+   `LOCTX_EMBEDDING_PROVIDER`
+
+There is no flag-level override layer. Per-invocation flags (`--scope`,
+`--limit`, `--no-watch`, `--replace`, …) are operational, not config-mirrors.
 
 ```yaml
 workspace_roots:
@@ -148,7 +173,19 @@ embedding:
   normalize: true
 
 watcher:
-  debounce_ms: 300
+  debounce_ms: 500
+
+daemon:
+  port: 3000
+  hostname: localhost
+```
+
+Inspect or scaffold:
+
+```bash
+loctx config show              # effective merged config + source per leaf
+loctx config init              # write a commented template to the global file
+loctx config init --project    # ...or to ./.loctx.yaml in the current dir
 ```
 
 Filtering rules live in `packages/core/src/data/filtering.yaml` (bundled
@@ -159,7 +196,7 @@ subtracts from the baseline.
 Storage:
 
 - `$XDG_DATA_HOME/loctx/state.sqlite3` — file/chunk metadata (better-sqlite3)
-- `$XDG_DATA_HOME/loctx/chroma/` — vector index
+- `$XDG_DATA_HOME/loctx/vectors/` — LanceDB vector index (one Lance table per embedding identity)
 
 ## Development
 

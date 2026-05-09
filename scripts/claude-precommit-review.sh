@@ -18,8 +18,22 @@ if git diff --cached --quiet --exit-code; then
 fi
 
 max_bytes="${CLAUDE_PRECOMMIT_MAX_BYTES:-60000}"
-budget="${CLAUDE_PRECOMMIT_MAX_BUDGET_USD:-0.25}"
 model="${CLAUDE_PRECOMMIT_MODEL:-sonnet}"
+effort="${CLAUDE_PRECOMMIT_EFFORT:-low}"
+
+# `--max-budget-usd` only applies under ANTHROPIC_API_KEY auth — it's a
+# no-op on a Pro/Max subscription, where usage counts against the monthly
+# quota. The call is bounded by --tools "" (no tool calls), --effort low
+# (cheaper inference), --strict-mcp-config (skip MCP server discovery),
+# --disable-slash-commands (skip skill resolution), and
+# --no-session-persistence (single-shot). If you're on API auth and want
+# a per-call cost ceiling, export CLAUDE_PRECOMMIT_MAX_BUDGET_USD and
+# the flag is forwarded. Note: --bare would also work but forces API-key
+# auth, breaking subscription users.
+budget_args=""
+if [ -n "${CLAUDE_PRECOMMIT_MAX_BUDGET_USD:-}" ]; then
+  budget_args="--max-budget-usd ${CLAUDE_PRECOMMIT_MAX_BUDGET_USD}"
+fi
 
 diff_file="$(mktemp "${TMPDIR:-/tmp}/loctx-claude-precommit-diff.XXXXXX")"
 response_file="$(mktemp "${TMPDIR:-/tmp}/loctx-claude-precommit-response.XXXXXX")"
@@ -46,7 +60,7 @@ Review for:
 - unsafe file handling, path traversal, injection, or command execution risks
 - broken packaging, imports, typing, tests, or CLI behavior
 - maintainability issues that would be expensive to correct later
-- violations of mature Python project practices
+- violations of mature TypeScript/Node project practices
 
 Rules:
 - Be strict about correctness and security.
@@ -71,9 +85,12 @@ PROMPT
   --print \
   --output-format text \
   --no-session-persistence \
-  --max-budget-usd "$budget" \
+  --strict-mcp-config \
+  --disable-slash-commands \
+  --effort "$effort" \
   --model "$model" \
   --tools "" \
+  $budget_args \
   >"$response_file"
 
 cat "$response_file"

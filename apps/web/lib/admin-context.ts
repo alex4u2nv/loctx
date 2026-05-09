@@ -2,7 +2,7 @@
  * Lightweight server-side context for admin pages.
  *
  * Admin views (status, /projects) only need to read config + StateStore +
- * WorkspaceDiscovery — they don't need the embedding model or Chroma.
+ * WorkspaceDiscovery — they don't need the embedding model or LanceDB.
  * Building those eagerly would download the HF model on every server boot
  * even for users who never click "search". This helper opens the cheap
  * pieces only and caches them across requests.

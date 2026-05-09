@@ -23,7 +23,7 @@ export interface EmbeddingIdentity {
   readonly normalize: boolean;
 }
 
-/** Filesystem-safe slug derived from an identity, used as Chroma collection suffix. */
+/** Filesystem-safe slug derived from an identity, used as the vector table name suffix. */
 export function collectionSuffix(identity: EmbeddingIdentity): string {
   const provider = identity.provider.replaceAll("/", "-");
   const model = identity.model.replaceAll("/", "-");

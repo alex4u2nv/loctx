@@ -64,6 +64,9 @@ ON CONFLICT(id) DO UPDATE SET
 -- :name get_project
 SELECT id, name, root FROM projects WHERE id = ?;
 
+-- :name list_projects
+SELECT id, name, root, last_indexed_at FROM projects ORDER BY root;
+
 -- :name mark_project_indexed
 UPDATE projects SET last_indexed_at = ? WHERE id = ?;
 

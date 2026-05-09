@@ -25,27 +25,30 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
   return {
     config: {
       source: null,
+      projectSource: null,
+      sources: {},
       workspaceRoots: ["/ws"],
       paths: {
         dataDir: "/data",
         configDir: "/cfg",
-        chromaDir: "/data/chroma",
+        vectorDir: "/data/vectors",
         stateDb: "/data/state.sqlite3",
         logsDir: "/data/logs",
       },
       embedding: { provider: "fake", model: "hash", normalize: true },
       watcher: { debounceMs: 300 },
+      daemon: { port: 3000, hostname: "localhost" },
     },
     discovery: {
       discoverProjects: () => projects,
       resolveProject: () => null,
       configuredRoots: ["/ws"],
     },
-    state: { listFiles: () => [] },
+    state: { listFiles: () => [], listProjects: () => [] },
     searcher: {
       search: async () =>
         ({
-          resolvedScope: { mode: "all", project: null, relPrefix: null },
+          resolvedScope: { mode: "all", project: null, relPrefix: null, inputPath: null },
           results: [
             {
               projectId: "proj-a",

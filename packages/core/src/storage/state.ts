@@ -108,6 +108,21 @@ export class StateStore {
     return { id: toProjectId(row.id), name: row.name, root: row.root };
   }
 
+  /**
+   * Every project ever indexed in this store, ordered by root path.
+   * `lastIndexedAt` is null when the project row exists but has not been
+   * marked indexed (e.g. discovered then aborted).
+   */
+  listProjects(): Array<Project & { readonly lastIndexedAt: string | null }> {
+    type Row = { id: string; name: string; root: string; last_indexed_at: string | null };
+    return this.readAll<Row>("list_projects").map((r) => ({
+      id: toProjectId(r.id),
+      name: r.name,
+      root: r.root,
+      lastIndexedAt: r.last_indexed_at,
+    }));
+  }
+
   markProjectIndexed(id: ProjectId, at: Date = new Date()): void {
     this.write("mark_project_indexed", [at.toISOString(), id]);
   }
