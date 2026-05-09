@@ -40,9 +40,10 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^3.0.0",
+    "@lancedb/lancedb": "^0.27.2",
+    "apache-arrow": "^18.1.0",
     "better-sqlite3": "^11.5.0",
     "chokidar": "^4.0.1",
-    "chromadb": "^1.9.0",
     "env-paths": "^3.0.0",
     "ignore": "^6.0.2",
     "tree-sitter": "^0.22.0",

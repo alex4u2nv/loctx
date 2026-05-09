@@ -46,7 +46,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
   const embeddings = createEmbeddings(config);
   // Lazy providers (Local) need a warmup; in-process providers (Fake) skip it.
   await embeddings.ensureReady?.();
-  const vectors = new VectorStore(config.paths.chromaDir, embeddings.identity, state);
+  const vectors = new VectorStore(config.paths.vectorDir, embeddings.identity, state);
   const discovery = new WorkspaceDiscovery(config.workspaceRoots);
 
   const filterFor = (project: Project): ProjectFilter =>

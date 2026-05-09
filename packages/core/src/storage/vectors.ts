@@ -1,21 +1,29 @@
 /**
- * Chroma-backed vector store with collection identity guards.
+ * LanceDB-backed vector store with collection identity guards.
  *
- * The chromadb client is loaded lazily so importing this module is cheap.
+ * Embedded, file-backed, no server process. The lancedb client is loaded
+ * lazily via dynamic import so the rest of @loctx/core stays importable
+ * without paying for native bindings up front.
+ *
+ * Layout: one Lance table per `EmbeddingIdentity` (different model →
+ * different dimension → different table). The table name carries the
+ * identity hash; the StateStore independently records which name maps
+ * to which identity, so reusing a directory with a new model raises
+ * `CollectionIdentityMismatch` before the first write.
  */
 
 import { mkdirSync } from "node:fs";
+import { Field, FixedSizeList, Float32, Int32, Schema, Utf8 } from "apache-arrow";
 import {
   type ChunkId,
   type EmbeddingIdentity,
   type FileId,
   type ProjectId,
   collectionSuffix,
-  identityToString,
 } from "../models.js";
 import type { StateStore } from "./state.js";
 
-const COLLECTION_PREFIX = "loctx_";
+const TABLE_PREFIX = "loctx_";
 
 export interface EmbeddedChunk {
   readonly chunkId: ChunkId;
@@ -27,10 +35,15 @@ export interface EmbeddedChunk {
   readonly metadata: Readonly<Record<string, string | number | boolean>>;
 }
 
+/**
+ * SQL `WHERE` predicate over the columns written by `upsertChunks`:
+ * `chunk_id`, `project_id`, `file_id`, `rel_path`, `language`, `kind`,
+ * `start_line`, `end_line`, `symbols`. Pass strings as `'value'`.
+ */
 export interface VectorQuery {
   readonly embedding: ReadonlyArray<number>;
   readonly k?: number;
-  readonly where?: Readonly<Record<string, unknown>>;
+  readonly where?: string;
 }
 
 export interface VectorMatch {
@@ -41,119 +54,181 @@ export interface VectorMatch {
 }
 
 export function collectionNameFor(identity: EmbeddingIdentity): string {
-  return `${COLLECTION_PREFIX}${collectionSuffix(identity)}`;
+  return `${TABLE_PREFIX}${collectionSuffix(identity)}`;
 }
 
-type ChromaCollection = {
-  upsert(args: {
-    ids: string[];
-    embeddings: number[][];
-    metadatas: Record<string, unknown>[];
-    documents: string[];
-  }): Promise<void>;
-  delete(args: { where: Record<string, unknown> }): Promise<void>;
-  query(args: {
-    queryEmbeddings: number[][];
-    nResults?: number;
-    where?: Record<string, unknown>;
-  }): Promise<{
-    ids: string[][];
-    distances: number[][] | null;
-    metadatas: Record<string, unknown>[][] | null;
-    documents: string[][] | null;
-  }>;
-  count(): Promise<number>;
-};
+// Minimal type sketch of the lancedb objects we touch. Pulling the real
+// types in from `@lancedb/lancedb` would force every importer of
+// @loctx/core to resolve the native bindings; the dynamic-import guard
+// is the whole point.
+interface LanceTable {
+  add(records: ReadonlyArray<Record<string, unknown>>): Promise<unknown>;
+  delete(predicate: string): Promise<unknown>;
+  countRows(filter?: string): Promise<number>;
+  mergeInsert(on: string | string[]): {
+    whenMatchedUpdateAll(): {
+      whenNotMatchedInsertAll(): {
+        execute(records: ReadonlyArray<Record<string, unknown>>): Promise<unknown>;
+      };
+    };
+  };
+  search(vector: ReadonlyArray<number>): {
+    distanceType(t: "l2" | "cosine" | "dot"): {
+      where(predicate: string): {
+        limit(n: number): { toArray(): Promise<Array<Record<string, unknown>>> };
+      };
+      limit(n: number): { toArray(): Promise<Array<Record<string, unknown>>> };
+    };
+  };
+}
+
+interface LanceConnection {
+  tableNames(): Promise<string[]>;
+  openTable(name: string): Promise<LanceTable>;
+  createEmptyTable(name: string, schema: Schema): Promise<LanceTable>;
+}
+
+interface LanceModule {
+  connect(uri: string): Promise<LanceConnection>;
+}
 
 export class VectorStore {
-  private collection: ChromaCollection | null = null;
+  private table: LanceTable | null = null;
   public readonly collectionName: string;
 
   constructor(
-    public readonly chromaDir: string,
+    public readonly vectorDir: string,
     public readonly identity: EmbeddingIdentity,
     private readonly state: StateStore,
   ) {
-    mkdirSync(chromaDir, { recursive: true });
+    mkdirSync(vectorDir, { recursive: true });
     this.collectionName = collectionNameFor(identity);
     state.registerCollection(this.collectionName, identity);
   }
 
-  /** Lazy: opens the Chroma client + collection on first use. */
-  private async ready(): Promise<ChromaCollection> {
-    if (this.collection !== null) return this.collection;
-    const { ChromaClient } = (await import("chromadb")) as unknown as {
-      ChromaClient: new (args: { path: string }) => {
-        getOrCreateCollection(args: {
-          name: string;
-          metadata: Record<string, unknown>;
-        }): Promise<ChromaCollection>;
-      };
-    };
-    const client = new ChromaClient({ path: this.chromaDir });
-    this.collection = await client.getOrCreateCollection({
-      name: this.collectionName,
-      metadata: {
-        "loctx.identity": identityToString(this.identity),
-        "loctx.provider": this.identity.provider,
-        "loctx.model": this.identity.model,
-        "loctx.dimension": this.identity.dimension,
-        "loctx.normalize": this.identity.normalize,
-      },
-    });
-    return this.collection;
+  /** Lazy: opens (or creates) the Lance table on first use. */
+  private async ready(): Promise<LanceTable> {
+    if (this.table !== null) return this.table;
+    const lancedb = (await import("@lancedb/lancedb")) as unknown as LanceModule;
+    const db = await lancedb.connect(this.vectorDir);
+    const names = await db.tableNames();
+    this.table = names.includes(this.collectionName)
+      ? await db.openTable(this.collectionName)
+      : await db.createEmptyTable(this.collectionName, buildSchema(this.identity.dimension));
+    return this.table;
   }
 
   async count(): Promise<number> {
-    return (await this.ready()).count();
+    return (await this.ready()).countRows();
   }
 
   async upsertChunks(chunks: ReadonlyArray<EmbeddedChunk>): Promise<void> {
     if (chunks.length === 0) return;
-    const collection = await this.ready();
-    await collection.upsert({
-      ids: chunks.map((c) => c.chunkId),
-      embeddings: chunks.map((c) => [...c.embedding]),
-      metadatas: chunks.map((c) => ({
-        project_id: c.projectId,
-        file_id: c.fileId,
-        rel_path: c.relPath,
-        ...c.metadata,
-      })),
-      documents: chunks.map((c) => c.document),
-    });
+    const table = await this.ready();
+    const records = chunks.map(toRecord);
+    // mergeInsert on chunk_id gives "upsert by id" semantics: a re-indexed
+    // chunk replaces its old row; new chunks are appended.
+    await table
+      .mergeInsert("chunk_id")
+      .whenMatchedUpdateAll()
+      .whenNotMatchedInsertAll()
+      .execute(records);
   }
 
   async deleteFileChunks(projectId: ProjectId, relPath: string): Promise<void> {
-    const collection = await this.ready();
-    await collection.delete({
-      where: { $and: [{ project_id: projectId }, { rel_path: relPath }] },
-    });
+    const table = await this.ready();
+    await table.delete(`project_id = ${quote(projectId)} AND rel_path = ${quote(relPath)}`);
   }
 
   async deleteProjectChunks(projectId: ProjectId): Promise<void> {
-    const collection = await this.ready();
-    await collection.delete({ where: { project_id: projectId } });
+    const table = await this.ready();
+    await table.delete(`project_id = ${quote(projectId)}`);
   }
 
   async query(request: VectorQuery): Promise<VectorMatch[]> {
-    const collection = await this.ready();
-    const result = await collection.query({
-      queryEmbeddings: [[...request.embedding]],
-      nResults: Math.max(1, request.k ?? 10),
-      ...(request.where !== undefined ? { where: request.where } : {}),
-    });
-    const ids = result.ids[0] ?? [];
-    if (ids.length === 0) return [];
-    const distances = result.distances?.[0] ?? new Array(ids.length).fill(0);
-    const metadatas = result.metadatas?.[0] ?? new Array(ids.length).fill({});
-    const documents = result.documents?.[0] ?? new Array(ids.length).fill("");
-
-    return ids.map((id, i) => ({
-      chunkId: id,
-      score: 1 - (distances[i] ?? 0),
-      metadata: metadatas[i] ?? {},
-      document: documents[i] ?? "",
-    }));
+    const table = await this.ready();
+    const limit = Math.max(1, request.k ?? 10);
+    // Embeddings from Xenova/all-MiniLM-L6-v2 (and most sentence-transformers
+    // models) are L2-normalized, so cosine ≡ dot ≡ 1 - L2²/2. We pin cosine
+    // explicitly so the score below is interpretable across providers, even
+    // ones that don't normalize.
+    const search = table.search([...request.embedding]).distanceType("cosine");
+    const stage = request.where !== undefined ? search.where(request.where) : search;
+    const rows = await stage.limit(limit).toArray();
+    return rows.map(toMatch);
   }
+}
+
+// ---- helpers -----------------------------------------------------------
+
+function buildSchema(dimension: number): Schema {
+  // FixedSizeList<Float32>[dim] is the canonical Lance vector layout. The
+  // remaining columns are flat, not nested, so SQL `where` predicates work
+  // without `unnest`.
+  return new Schema([
+    new Field("chunk_id", new Utf8(), false),
+    new Field("project_id", new Utf8(), false),
+    new Field("file_id", new Utf8(), false),
+    new Field("rel_path", new Utf8(), false),
+    new Field("language", new Utf8(), true),
+    new Field("kind", new Utf8(), true),
+    new Field("symbols", new Utf8(), true),
+    new Field("start_line", new Int32(), true),
+    new Field("end_line", new Int32(), true),
+    new Field("document", new Utf8(), false),
+    new Field(
+      "vector",
+      new FixedSizeList(dimension, new Field("item", new Float32(), true)),
+      false,
+    ),
+  ]);
+}
+
+function toRecord(c: EmbeddedChunk): Record<string, unknown> {
+  const meta = c.metadata;
+  return {
+    chunk_id: c.chunkId,
+    project_id: c.projectId,
+    file_id: c.fileId,
+    rel_path: c.relPath,
+    language: stringOrNull(meta["language"]),
+    kind: stringOrNull(meta["kind"]),
+    symbols: stringOrNull(meta["symbols"]),
+    start_line: numberOrNull(meta["start_line"]),
+    end_line: numberOrNull(meta["end_line"]),
+    document: c.document,
+    vector: Array.from(c.embedding, Number),
+  };
+}
+
+function toMatch(row: Record<string, unknown>): VectorMatch {
+  // LanceDB returns `_distance` for vector queries — lower is closer.
+  // With distanceType=cosine the value is in [0, 2]; map to [-1, 1] in the
+  // same direction as the original implementation (`1 - distance`).
+  const distance = typeof row["_distance"] === "number" ? (row["_distance"] as number) : 0;
+  const { chunk_id, document, vector, _distance, ...rest } = row as Record<string, unknown> & {
+    chunk_id?: unknown;
+    document?: unknown;
+  };
+  void vector;
+  void _distance;
+  return {
+    chunkId: String(chunk_id ?? ""),
+    score: 1 - distance,
+    metadata: Object.freeze(rest),
+    document: typeof document === "string" ? document : "",
+  };
+}
+
+function quote(s: string): string {
+  // Single quote per ANSI SQL; escape embedded quotes by doubling.
+  return `'${s.replace(/'/g, "''")}'`;
+}
+
+function stringOrNull(v: unknown): string | null {
+  return typeof v === "string" ? v : null;
+}
+
+function numberOrNull(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }

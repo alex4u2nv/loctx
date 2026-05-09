@@ -6,7 +6,7 @@
  * Two env vars override the defaults — primarily for tests that need
  * isolated storage:
  *
- *   - `LOCTX_DATA_DIR` overrides the data dir (chroma, state.sqlite3, logs).
+ *   - `LOCTX_DATA_DIR` overrides the data dir (vectors, state.sqlite3, logs).
  *   - `LOCTX_CONFIG_DIR` overrides the config dir (config.yaml).
  */
 
@@ -19,7 +19,7 @@ const PATHS = envPaths("loctx", { suffix: "" });
 export interface StoragePaths {
   readonly dataDir: string;
   readonly configDir: string;
-  readonly chromaDir: string;
+  readonly vectorDir: string;
   readonly stateDb: string;
   readonly logsDir: string;
 }
@@ -35,7 +35,7 @@ export function defaultPaths(): StoragePaths {
   return {
     dataDir,
     configDir,
-    chromaDir: join(dataDir, "chroma"),
+    vectorDir: join(dataDir, "vectors"),
     stateDb: join(dataDir, "state.sqlite3"),
     logsDir: join(dataDir, "logs"),
   };
@@ -43,7 +43,7 @@ export function defaultPaths(): StoragePaths {
 
 /** Create all storage directories if missing. Idempotent. */
 export function ensurePaths(paths: StoragePaths): void {
-  for (const dir of [paths.dataDir, paths.configDir, paths.chromaDir, paths.logsDir]) {
+  for (const dir of [paths.dataDir, paths.configDir, paths.vectorDir, paths.logsDir]) {
     mkdirSync(dir, { recursive: true });
   }
 }
