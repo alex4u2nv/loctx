@@ -23,7 +23,7 @@ import { combinedGitignore } from "./gitignore.js";
 import { ProjectIndexer } from "./indexing/index.js";
 import type { Project } from "./models.js";
 import { WorkspaceSearcher } from "./retrieval/index.js";
-import { StateStore, VectorStore } from "./storage/index.js";
+import { StateStore, type VectorStore, createVectorStore } from "./storage/index.js";
 
 export interface Runtime {
   readonly config: Config;
@@ -49,7 +49,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
   const embeddings = createEmbeddings(config);
   // Lazy providers (Local) need a warmup; in-process providers (Fake) skip it.
   await embeddings.ensureReady?.();
-  const vectors = new VectorStore(config.paths.vectorDir, embeddings.identity, state);
+  const vectors = createVectorStore(config.paths.vectorDir, embeddings.identity, state);
   const discovery = new WorkspaceDiscovery(config.workspaceRoots);
 
   const filterFor = (project: Project): ProjectFilter =>

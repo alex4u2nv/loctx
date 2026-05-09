@@ -9,6 +9,7 @@ export {
   type EmbeddedChunk,
   type VectorMatch,
   type VectorQuery,
-  VectorStore,
+  type VectorStore,
   collectionNameFor,
+  createVectorStore,
 } from "./vectors.js";
