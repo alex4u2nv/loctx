@@ -2,6 +2,8 @@ export {
   type ChunkInsert,
   type ChunkState,
   type FileState,
+  type LexicalMatch,
+  type LexicalQuery,
   CollectionIdentityMismatch,
   SCHEMA_VERSION,
   StateStore,

@@ -1,18 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceDiscovery } from "../../src/discovery.js";
 import type { EmbeddingProvider } from "../../src/embeddings/index.js";
 import { type Project, projectId } from "../../src/models.js";
 import { WorkspaceSearcher } from "../../src/retrieval/searcher.js";
+import type { LexicalMatch, LexicalQuery, StateStore } from "../../src/storage/state.js";
 import type { VectorMatch, VectorQuery, VectorStore } from "../../src/storage/vectors.js";
 
 function fakeProject(idStr: string, name: string, root: string): Project {
   return Object.freeze({ id: projectId(idStr), name, root });
 }
 
-function fakeVectors(matches: ReadonlyArray<VectorMatch>): VectorStore {
-  // Only the methods the searcher touches are stubbed.
+function fakeVectors(
+  matches: ReadonlyArray<VectorMatch>,
+  capture?: { lastQuery: VectorQuery | null },
+): VectorStore {
   return {
-    async query(_: VectorQuery): Promise<VectorMatch[]> {
+    async query(q: VectorQuery): Promise<VectorMatch[]> {
+      if (capture !== undefined) capture.lastQuery = q;
       return [...matches];
     },
   } as unknown as VectorStore;
@@ -38,6 +42,19 @@ function fakeDiscovery(projects: Project[]): WorkspaceDiscovery {
   } as unknown as WorkspaceDiscovery;
 }
 
+interface StateCapture {
+  lastQuery: LexicalQuery | null;
+}
+
+function fakeState(matches: ReadonlyArray<LexicalMatch> = [], capture?: StateCapture): StateStore {
+  return {
+    searchLexical: (q: LexicalQuery): LexicalMatch[] => {
+      if (capture !== undefined) capture.lastQuery = q;
+      return [...matches];
+    },
+  } as unknown as StateStore;
+}
+
 const baseMeta = {
   rel_path: "src/a.ts",
   start_line: 10,
@@ -61,6 +78,7 @@ describe("WorkspaceSearcher result enrichment", () => {
       ]),
       fakeEmbeddings(),
       fakeDiscovery([proj]),
+      fakeState(),
     );
 
     const response = await searcher.search({ query: "foo" });
@@ -70,6 +88,8 @@ describe("WorkspaceSearcher result enrichment", () => {
     expect(hit?.projectRoot).toBe("/tmp/demo");
     expect(hit?.relPath).toBe("src/a.ts");
     expect(hit?.absPath).toBe("/tmp/demo/src/a.ts");
+    // Vector-only hit (no lexical match) → sources is just ["vector"].
+    expect(hit?.sources).toEqual(["vector"]);
   });
 
   it("returns null projectRoot/absPath for chunks whose project is no longer registered", async () => {
@@ -84,6 +104,7 @@ describe("WorkspaceSearcher result enrichment", () => {
       ]),
       fakeEmbeddings(),
       fakeDiscovery([]),
+      fakeState(),
     );
 
     const response = await searcher.search({ query: "foo" });
@@ -110,6 +131,7 @@ describe("WorkspaceSearcher result enrichment", () => {
       ]),
       fakeEmbeddings(),
       fakeDiscovery([a, b]),
+      fakeState(),
     );
 
     const response = await searcher.search({ query: "x" });
@@ -124,8 +146,13 @@ describe("WorkspaceSearcher path-based scope", () => {
   const a = fakeProject("p1", "alpha", "/tmp/alpha");
   const b = fakeProject("p2", "beta", "/tmp/beta");
 
-  function searcherWith(matches: VectorMatch[]) {
-    return new WorkspaceSearcher(fakeVectors(matches), fakeEmbeddings(), fakeDiscovery([a, b]));
+  function searcherWith(matches: VectorMatch[], state: StateStore = fakeState()) {
+    return new WorkspaceSearcher(
+      fakeVectors(matches),
+      fakeEmbeddings(),
+      fakeDiscovery([a, b]),
+      state,
+    );
   }
 
   it("resolves a project root path to project scope", async () => {
@@ -143,23 +170,31 @@ describe("WorkspaceSearcher path-based scope", () => {
     expect(r.resolvedScope.relPrefix).toBe("src/auth/");
   });
 
-  it("post-filters results by relPrefix", async () => {
-    const matches = [
-      {
-        chunkId: "c1",
-        score: 0.9,
-        document: "match",
-        metadata: { ...baseMeta, project_id: "p1", rel_path: "src/auth/login.ts" },
-      },
-      {
-        chunkId: "c2",
-        score: 0.85,
-        document: "miss",
-        metadata: { ...baseMeta, project_id: "p1", rel_path: "src/util/helper.ts" },
-      },
-    ];
-    const r = await searcherWith(matches).search({ query: "x", path: "/tmp/alpha/src/auth" });
-    expect(r.results.map((x) => x.relPath)).toEqual(["src/auth/login.ts"]);
+  it("pushes path-prefix into the vector WHERE clause", async () => {
+    const vectorCapture: { lastQuery: VectorQuery | null } = { lastQuery: null };
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([], vectorCapture),
+      fakeEmbeddings(),
+      fakeDiscovery([a, b]),
+      fakeState(),
+    );
+    await searcher.search({ query: "x", path: "/tmp/alpha/src/auth" });
+    expect(vectorCapture.lastQuery?.where).toContain("project_id = 'p1'");
+    expect(vectorCapture.lastQuery?.where).toContain("rel_path LIKE 'src/auth/%'");
+  });
+
+  it("pushes path-prefix into the lexical query", async () => {
+    const lexCapture: StateCapture = { lastQuery: null };
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([]),
+      fakeEmbeddings(),
+      fakeDiscovery([a, b]),
+      fakeState([], lexCapture),
+    );
+    await searcher.search({ query: "auth", path: "/tmp/alpha/src/auth" });
+    expect(lexCapture.lastQuery?.projectId).toBe("p1");
+    expect(lexCapture.lastQuery?.relPathPrefix).toBe("src/auth/");
+    expect(lexCapture.lastQuery?.query).toBe("auth");
   });
 
   it("warns and falls back to all when path is outside every indexed project", async () => {
@@ -174,5 +209,98 @@ describe("WorkspaceSearcher path-based scope", () => {
     const r = await searcherWith([]).search({ query: "x" });
     expect(r.resolvedScope.mode).toBe("all");
     expect(r.warnings).toHaveLength(0);
+  });
+});
+
+describe("WorkspaceSearcher hybrid retrieval (RRF)", () => {
+  const proj = fakeProject("p1", "demo", "/tmp/demo");
+
+  function lex(chunkId: string, relPath: string, document: string, rank = -1): LexicalMatch {
+    return {
+      chunkId,
+      fileId: "f1" as never,
+      projectId: proj.id,
+      relPath,
+      startLine: 1,
+      endLine: 5,
+      kind: "function",
+      symbols: Object.freeze(["foo"]),
+      document,
+      rank,
+    };
+  }
+
+  it("fuses vector and lexical hits with RRF and reports both sources", async () => {
+    const vectorMatches: VectorMatch[] = [
+      {
+        chunkId: "c1",
+        score: 0.95,
+        document: "vector hit",
+        metadata: { ...baseMeta, project_id: "p1", rel_path: "a.ts" },
+      },
+      {
+        chunkId: "c2",
+        score: 0.5,
+        document: "vector only",
+        metadata: { ...baseMeta, project_id: "p1", rel_path: "b.ts" },
+      },
+    ];
+    const lexicalMatches = [
+      lex("c1", "a.ts", "lexical match for c1", -1.5),
+      lex("c3", "c.ts", "lexical only", -1.0),
+    ];
+    const searcher = new WorkspaceSearcher(
+      fakeVectors(vectorMatches),
+      fakeEmbeddings(),
+      fakeDiscovery([proj]),
+      fakeState(lexicalMatches),
+    );
+
+    const r = await searcher.search({ query: "foo" });
+
+    // c1 gets RRF contributions from both branches at rank 1 and 1 → highest.
+    // c2 only from vector at rank 2. c3 only from lexical at rank 2.
+    expect(r.results[0]?.chunkId).toBeUndefined(); // SearchResult doesn't expose chunkId
+    expect(r.results[0]?.relPath).toBe("a.ts");
+    expect(r.results[0]?.sources).toEqual(["lexical", "vector"]);
+
+    const aux = r.results.slice(1).map((x) => x.relPath);
+    expect(aux).toContain("b.ts");
+    expect(aux).toContain("c.ts");
+  });
+
+  it("returns no results when both branches are empty", async () => {
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([]),
+      fakeEmbeddings(),
+      fakeDiscovery([proj]),
+      fakeState([]),
+    );
+    const r = await searcher.search({ query: "nope" });
+    expect(r.results).toHaveLength(0);
+  });
+
+  it("falls back to vector-only when lexical branch throws", async () => {
+    const throwing: StateStore = {
+      searchLexical: vi.fn(() => {
+        throw new Error("FTS5 syntax error");
+      }),
+    } as unknown as StateStore;
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([
+        {
+          chunkId: "c1",
+          score: 0.9,
+          document: "x",
+          metadata: { ...baseMeta, project_id: "p1" },
+        },
+      ]),
+      fakeEmbeddings(),
+      fakeDiscovery([proj]),
+      throwing,
+    );
+    const r = await searcher.search({ query: "with: bad syntax" });
+    expect(r.results).toHaveLength(1);
+    expect(r.results[0]?.sources).toEqual(["vector"]);
   });
 });
