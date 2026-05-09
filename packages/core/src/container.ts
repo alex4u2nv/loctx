@@ -81,5 +81,8 @@ function createEmbeddings(config: Config): EmbeddingProvider {
   return new LocalEmbeddingProvider({
     modelName: config.embedding.model,
     normalize: config.embedding.normalize,
+    // Pass the data dir so ensureReady() can consult the trusted-models
+    // store and skip the network gate for explicitly-downloaded models.
+    dataDir: config.paths.dataDir,
   });
 }

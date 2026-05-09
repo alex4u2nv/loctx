@@ -8,6 +8,7 @@
 
 import type { EmbeddingIdentity } from "../models.js";
 import { requireOutboundAllowed } from "../network.js";
+import { isModelTrusted } from "../trusted-models.js";
 import type { EmbeddingProvider } from "./base.js";
 
 export const DEFAULT_LOCAL_MODEL = "Xenova/all-MiniLM-L6-v2";
@@ -33,6 +34,13 @@ export interface LocalProviderOptions {
    *  starts downloading and a "ready" line when load completes. Pass
    *  ``() => undefined`` to silence. */
   readonly onProgress?: (event: ProgressEvent) => void;
+  /**
+   * loctx data dir. When set, ensureReady() consults the trusted-models
+   * store at `<dataDir>/trusted-models.json` and skips the network gate
+   * for models the user has previously downloaded via `loctx model
+   * download`. Without it, every load goes through the gate.
+   */
+  readonly dataDir?: string;
 }
 
 export class LocalEmbeddingProvider implements EmbeddingProvider {
@@ -42,11 +50,13 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
   private pipelineP: Promise<FeatureExtractionPipeline> | null = null;
   private cachedIdentity: EmbeddingIdentity | null = null;
   private readonly onProgress: (event: ProgressEvent) => void;
+  private readonly dataDir: string | null;
 
   constructor(options: LocalProviderOptions = {}) {
     this.modelName = options.modelName ?? DEFAULT_LOCAL_MODEL;
     this.normalize = options.normalize ?? true;
     this.onProgress = options.onProgress ?? defaultProgressLogger();
+    this.dataDir = options.dataDir ?? null;
   }
 
   get identity(): EmbeddingIdentity {
@@ -62,10 +72,16 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
   async ensureReady(): Promise<EmbeddingIdentity> {
     if (this.cachedIdentity !== null) return this.cachedIdentity;
     // The HF cache may already hold the model — but we can't tell from
-    // outside the library, and a wrong-cache fallback would silently issue
-    // a network call. Gate up front; users who want it run
-    // `loctx model download` (or `loctx init`) which sets the allow flag.
-    requireOutboundAllowed("model-download");
+    // outside the library. Two-stage check:
+    //   1. If the user has previously downloaded this model via
+    //      `loctx model download`, the trusted-models store records it
+    //      and we skip the gate. The earlier explicit consent stands;
+    //      no need to re-flip the per-process allow flag for every
+    //      daemon / index / search call.
+    //   2. Otherwise require an in-process allow flag (set by
+    //      `loctx model download` itself + the init wizard).
+    const trusted = this.dataDir !== null && isModelTrusted(this.dataDir, this.modelName);
+    if (!trusted) requireOutboundAllowed("model-download");
     const pipe = await this.getPipeline();
     const probe = await pipe("loctx-init-probe", {
       pooling: "mean",
