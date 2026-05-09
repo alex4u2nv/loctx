@@ -174,7 +174,7 @@ export class WorkspaceSearcher {
     scope: ResolvedScope,
     k: number,
   ): Promise<LexicalMatch[]> {
-    const ftsQuery = request.query.trim();
+    const ftsQuery = toFtsExpression(request.query);
     if (ftsQuery === "") return [];
     try {
       const matches = this.state.searchLexical({
@@ -249,6 +249,25 @@ function buildVectorWhere(scope: ResolvedScope, language?: string): string | nul
 
 function quoteSql(s: string): string {
   return `'${s.replace(/'/g, "''")}'`;
+}
+
+/**
+ * Translate a natural-language query into an FTS5 expression. SQLite's
+ * default is implicit AND between terms, which is way too strict for
+ * agent-style queries like "rate limit middleware" where the user
+ * doesn't expect every word to appear in the same chunk. We tokenize
+ * (Unicode letters/numbers + underscore), drop tokens shorter than 2
+ * characters, and OR them. BM25 IDF naturally suppresses common terms.
+ */
+function toFtsExpression(raw: string): string {
+  const tokens = raw
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}_]+/u)
+    .filter((t) => t.length >= 2);
+  if (tokens.length === 0) return "";
+  // Quote each token so FTS5 doesn't trip on tokens that happen to
+  // collide with operators (NEAR, AND, OR, NOT) or special chars.
+  return tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" OR ");
 }
 
 interface FusedEntry {
