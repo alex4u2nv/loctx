@@ -71,6 +71,33 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     tokenize = 'porter unicode61'
 );
 
+-- :name schema_v3
+-- Analyzer metadata + symbol cross-reference graph (#58).
+--
+-- chunks gains two columns:
+--   metadata_json  — JSON-encoded AnalyzerMetadata (imports/calls/depth
+--                    /etc.). NULL for chunks indexed before v3.
+--   symbol_def     — primary symbol the chunk defines (function/class
+--                    name). Indexed for fast symbol-lookup queries.
+--
+-- symbol_refs is the cross-reference graph that #96 populates: every
+-- definition + call site discoverable per (project, symbol, kind).
+ALTER TABLE chunks ADD COLUMN metadata_json TEXT;
+ALTER TABLE chunks ADD COLUMN symbol_def TEXT;
+CREATE INDEX IF NOT EXISTS idx_chunks_symbol_def ON chunks(symbol_def);
+
+CREATE TABLE IF NOT EXISTS symbol_refs (
+    symbol TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    chunk_id TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    kind TEXT NOT NULL  -- 'def' | 'call' | 'import' | 'reference'
+);
+CREATE INDEX IF NOT EXISTS idx_symbol_refs_lookup
+    ON symbol_refs(project_id, symbol, kind);
+CREATE INDEX IF NOT EXISTS idx_symbol_refs_chunk ON symbol_refs(chunk_id);
+
 -- :name pragma_enable_foreign_keys
 PRAGMA foreign_keys = ON;
 

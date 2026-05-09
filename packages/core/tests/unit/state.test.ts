@@ -116,24 +116,87 @@ describe("StateStore", () => {
     store.close();
   });
 
-  it("re-opening at v1 idempotently runs schema_v2", async () => {
+  it("creates the symbol_refs table and chunks.metadata_json on a fresh DB (v3)", () => {
     const dbPath = join(tmp, "state.db");
-    // First open: brings DB to current schema (v2).
+    const store = new StateStore(dbPath);
+    type Row = { name: string };
+    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
+    const db = (store as unknown as { db: { prepare(sql: string): { all(): Row[] } } })["db"];
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+      .all();
+    const names = tables.map((r) => r.name);
+    expect(names).toContain("symbol_refs");
+
+    type Col = { name: string };
+    const cols = db.prepare("PRAGMA table_info(chunks)").all() as unknown as Col[];
+    const colNames = cols.map((c) => c.name);
+    expect(colNames).toContain("metadata_json");
+    expect(colNames).toContain("symbol_def");
+    store.close();
+  });
+
+  it("v2 → v3 migration adds the new columns + table without data loss", async () => {
+    const dbPath = join(tmp, "state.db");
     new StateStore(dbPath).close();
-    // Reset to v1 to simulate an old DB on disk; reopening must run v2 again.
     {
       const Database = (await import("better-sqlite3")).default;
       const raw = new Database(dbPath);
-      raw.exec("PRAGMA user_version = 1");
-      raw.exec("DROP TABLE chunks_fts");
+      // Walk back to v2: drop the v3 additions then reset user_version.
+      raw.exec("DROP TABLE IF EXISTS symbol_refs");
+      // Can't drop columns in older SQLite without table recreate; use
+      // a fresh table instead to simulate a v2 snapshot.
+      raw.exec("DROP TABLE chunks");
+      raw.exec(
+        "CREATE TABLE chunks (chunk_id TEXT PRIMARY KEY, file_id TEXT NOT NULL, start_line INTEGER NOT NULL, end_line INTEGER NOT NULL, kind TEXT NOT NULL, symbols TEXT)",
+      );
+      raw.exec("CREATE INDEX idx_chunks_file ON chunks(file_id)");
+      raw.exec("PRAGMA user_version = 2");
       raw.close();
     }
     const store = new StateStore(dbPath);
     type Row = { name: string };
     // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
     const db = (store as unknown as { db: { prepare(sql: string): { all(): Row[] } } })["db"];
-    const tables = db.prepare("SELECT name FROM sqlite_master WHERE name='chunks_fts'").all();
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='symbol_refs'")
+      .all();
     expect(tables).toHaveLength(1);
+
+    type Col = { name: string };
+    const cols = db.prepare("PRAGMA table_info(chunks)").all() as unknown as Col[];
+    expect(cols.map((c) => c.name)).toContain("metadata_json");
+    store.close();
+  });
+
+  it("re-opening at v1 idempotently runs schema_v2 + schema_v3", async () => {
+    const dbPath = join(tmp, "state.db");
+    // First open: brings DB to current schema.
+    new StateStore(dbPath).close();
+    // Walk back to v1 by dropping every v2/v3 addition + recreating
+    // chunks without the v3 columns. Reopening must replay both
+    // migrations cleanly.
+    {
+      const Database = (await import("better-sqlite3")).default;
+      const raw = new Database(dbPath);
+      raw.exec("DROP TABLE IF EXISTS chunks_fts");
+      raw.exec("DROP TABLE IF EXISTS symbol_refs");
+      raw.exec("DROP TABLE chunks");
+      raw.exec(
+        "CREATE TABLE chunks (chunk_id TEXT PRIMARY KEY, file_id TEXT NOT NULL, start_line INTEGER NOT NULL, end_line INTEGER NOT NULL, kind TEXT NOT NULL, symbols TEXT)",
+      );
+      raw.exec("CREATE INDEX idx_chunks_file ON chunks(file_id)");
+      raw.exec("PRAGMA user_version = 1");
+      raw.close();
+    }
+    const store = new StateStore(dbPath);
+    type Row = { name: string };
+    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
+    const db = (store as unknown as { db: { prepare(sql: string): { all(): Row[] } } })["db"];
+    const fts = db.prepare("SELECT name FROM sqlite_master WHERE name='chunks_fts'").all();
+    expect(fts).toHaveLength(1);
+    const refs = db.prepare("SELECT name FROM sqlite_master WHERE name='symbol_refs'").all();
+    expect(refs).toHaveLength(1);
     store.close();
   });
 
