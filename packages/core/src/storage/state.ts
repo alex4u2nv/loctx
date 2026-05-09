@@ -181,6 +181,21 @@ export class StateStore {
     this.write("mark_project_indexed", [at.toISOString(), id]);
   }
 
+  /**
+   * Delete every row associated with a project: chunks_fts, chunks, files,
+   * and the project itself, in one transaction. The vector store is the
+   * caller's responsibility (see VectorStore.deleteProjectChunks).
+   */
+  deleteProject(id: ProjectId): void {
+    const tx = this.db.transaction(() => {
+      this.write("delete_chunks_fts_for_project", [id]);
+      this.write("delete_chunks_for_project", [id]);
+      this.write("delete_files_for_project", [id]);
+      this.write("delete_project", [id]);
+    });
+    tx();
+  }
+
   // ---- files ----------------------------------------------------------
 
   upsertFile(state: FileState): void {

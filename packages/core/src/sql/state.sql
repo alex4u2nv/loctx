@@ -146,6 +146,18 @@ VALUES (?, ?, ?, ?, ?, ?);
 -- :name delete_chunks_fts_for_file
 DELETE FROM chunks_fts WHERE file_id = ?;
 
+-- :name delete_chunks_fts_for_project
+DELETE FROM chunks_fts WHERE project_id = ?;
+
+-- :name delete_chunks_for_project
+DELETE FROM chunks WHERE file_id IN (SELECT file_id FROM files WHERE project_id = ?);
+
+-- :name delete_files_for_project
+DELETE FROM files WHERE project_id = ?;
+
+-- :name delete_project
+DELETE FROM projects WHERE id = ?;
+
 -- :name search_lexical_all
 SELECT chunks_fts.chunk_id, chunks_fts.file_id, chunks_fts.project_id, chunks_fts.rel_path,
        chunks_fts.document, chunks_fts.symbols,

@@ -592,16 +592,81 @@ program
 // ---- reset --------------------------------------------------------------
 
 const reset = program.command("reset").description("Reset local state. Requires a subcommand.");
+
 reset
   .command("index")
-  .description("Delete the entire local LanceDB + SQLite state.")
+  .description(
+    "Delete ALL local LanceDB + SQLite state for the configured data dir. " +
+      "Requires --force; refuses while a daemon is running.",
+  )
   .option("--force", "Skip confirmation.", false)
-  .action(() => unimplemented("reset index"));
+  .action(async (opts: { force: boolean }) => {
+    if (!opts.force) {
+      console.error(
+        "[loctx reset index] refusing without --force.\n" +
+          "  This deletes every chunk, vector, and file row for the configured\n" +
+          "  data dir. Source files are untouched. Pass --force to proceed.",
+      );
+      process.exit(1);
+    }
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+
+    const lock = readActiveDaemon(config.paths.dataDir);
+    if (lock !== null) {
+      console.error(
+        `[loctx reset index] daemon is running (PID ${lock.pid}). Stop it first with 'loctx stop'.`,
+      );
+      process.exit(1);
+    }
+
+    const { rmSync } = await import("node:fs");
+    rmSync(config.paths.vectorDir, { recursive: true, force: true });
+    rmSync(config.paths.stateDb, { force: true });
+    rmSync(`${config.paths.stateDb}-wal`, { force: true });
+    rmSync(`${config.paths.stateDb}-shm`, { force: true });
+    console.error(
+      `[loctx reset index] cleared ${config.paths.vectorDir} and ${config.paths.stateDb}.`,
+    );
+    console.error("[loctx reset index] run 'loctx index' to rebuild.");
+  });
+
 reset
   .command("project <path>")
-  .description("Delete index entries for a single project.")
+  .description(
+    "Delete index entries for a single project (LanceDB + SQLite). " +
+      "Requires --force; refuses while a daemon is running.",
+  )
   .option("--force", "Skip confirmation.", false)
-  .action((path: string) => unimplemented("reset project", `(${path})`));
+  .action(async (path: string, opts: { force: boolean }) => {
+    if (!opts.force) {
+      console.error(
+        `[loctx reset project] refusing without --force.\n  This deletes every chunk + vector row for the project at\n  ${resolve(path)}. Source files are untouched.`,
+      );
+      process.exit(1);
+    }
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+
+    const lock = readActiveDaemon(config.paths.dataDir);
+    if (lock !== null) {
+      console.error(
+        `[loctx reset project] daemon is running (PID ${lock.pid}). Stop it first with 'loctx stop'.`,
+      );
+      process.exit(1);
+    }
+
+    const project = makeProject(resolve(path));
+    const runtime = await buildRuntime(config);
+    try {
+      await runtime.vectors.deleteProjectChunks(project.id);
+      runtime.state.deleteProject(project.id);
+      console.error(`[loctx reset project] cleared ${project.name} (${project.root}).`);
+    } finally {
+      await runtime.close();
+    }
+  });
+
 reset.action(() => {
   console.log("loctx reset: specify a subcommand (e.g. 'index' or 'project').");
   console.log("No destructive default. Use --help for options.");
