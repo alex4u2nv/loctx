@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { chunkFile } from "../../src/chunking/index.js";
 import {
   type AnalyzerMetadata,
   analyzerMetadataFromJson,
@@ -54,5 +55,70 @@ describe("AnalyzerMetadata serialization", () => {
     expect(minimal?.maxNestingDepth).toBe(0);
     expect(minimal?.hasAsync).toBe(false);
     expect(minimal?.riskyCalls).toEqual([]);
+  });
+});
+
+describe("AST extraction via chunker (#59)", () => {
+  it("extracts imports + calls + paramCount + hasAsync from a TS function", () => {
+    const ts = [
+      "import { verifyJwt } from './jwt';",
+      "",
+      "async function authenticateUser(token: string, opts: { strict: boolean }) {",
+      "  const claims = await verifyJwt(token);",
+      "  if (!claims) throw new Error('bad token');",
+      "  return claims;",
+      "}",
+      "",
+    ].join("\n");
+    const chunks = chunkFile("src/auth.ts", ts);
+    const fn = chunks.find((c) => c.symbols[0] === "authenticateUser");
+    expect(fn?.analyzer).toBeDefined();
+    const meta = fn?.analyzer;
+    expect(meta?.calls).toContain("verifyJwt");
+    expect(meta?.paramCount).toBe(2);
+    expect(meta?.hasAsync).toBe(true);
+    expect(meta?.analysisSource).toBe("tree-sitter");
+    expect(meta?.analysisVersion).toBe(1);
+  });
+
+  it("extracts imports + calls from a Python function", () => {
+    const py = [
+      "from os import path",
+      "import json",
+      "",
+      "def parse_config(raw: str) -> dict:",
+      "    data = json.loads(raw)",
+      "    return data",
+      "",
+    ].join("\n");
+    const chunks = chunkFile("tools/config.py", py);
+    const fn = chunks.find((c) => c.kind === "function");
+    expect(fn?.analyzer).toBeDefined();
+    const meta = fn?.analyzer;
+    expect(meta?.calls).toContain("loads");
+    expect(meta?.paramCount).toBe(1);
+    expect(meta?.hasAsync).toBe(false);
+  });
+
+  it("extracts nesting depth from nested loops/blocks", () => {
+    const ts = [
+      "function deep() {",
+      "  for (let i = 0; i < 3; i++) {",
+      "    if (i % 2 === 0) {",
+      "      while (true) { break; }",
+      "    }",
+      "  }",
+      "}",
+    ].join("\n");
+    const chunks = chunkFile("src/deep.ts", ts);
+    const fn = chunks.find((c) => c.kind === "function");
+    expect(fn?.analyzer?.maxNestingDepth).toBeGreaterThanOrEqual(2);
+    expect(fn?.analyzer?.maxLoopDepth).toBeGreaterThanOrEqual(2);
+  });
+
+  it("leaves analyzer undefined for non-code chunks (markdown)", () => {
+    const md = "# Title\n\nbody text\n";
+    const chunks = chunkFile("notes.md", md);
+    expect(chunks[0]?.analyzer).toBeUndefined();
   });
 });

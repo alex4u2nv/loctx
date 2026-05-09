@@ -12,6 +12,7 @@
  */
 
 import { createRequire } from "node:module";
+import { extractAnalyzer } from "./analyzer.js";
 import { type Chunker, type CodeChunk, type SourceDocument, chunkShaFor } from "./base.js";
 import { LineWindowChunker } from "./prose.js";
 
@@ -220,17 +221,18 @@ export class TreeSitterCodeChunker implements Chunker {
     const chunks: CodeChunk[] = [];
     for (const node of tree.rootNode.namedChildren) {
       if (!chunkable.has(node.type)) continue;
-      chunks.push(chunkFromNode(node, document.content));
+      chunks.push(chunkFromNode(node, document.content, language));
     }
     return chunks.length > 0 ? chunks : this.fallback.chunk(document);
   }
 }
 
-function chunkFromNode(node: TreeSitterNode, source: string): CodeChunk {
+function chunkFromNode(node: TreeSitterNode, source: string, language: string): CodeChunk {
   const startLine = node.startPosition.row + 1;
   const endLine = node.endPosition.row + 1;
   const lines = source.split(/\r?\n/);
   const body = lines.slice(startLine - 1, endLine).join("\n");
+  const analyzer = extractAnalyzer(node, language);
   return {
     startLine,
     endLine,
@@ -238,6 +240,7 @@ function chunkFromNode(node: TreeSitterNode, source: string): CodeChunk {
     kind: KIND_BY_NODE[node.type] ?? "definition",
     symbols: extractSymbols(node),
     chunkSha: chunkShaFor(body),
+    ...(analyzer !== null ? { analyzer } : {}),
   };
 }
 

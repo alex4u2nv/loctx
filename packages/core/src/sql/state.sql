@@ -157,8 +157,11 @@ DELETE FROM files WHERE project_id = ? AND rel_path = ?;
 DELETE FROM chunks WHERE file_id = ?;
 
 -- :name insert_chunk
-INSERT INTO chunks (chunk_id, file_id, start_line, end_line, kind, symbols)
-VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO chunks (
+    chunk_id, file_id, start_line, end_line, kind, symbols,
+    metadata_json, symbol_def
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- :name list_chunks
 SELECT chunk_id, file_id, start_line, end_line, kind, symbols

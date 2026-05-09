@@ -6,10 +6,12 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import {
+  type AnalyzerMetadata,
   type EmbeddingIdentity,
   type FileId,
   type Project,
   type ProjectId,
+  analyzerMetadataToJson,
   identityToString,
   projectId as toProjectId,
 } from "../models.js";
@@ -60,6 +62,10 @@ export interface ChunkInsert extends ChunkState {
   readonly projectId: ProjectId;
   readonly relPath: string;
   readonly document: string;
+  /** Optional AST metadata serialized to chunks.metadata_json. */
+  readonly analyzer?: AnalyzerMetadata;
+  /** Primary symbol the chunk defines, indexed for symbol lookup. */
+  readonly symbolDef?: string;
 }
 
 /** Input for {@link StateStore.searchLexical}. */
@@ -259,7 +265,22 @@ export class StateStore {
       this.write("delete_chunks_for_file", [fileId]);
       for (const c of chunkArr) {
         const symbolsJoined = c.symbols.length > 0 ? c.symbols.join(",") : null;
-        insertChunk.run(c.chunkId, c.fileId, c.startLine, c.endLine, c.kind, symbolsJoined);
+        // metadata_json + symbol_def written inline. The chunker (#59)
+        // populates analyzer when tree-sitter has a profile for the
+        // language; non-code chunks (markdown, line-window) leave it
+        // undefined and we store NULL.
+        const metadataJson = c.analyzer !== undefined ? analyzerMetadataToJson(c.analyzer) : null;
+        const symbolDef = c.symbolDef ?? c.symbols[0] ?? null;
+        insertChunk.run(
+          c.chunkId,
+          c.fileId,
+          c.startLine,
+          c.endLine,
+          c.kind,
+          symbolsJoined,
+          metadataJson,
+          symbolDef,
+        );
         // FTS5 has no nullable distinction; pass empty strings rather than NULL.
         insertFts.run(c.chunkId, c.fileId, c.projectId, c.relPath, c.document, symbolsJoined ?? "");
       }

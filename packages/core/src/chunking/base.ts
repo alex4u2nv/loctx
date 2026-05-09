@@ -17,6 +17,12 @@ export interface CodeChunk {
   readonly kind: string;
   readonly symbols: ReadonlyArray<string>;
   readonly chunkSha: string;
+  /**
+   * Optional cheap AST metadata (#59). Tree-sitter chunks attach this when
+   * extraction succeeds; line-window / markdown chunks leave it undefined.
+   * Indexed callers serialize to chunks.metadata_json.
+   */
+  readonly analyzer?: import("../models.js").AnalyzerMetadata;
 }
 
 export interface Chunker {

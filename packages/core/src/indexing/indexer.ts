@@ -204,6 +204,8 @@ export class ProjectIndexer {
         kind: c.kind,
         symbols: c.symbols,
         document: c.content,
+        ...(c.analyzer !== undefined ? { analyzer: c.analyzer } : {}),
+        ...(c.symbols.length > 0 && c.symbols[0] !== undefined ? { symbolDef: c.symbols[0] } : {}),
       };
     });
     this.state.replaceChunks(fileId, chunkInserts);
