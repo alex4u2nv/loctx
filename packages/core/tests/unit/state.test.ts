@@ -266,6 +266,59 @@ describe("StateStore", () => {
     store.close();
   });
 
+  it("deleteProject cascades to chunks_fts, chunks, files, projects", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const fs = fileState(project);
+    store.upsertFile(fs);
+
+    store.replaceChunks(fs.fileId, [
+      {
+        chunkId: "p1c1",
+        fileId: fs.fileId,
+        projectId: project.id,
+        relPath: "src/a.py",
+        startLine: 1,
+        endLine: 5,
+        kind: "function",
+        symbols: ["foo"],
+        document: "def foo(): pass",
+      },
+    ]);
+
+    type CountRow = { count: number };
+    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
+    const db = (
+      store as unknown as { db: { prepare(sql: string): { get(...args: unknown[]): CountRow } } }
+    )["db"];
+    const count = (table: string): number =>
+      db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM ${table} WHERE project_id = ? OR file_id IN (SELECT file_id FROM files WHERE project_id = ?)`,
+        )
+        .get(project.id, project.id).count;
+
+    // Sanity: chunks present.
+    expect(store.listChunks(fs.fileId)).toHaveLength(1);
+
+    store.deleteProject(project.id);
+
+    expect(store.getProject(project.id)).toBeNull();
+    expect(store.listFiles(project.id)).toEqual([]);
+    expect(store.listChunks(fs.fileId)).toEqual([]);
+    // chunks_fts: filter by project_id directly since file row is gone.
+    const ftsCount = db
+      .prepare("SELECT COUNT(*) AS count FROM chunks_fts WHERE project_id = ?")
+      .get(project.id);
+    expect(ftsCount.count).toBe(0);
+    // Suppress the unused-helper warning when COUNT runs above doesn't trip
+    // — the JOIN-style helper above is a sanity convenience for diagnostics.
+    void count;
+
+    store.close();
+  });
+
   it("FTS5 BM25 finds chunks by document content", () => {
     const project = makeProject();
     const store = new StateStore(join(tmp, "state.db"));
