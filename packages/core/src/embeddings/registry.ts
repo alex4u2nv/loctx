@@ -45,9 +45,9 @@ export const EMBEDDING_REGISTRY: ReadonlyArray<EmbeddingModelInfo> = Object.free
     useCase: "mixed",
   },
   {
-    name: "Xenova/embeddinggemma-300m",
-    description: "Higher quality on both code and prose. What qmd uses.",
-    sizeMB: 300,
+    name: "Xenova/all-mpnet-base-v2",
+    description: "Higher quality on both code and prose. ~3x slower than MiniLM, ~5% more accurate.",
+    sizeMB: 420,
     dimension: 768,
     normalize: true,
     useCase: "mixed",
