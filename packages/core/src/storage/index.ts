@@ -1,4 +1,5 @@
 export {
+  type ChunkInsert,
   type ChunkState,
   type FileState,
   CollectionIdentityMismatch,

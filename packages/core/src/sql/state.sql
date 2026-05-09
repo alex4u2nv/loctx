@@ -139,6 +139,13 @@ FROM chunks
 WHERE file_id = ?
 ORDER BY start_line;
 
+-- :name insert_chunk_fts
+INSERT INTO chunks_fts (chunk_id, file_id, project_id, rel_path, document, symbols)
+VALUES (?, ?, ?, ?, ?, ?);
+
+-- :name delete_chunks_fts_for_file
+DELETE FROM chunks_fts WHERE file_id = ?;
+
 -- :name get_collection_identity
 SELECT identity FROM collections WHERE name = ?;
 

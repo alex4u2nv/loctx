@@ -42,6 +42,26 @@ export interface ChunkState {
   readonly symbols: ReadonlyArray<string>;
 }
 
+/**
+ * Shape passed to {@link StateStore.replaceChunks} when (re-)indexing a file.
+ * Carries everything needed to write both the chunks bookkeeping row and
+ * the chunks_fts BM25 row in one transaction.
+ *
+ *   - inherits from {@link ChunkState}: chunk_id, file_id, lines, kind, symbols
+ *   - `document`   — chunk body (the BM25-ranked column in chunks_fts)
+ *   - `projectId`  — for FTS5 project-scoped filtering
+ *   - `relPath`    — for FTS5 path-prefix filtering
+ *
+ * Listing chunks back via {@link StateStore.listChunks} returns the lighter
+ * {@link ChunkState} only — the FTS5 index is the source of truth for
+ * `document` content; we don't denormalize it onto the chunks table.
+ */
+export interface ChunkInsert extends ChunkState {
+  readonly projectId: ProjectId;
+  readonly relPath: string;
+  readonly document: string;
+}
+
 export class StateStore {
   private readonly db: Database.Database;
   private readonly stmts = new Map<string, Database.Statement>();
@@ -161,26 +181,42 @@ export class StateStore {
     return this.readAll<FileRow>("list_files", [projectId]).map(fileStateFromRow);
   }
 
+  /**
+   * Delete a file row + cascade to chunks + chunks_fts in one transaction.
+   * Without the cascade, watcher "unlink" events would leave orphaned chunk
+   * and FTS rows that no later replaceChunks call could clean up (the file_id
+   * is unrecoverable once the file row is gone).
+   */
   deleteFile(projectId: ProjectId, relPath: string): void {
-    this.write("delete_file", [projectId, relPath]);
+    const file = this.getFile(projectId, relPath);
+    if (file === null) return;
+    const tx = this.db.transaction(() => {
+      this.write("delete_chunks_fts_for_file", [file.fileId]);
+      this.write("delete_chunks_for_file", [file.fileId]);
+      this.write("delete_file", [projectId, relPath]);
+    });
+    tx();
   }
 
   // ---- chunks ---------------------------------------------------------
 
-  replaceChunks(fileId: FileId, chunks: Iterable<ChunkState>): void {
+  /**
+   * Replace every chunk row for `fileId` in a single transaction. Writes
+   * both the chunks bookkeeping table and the chunks_fts BM25 index so
+   * lexical search stays consistent with vector search.
+   */
+  replaceChunks(fileId: FileId, chunks: Iterable<ChunkInsert>): void {
     const chunkArr = [...chunks];
-    const insert = this.prepare("insert_chunk");
+    const insertChunk = this.prepare("insert_chunk");
+    const insertFts = this.prepare("insert_chunk_fts");
     const tx = this.db.transaction(() => {
+      this.write("delete_chunks_fts_for_file", [fileId]);
       this.write("delete_chunks_for_file", [fileId]);
       for (const c of chunkArr) {
-        insert.run(
-          c.chunkId,
-          c.fileId,
-          c.startLine,
-          c.endLine,
-          c.kind,
-          c.symbols.length > 0 ? c.symbols.join(",") : null,
-        );
+        const symbolsJoined = c.symbols.length > 0 ? c.symbols.join(",") : null;
+        insertChunk.run(c.chunkId, c.fileId, c.startLine, c.endLine, c.kind, symbolsJoined);
+        // FTS5 has no nullable distinction; pass empty strings rather than NULL.
+        insertFts.run(c.chunkId, c.fileId, c.projectId, c.relPath, c.document, symbolsJoined ?? "");
       }
     });
     tx();

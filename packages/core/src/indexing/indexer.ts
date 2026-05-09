@@ -12,7 +12,7 @@ import type { EmbeddingProvider } from "../embeddings/index.js";
 import type { ProjectFilter } from "../filtering.js";
 import { type ChunkId, type Project, identityToString } from "../models.js";
 import type {
-  ChunkState,
+  ChunkInsert,
   EmbeddedChunk,
   FileState,
   StateStore,
@@ -191,19 +191,22 @@ export class ProjectIndexer {
     await this.vectors.deleteFileChunks(project.id, relPath);
     await this.vectors.upsertChunks(embedded);
 
-    const chunkStates: ChunkState[] = embedded.map((ec, i) => {
+    const chunkInserts: ChunkInsert[] = embedded.map((ec, i) => {
       const c = chunks[i];
       if (c === undefined) throw new Error("chunk index out of range");
       return {
         chunkId: ec.chunkId,
         fileId,
+        projectId: project.id,
+        relPath,
         startLine: c.startLine,
         endLine: c.endLine,
         kind: c.kind,
         symbols: c.symbols,
+        document: c.content,
       };
     });
-    this.state.replaceChunks(fileId, chunkStates);
+    this.state.replaceChunks(fileId, chunkInserts);
 
     const stat = statSync(absPath);
     const fileState: FileState = {

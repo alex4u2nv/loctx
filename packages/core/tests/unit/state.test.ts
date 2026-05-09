@@ -8,7 +8,11 @@ import {
   fileId as toFileId,
 } from "../../src/models.js";
 import type { FileState } from "../../src/storage/index.js";
-import { CollectionIdentityMismatch, StateStore } from "../../src/storage/state.js";
+import {
+  type ChunkInsert,
+  CollectionIdentityMismatch,
+  StateStore,
+} from "../../src/storage/state.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
 
 let tmp: string;
@@ -140,6 +144,172 @@ describe("StateStore", () => {
     store.upsertFile(fileState(project));
     store.deleteFile(project.id, "src/a.py");
     expect(store.listFiles(project.id)).toEqual([]);
+    store.close();
+  });
+
+  it("replaceChunks writes both chunks and chunks_fts in one transaction", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const fs = fileState(project);
+    store.upsertFile(fs);
+
+    const inserts: ChunkInsert[] = [
+      {
+        chunkId: "c1",
+        fileId: fs.fileId,
+        projectId: project.id,
+        relPath: "src/a.py",
+        startLine: 1,
+        endLine: 5,
+        kind: "function",
+        symbols: ["hello"],
+        document: "def hello():\n    return 'world'\n",
+      },
+      {
+        chunkId: "c2",
+        fileId: fs.fileId,
+        projectId: project.id,
+        relPath: "src/a.py",
+        startLine: 7,
+        endLine: 10,
+        kind: "class",
+        symbols: ["Greeter"],
+        document: "class Greeter:\n    pass\n",
+      },
+    ];
+    store.replaceChunks(fs.fileId, inserts);
+
+    expect(store.listChunks(fs.fileId)).toHaveLength(2);
+
+    // Reach into the same DB to confirm chunks_fts populated.
+    type Row = { chunk_id: string; document: string; symbols: string };
+    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
+    const db = (store as unknown as { db: { prepare(sql: string): { all(): Row[] } } })["db"];
+    const ftsRows = db
+      .prepare("SELECT chunk_id, document, symbols FROM chunks_fts ORDER BY chunk_id")
+      .all();
+    expect(ftsRows.map((r) => r.chunk_id)).toEqual(["c1", "c2"]);
+    expect(ftsRows[0]?.document).toContain("hello");
+    expect(ftsRows[0]?.symbols).toBe("hello");
+    expect(ftsRows[1]?.symbols).toBe("Greeter");
+
+    store.close();
+  });
+
+  it("replaceChunks deletes prior FTS rows on re-index", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const fs = fileState(project);
+    store.upsertFile(fs);
+
+    const v1: ChunkInsert = {
+      chunkId: "c1",
+      fileId: fs.fileId,
+      projectId: project.id,
+      relPath: "src/a.py",
+      startLine: 1,
+      endLine: 3,
+      kind: "function",
+      symbols: ["old"],
+      document: "old body",
+    };
+    store.replaceChunks(fs.fileId, [v1]);
+
+    const v2: ChunkInsert = { ...v1, chunkId: "c2", symbols: ["new"], document: "new body" };
+    store.replaceChunks(fs.fileId, [v2]);
+
+    type Row = { chunk_id: string };
+    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
+    const db = (store as unknown as { db: { prepare(sql: string): { all(): Row[] } } })["db"];
+    const ftsRows = db
+      .prepare(`SELECT chunk_id FROM chunks_fts WHERE file_id = '${fs.fileId}'`)
+      .all();
+    expect(ftsRows.map((r) => r.chunk_id)).toEqual(["c2"]);
+
+    store.close();
+  });
+
+  it("deleteFile cascades to chunks and chunks_fts", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const fs = fileState(project);
+    store.upsertFile(fs);
+
+    const insert: ChunkInsert = {
+      chunkId: "c1",
+      fileId: fs.fileId,
+      projectId: project.id,
+      relPath: "src/a.py",
+      startLine: 1,
+      endLine: 3,
+      kind: "function",
+      symbols: ["foo"],
+      document: "def foo(): pass",
+    };
+    store.replaceChunks(fs.fileId, [insert]);
+    expect(store.listChunks(fs.fileId)).toHaveLength(1);
+
+    store.deleteFile(project.id, "src/a.py");
+
+    expect(store.listChunks(fs.fileId)).toEqual([]);
+    type Row = { count: number };
+    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
+    const db = (store as unknown as { db: { prepare(sql: string): { get(): Row } } })["db"];
+    const row = db
+      .prepare(`SELECT COUNT(*) AS count FROM chunks_fts WHERE file_id = '${fs.fileId}'`)
+      .get();
+    expect(row.count).toBe(0);
+
+    store.close();
+  });
+
+  it("FTS5 BM25 finds chunks by document content", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const fs = fileState(project);
+    store.upsertFile(fs);
+
+    store.replaceChunks(fs.fileId, [
+      {
+        chunkId: "auth",
+        fileId: fs.fileId,
+        projectId: project.id,
+        relPath: "src/auth.ts",
+        startLine: 1,
+        endLine: 5,
+        kind: "function",
+        symbols: ["authenticate"],
+        document: "verify the user authentication token and return the session.",
+      },
+      {
+        chunkId: "log",
+        fileId: fs.fileId,
+        projectId: project.id,
+        relPath: "src/log.ts",
+        startLine: 1,
+        endLine: 3,
+        kind: "function",
+        symbols: ["logger"],
+        document: "create a logger that writes to stdout.",
+      },
+    ]);
+
+    type Row = { chunk_id: string; rank: number };
+    // biome-ignore lint/complexity/useLiteralKeys: better-sqlite3 internal access in test
+    const db = (
+      store as unknown as { db: { prepare(sql: string): { all(...args: unknown[]): Row[] } } }
+    )["db"];
+    const hits = db
+      .prepare(
+        "SELECT chunk_id, bm25(chunks_fts) AS rank FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts) LIMIT 5",
+      )
+      .all("authentication");
+    expect(hits[0]?.chunk_id).toBe("auth");
+
     store.close();
   });
 });
