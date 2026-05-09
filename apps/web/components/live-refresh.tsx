@@ -1,12 +1,5 @@
 "use client";
 
-/**
- * Subscribes to /api/events (SSE) and calls router.refresh() on each watcher
- * event so the surrounding server component re-renders with fresh
- * StateStore data. Renders a tiny status dot so users see when the live
- * connection is open vs. disconnected.
- */
-
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -33,7 +26,8 @@ export function LiveRefresh() {
     return () => source.close();
   }, [router]);
 
-  const color = state === "open" ? "#7af0a0" : state === "closed" ? "#ff9b9b" : "#ffd97a";
+  const dotClass =
+    state === "open" ? "dot-ok" : state === "closed" ? "dot-bad" : "dot-warn";
   const tooltip =
     state === "open"
       ? `live · last event: ${lastAt ? new Date(lastAt).toLocaleTimeString() : "—"}`
@@ -42,25 +36,8 @@ export function LiveRefresh() {
         : "connecting…";
 
   return (
-    <span
-      title={tooltip}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        fontSize: 12,
-        color: "#7a85b8",
-      }}
-    >
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          background: color,
-          boxShadow: `0 0 6px ${color}`,
-        }}
-      />
+    <span title={tooltip} className={`dot ${dotClass}`}>
+      <span className="dot-mark" />
       <span>{state === "open" ? "live" : state}</span>
     </span>
   );
