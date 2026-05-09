@@ -56,7 +56,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
     new ProjectFilter(project, rules, combinedGitignore(project.root));
 
   const indexer = new ProjectIndexer(state, vectors, embeddings, filterFor);
-  const searcher = new WorkspaceSearcher(vectors, embeddings, discovery, state);
+  const searcher = new WorkspaceSearcher(vectors, embeddings, discovery, state, config.retrieval);
 
   return Object.freeze({
     config,

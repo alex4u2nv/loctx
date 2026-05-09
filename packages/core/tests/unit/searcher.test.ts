@@ -280,6 +280,41 @@ describe("WorkspaceSearcher hybrid retrieval (RRF)", () => {
     expect(r.results).toHaveLength(0);
   });
 
+  it("vector-only mode skips the lexical branch entirely", async () => {
+    const lexCapture: StateCapture = { lastQuery: null };
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([
+        {
+          chunkId: "c1",
+          score: 0.9,
+          document: "x",
+          metadata: { ...baseMeta, project_id: "p1" },
+        },
+      ]),
+      fakeEmbeddings(),
+      fakeDiscovery([proj]),
+      fakeState([], lexCapture),
+      { mode: "vector", rrfK: 60 },
+    );
+    const r = await searcher.search({ query: "foo" });
+    expect(lexCapture.lastQuery).toBeNull();
+    expect(r.results[0]?.sources).toEqual(["vector"]);
+  });
+
+  it("lexical-only mode skips embedding + vector query", async () => {
+    const vectorCapture: { lastQuery: VectorQuery | null } = { lastQuery: null };
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([], vectorCapture),
+      fakeEmbeddings(),
+      fakeDiscovery([proj]),
+      fakeState([lex("c1", "a.ts", "lexical hit")]),
+      { mode: "lexical", rrfK: 60 },
+    );
+    const r = await searcher.search({ query: "foo" });
+    expect(vectorCapture.lastQuery).toBeNull();
+    expect(r.results[0]?.sources).toEqual(["lexical"]);
+  });
+
   it("falls back to vector-only when lexical branch throws", async () => {
     const throwing: StateStore = {
       searchLexical: vi.fn(() => {

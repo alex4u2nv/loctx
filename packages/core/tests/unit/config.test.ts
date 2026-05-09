@@ -124,4 +124,26 @@ describe("loadConfig precedence chain", () => {
       if (prev !== undefined) process.env["LOCTX_EMBEDDING_PROVIDER"] = prev;
     }
   });
+
+  it("retrieval defaults to hybrid mode with k=60", () => {
+    const config = loadConfig({ configPath, cwd: tmp });
+    expect(config.retrieval.mode).toBe("hybrid");
+    expect(config.retrieval.rrfK).toBe(60);
+    expect(config.sources["retrieval.mode"]).toBe("default");
+    expect(config.sources["retrieval.rrfK"]).toBe("default");
+  });
+
+  it("global retrieval section overrides defaults", () => {
+    writeFileSync(configPath, "retrieval:\n  mode: vector\n  rrf_k: 100\n", "utf-8");
+    const config = loadConfig({ configPath, cwd: tmp });
+    expect(config.retrieval.mode).toBe("vector");
+    expect(config.retrieval.rrfK).toBe(100);
+    expect(config.sources["retrieval.mode"]).toBe("global");
+    expect(config.sources["retrieval.rrfK"]).toBe("global");
+  });
+
+  it("rejects an unknown retrieval.mode", () => {
+    writeFileSync(configPath, "retrieval:\n  mode: bogus\n", "utf-8");
+    expect(() => loadConfig({ configPath, cwd: tmp })).toThrow(ConfigError);
+  });
 });

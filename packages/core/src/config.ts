@@ -57,6 +57,21 @@ export interface DaemonConfig {
   readonly hostname: string;
 }
 
+/**
+ * Which retrieval branches the searcher fires.
+ *   - `hybrid`  — both vector (LanceDB) and lexical (FTS5/BM25) in parallel,
+ *                 fused via reciprocal rank fusion. Default; best quality.
+ *   - `vector`  — vector branch only. For benchmarks or when FTS5 is broken.
+ *   - `lexical` — BM25 only. Cheaper at query time; no embedding required.
+ */
+export type RetrievalMode = "hybrid" | "vector" | "lexical";
+
+export interface RetrievalConfig {
+  readonly mode: RetrievalMode;
+  /** Reciprocal Rank Fusion constant. Literature default is 60. */
+  readonly rrfK: number;
+}
+
 export type ConfigSource = "default" | "global" | "project" | "env";
 
 /** Where each leaf came from. Keyed by dot-path (e.g. "embedding.model"). */
@@ -68,6 +83,7 @@ export interface Config {
   readonly embedding: EmbeddingConfig;
   readonly watcher: WatcherConfig;
   readonly daemon: DaemonConfig;
+  readonly retrieval: RetrievalConfig;
   /** Path of the global YAML if loaded; null when only defaults applied. */
   readonly source: string | null;
   /** Path of the project YAML if discovered; null otherwise. */
@@ -91,6 +107,16 @@ const DEFAULT_DAEMON: DaemonConfig = Object.freeze({
   port: DEFAULT_DAEMON_PORT,
   hostname: DEFAULT_DAEMON_HOSTNAME,
 });
+
+const DEFAULT_RRF_K = 60;
+const DEFAULT_RETRIEVAL: RetrievalConfig = Object.freeze({
+  mode: "hybrid",
+  rrfK: DEFAULT_RRF_K,
+});
+
+const VALID_RETRIEVAL_MODES: ReadonlySet<RetrievalMode> = Object.freeze(
+  new Set<RetrievalMode>(["hybrid", "vector", "lexical"]),
+);
 
 export function defaultConfigYaml(): string {
   return join(dirname(defaultPaths().configDir), "loctx", "config.yaml");
@@ -139,6 +165,7 @@ export function loadConfig(options?: string | LoadConfigOptions): Config {
     embedding: merged.embedding,
     watcher: merged.watcher,
     daemon: merged.daemon,
+    retrieval: merged.retrieval,
     source: globalRaw === null ? null : globalPath,
     projectSource: projectRaw === null ? null : projectPath,
     sources: Object.freeze(sources),
@@ -200,6 +227,7 @@ interface MergedFields {
   readonly embedding: EmbeddingConfig;
   readonly watcher: WatcherConfig;
   readonly daemon: DaemonConfig;
+  readonly retrieval: RetrievalConfig;
 }
 
 function mergeFields(
@@ -214,6 +242,7 @@ function mergeFields(
     embedding: mergeEmbedding(project, global, env, sources),
     watcher: mergeWatcher(project, global, sources),
     daemon: mergeDaemon(project, global, sources),
+    retrieval: mergeRetrieval(project, global, sources),
   };
 }
 
@@ -266,6 +295,28 @@ function mergeDaemon(
   return Object.freeze({
     port: pick("daemon.port", "port", INT_NON_NEG, DEFAULT_DAEMON.port),
     hostname: pick("daemon.hostname", "hostname", STR, DEFAULT_DAEMON.hostname),
+  });
+}
+
+function mergeRetrieval(
+  project: Record<string, unknown> | null,
+  global: Record<string, unknown> | null,
+  sources: Record<string, ConfigSource>,
+): RetrievalConfig {
+  const pick = makePicker(
+    sectionRecord(project, "retrieval", "<project>"),
+    sectionRecord(global, "retrieval", "<global>"),
+    sources,
+  );
+  const modeStr = pick("retrieval.mode", "mode", STR, DEFAULT_RETRIEVAL.mode);
+  if (!VALID_RETRIEVAL_MODES.has(modeStr as RetrievalMode)) {
+    throw new ConfigError(
+      `retrieval.mode must be one of ${[...VALID_RETRIEVAL_MODES].join(", ")} (got '${modeStr}')`,
+    );
+  }
+  return Object.freeze({
+    mode: modeStr as RetrievalMode,
+    rrfK: pick("retrieval.rrfK", "rrf_k", INT_NON_NEG, DEFAULT_RETRIEVAL.rrfK),
   });
 }
 
@@ -348,4 +399,10 @@ watcher:
 daemon:
   port: 3000
   hostname: localhost
+
+retrieval:
+  # hybrid (default) | vector | lexical
+  mode: hybrid
+  # Reciprocal rank fusion constant; 60 is the literature default.
+  rrf_k: 60
 `;

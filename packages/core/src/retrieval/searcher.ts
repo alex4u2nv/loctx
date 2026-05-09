@@ -17,6 +17,7 @@
 
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { detectLanguage } from "../chunking/index.js";
+import type { RetrievalConfig } from "../config.js";
 import type { WorkspaceDiscovery } from "../discovery.js";
 import type { EmbeddingProvider } from "../embeddings/index.js";
 import type { Project } from "../models.js";
@@ -95,13 +96,23 @@ export const DEFAULT_RRF_K = 60;
  */
 const OVER_FETCH_FACTOR = 5;
 
+const DEFAULT_RETRIEVAL_CONFIG: RetrievalConfig = Object.freeze({
+  mode: "hybrid",
+  rrfK: DEFAULT_RRF_K,
+});
+
 export class WorkspaceSearcher {
+  private readonly retrieval: RetrievalConfig;
+
   constructor(
     private readonly vectors: VectorStore,
     private readonly embeddings: EmbeddingProvider,
     private readonly discovery: WorkspaceDiscovery,
     private readonly state: StateStore,
-  ) {}
+    retrieval: RetrievalConfig = DEFAULT_RETRIEVAL_CONFIG,
+  ) {
+    this.retrieval = retrieval;
+  }
 
   async search(request: SearchRequest): Promise<SearchResponse> {
     const limit = Math.max(1, request.limit ?? 10);
@@ -109,12 +120,16 @@ export class WorkspaceSearcher {
     const scope = this.resolveScope(request, warnings);
     const fetchK = limit * OVER_FETCH_FACTOR;
 
-    // Run vector and lexical branches in parallel. Vector branch needs the
-    // query embedding first; lexical doesn't, so the embedding latency is
-    // hidden under the FTS5 query.
+    // Each branch is fired only when the active mode includes it. Vector-
+    // only and lexical-only modes skip the other branch entirely so we
+    // don't pay for an embedding inference (or an FTS5 round-trip) we'll
+    // ignore.
+    const wantsVector = this.retrieval.mode !== "lexical";
+    const wantsLexical = this.retrieval.mode !== "vector";
+
     const [matches, lexicalMatches] = await Promise.all([
-      this.runVectorBranch(request, scope, fetchK),
-      this.runLexicalBranch(request, scope, fetchK),
+      wantsVector ? this.runVectorBranch(request, scope, fetchK) : Promise.resolve([]),
+      wantsLexical ? this.runLexicalBranch(request, scope, fetchK) : Promise.resolve([]),
     ]);
 
     // Build a projectId → Project map so each result can carry its absolute
@@ -122,7 +137,7 @@ export class WorkspaceSearcher {
     const projectsById = new Map<string, Project>();
     for (const p of this.discovery.discoverProjects()) projectsById.set(p.id, p);
 
-    const fused = rrfFuse(matches, lexicalMatches, DEFAULT_RRF_K).slice(0, limit);
+    const fused = rrfFuse(matches, lexicalMatches, this.retrieval.rrfK).slice(0, limit);
 
     const vectorById = new Map(matches.map((m) => [m.chunkId, m]));
     const lexicalById = new Map(lexicalMatches.map((m) => [m.chunkId, m]));
