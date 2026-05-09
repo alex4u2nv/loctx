@@ -41,6 +41,22 @@ export function defaultPaths(): StoragePaths {
   };
 }
 
+/**
+ * Which `StoragePaths` leaves were sourced from `LOCTX_*` env vars vs the
+ * platform default. Lets config-source tracking avoid re-reading env.
+ */
+export interface PathOrigin {
+  readonly dataDirFromEnv: boolean;
+  readonly configDirFromEnv: boolean;
+}
+
+export function pathOrigin(): PathOrigin {
+  return {
+    dataDirFromEnv: envOverride("LOCTX_DATA_DIR") !== undefined,
+    configDirFromEnv: envOverride("LOCTX_CONFIG_DIR") !== undefined,
+  };
+}
+
 /** Create all storage directories if missing. Idempotent. */
 export function ensurePaths(paths: StoragePaths): void {
   for (const dir of [paths.dataDir, paths.configDir, paths.vectorDir, paths.logsDir]) {

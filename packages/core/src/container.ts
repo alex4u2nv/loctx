@@ -1,11 +1,14 @@
 /**
  * Composition root: wire dependencies for the CLI and (later) MCP server.
  *
- * The embedding provider is selected via the `LOCTX_EMBEDDING_PROVIDER` env
- * var:
- *   - `fake`  → FakeEmbeddingProvider (deterministic SHA-based vectors,
- *               no model download). Intended for tests and quick smoke runs.
- *   - default → LocalEmbeddingProvider via @huggingface/transformers.
+ * The embedding provider is selected by `config.embedding.providerOverride`
+ * (sourced from `LOCTX_EMBEDDING_PROVIDER` at `loadConfig` time):
+ *   - `"fake"` → FakeEmbeddingProvider (deterministic SHA-based vectors, no
+ *               model download). Intended for tests and quick smoke runs.
+ *   - else    → LocalEmbeddingProvider via @huggingface/transformers.
+ *
+ * Reading the override from `Config` (not `process.env`) keeps `buildRuntime`
+ * deterministic from a `Config` snapshot.
  */
 
 import type { Config } from "./config.js";
@@ -72,8 +75,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
 }
 
 function createEmbeddings(config: Config): EmbeddingProvider {
-  const override = process.env["LOCTX_EMBEDDING_PROVIDER"];
-  if (override === "fake") {
+  if (config.embedding.providerOverride === "fake") {
     return new FakeEmbeddingProvider({ dimension: 16, normalize: config.embedding.normalize });
   }
   return new LocalEmbeddingProvider({
