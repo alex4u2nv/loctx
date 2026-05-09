@@ -92,71 +92,82 @@ interface LanceModule {
   connect(uri: string): Promise<LanceConnection>;
 }
 
-export class VectorStore {
-  private table: LanceTable | null = null;
-  public readonly collectionName: string;
+/**
+ * Closure-bound factory for a vector store. The only persistent state is
+ * the lazily-opened Lance table reference, which lives in the closure
+ * rather than on a class instance — `this` ceremony bought nothing here.
+ */
+export interface VectorStore {
+  readonly count: () => Promise<number>;
+  readonly upsertChunks: (chunks: ReadonlyArray<EmbeddedChunk>) => Promise<void>;
+  readonly deleteFileChunks: (projectId: ProjectId, relPath: string) => Promise<void>;
+  readonly deleteProjectChunks: (projectId: ProjectId) => Promise<void>;
+  readonly query: (request: VectorQuery) => Promise<VectorMatch[]>;
+}
 
-  constructor(
-    public readonly vectorDir: string,
-    public readonly identity: EmbeddingIdentity,
-    private readonly state: StateStore,
-  ) {
-    mkdirSync(vectorDir, { recursive: true });
-    this.collectionName = collectionNameFor(identity);
-    state.registerCollection(this.collectionName, identity);
-  }
+export function createVectorStore(
+  vectorDir: string,
+  identity: EmbeddingIdentity,
+  state: StateStore,
+): VectorStore {
+  mkdirSync(vectorDir, { recursive: true });
+  const collectionName = collectionNameFor(identity);
+  state.registerCollection(collectionName, identity);
+
+  let table: LanceTable | null = null;
 
   /** Lazy: opens (or creates) the Lance table on first use. */
-  private async ready(): Promise<LanceTable> {
-    if (this.table !== null) return this.table;
+  const ready = async (): Promise<LanceTable> => {
+    if (table !== null) return table;
     const lancedb = (await import("@lancedb/lancedb")) as unknown as LanceModule;
-    const db = await lancedb.connect(this.vectorDir);
+    const db = await lancedb.connect(vectorDir);
     const names = await db.tableNames();
-    this.table = names.includes(this.collectionName)
-      ? await db.openTable(this.collectionName)
-      : await db.createEmptyTable(this.collectionName, buildSchema(this.identity.dimension));
-    return this.table;
-  }
+    table = names.includes(collectionName)
+      ? await db.openTable(collectionName)
+      : await db.createEmptyTable(collectionName, buildSchema(identity.dimension));
+    return table;
+  };
 
-  async count(): Promise<number> {
-    return (await this.ready()).countRows();
-  }
+  const api: VectorStore = {
+    count: async () => (await ready()).countRows(),
 
-  async upsertChunks(chunks: ReadonlyArray<EmbeddedChunk>): Promise<void> {
-    if (chunks.length === 0) return;
-    const table = await this.ready();
-    const records = chunks.map(toRecord);
-    // mergeInsert on chunk_id gives "upsert by id" semantics: a re-indexed
-    // chunk replaces its old row; new chunks are appended.
-    await table
-      .mergeInsert("chunk_id")
-      .whenMatchedUpdateAll()
-      .whenNotMatchedInsertAll()
-      .execute(records);
-  }
+    upsertChunks: async (chunks) => {
+      if (chunks.length === 0) return;
+      const t = await ready();
+      const records = chunks.map(toRecord);
+      // mergeInsert on chunk_id gives "upsert by id" semantics: a re-indexed
+      // chunk replaces its old row; new chunks are appended.
+      await t
+        .mergeInsert("chunk_id")
+        .whenMatchedUpdateAll()
+        .whenNotMatchedInsertAll()
+        .execute(records);
+    },
 
-  async deleteFileChunks(projectId: ProjectId, relPath: string): Promise<void> {
-    const table = await this.ready();
-    await table.delete(`project_id = ${quote(projectId)} AND rel_path = ${quote(relPath)}`);
-  }
+    deleteFileChunks: async (projectId, relPath) => {
+      const t = await ready();
+      await t.delete(`project_id = ${quote(projectId)} AND rel_path = ${quote(relPath)}`);
+    },
 
-  async deleteProjectChunks(projectId: ProjectId): Promise<void> {
-    const table = await this.ready();
-    await table.delete(`project_id = ${quote(projectId)}`);
-  }
+    deleteProjectChunks: async (projectId) => {
+      const t = await ready();
+      await t.delete(`project_id = ${quote(projectId)}`);
+    },
 
-  async query(request: VectorQuery): Promise<VectorMatch[]> {
-    const table = await this.ready();
-    const limit = Math.max(1, request.k ?? 10);
-    // Embeddings from Xenova/all-MiniLM-L6-v2 (and most sentence-transformers
-    // models) are L2-normalized, so cosine ≡ dot ≡ 1 - L2²/2. We pin cosine
-    // explicitly so the score below is interpretable across providers, even
-    // ones that don't normalize.
-    const search = table.search([...request.embedding]).distanceType("cosine");
-    const stage = request.where !== undefined ? search.where(request.where) : search;
-    const rows = await stage.limit(limit).toArray();
-    return rows.map(toMatch);
-  }
+    query: async (request) => {
+      const t = await ready();
+      const limit = Math.max(1, request.k ?? 10);
+      // Embeddings from Xenova/all-MiniLM-L6-v2 (and most sentence-transformers
+      // models) are L2-normalized, so cosine ≡ dot ≡ 1 - L2²/2. We pin cosine
+      // explicitly so the score below is interpretable across providers, even
+      // ones that don't normalize.
+      const search = t.search([...request.embedding]).distanceType("cosine");
+      const stage = request.where !== undefined ? search.where(request.where) : search;
+      const rows = await stage.limit(limit).toArray();
+      return rows.map(toMatch);
+    },
+  };
+  return api;
 }
 
 // ---- helpers -----------------------------------------------------------

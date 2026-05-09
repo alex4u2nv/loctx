@@ -10,7 +10,7 @@ import {
   projectId,
 } from "../../src/models.js";
 import { StateStore } from "../../src/storage/state.js";
-import { type EmbeddedChunk, VectorStore } from "../../src/storage/vectors.js";
+import { type EmbeddedChunk, createVectorStore } from "../../src/storage/vectors.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
 
 const DIM = 4;
@@ -61,7 +61,7 @@ function chunk(
 
 describe("VectorStore (LanceDB)", () => {
   it("round-trips upsert + nearest-neighbour search", async () => {
-    const store = new VectorStore(join(tmp, "vectors"), identity, state);
+    const store = createVectorStore(join(tmp, "vectors"), identity, state);
     await store.upsertChunks([
       chunk("c1", unitVector(1, 0, 0, 0)),
       chunk("c2", unitVector(0, 1, 0, 0)),
@@ -83,7 +83,7 @@ describe("VectorStore (LanceDB)", () => {
   });
 
   it("merge-inserts replace existing rows on the same chunk_id", async () => {
-    const store = new VectorStore(join(tmp, "vectors"), identity, state);
+    const store = createVectorStore(join(tmp, "vectors"), identity, state);
     await store.upsertChunks([chunk("c1", unitVector(1, 0, 0, 0))]);
     await store.upsertChunks([
       chunk("c1", unitVector(0, 1, 0, 0), { document: "updated", relPath: "src/b.ts" }),
@@ -96,7 +96,7 @@ describe("VectorStore (LanceDB)", () => {
   });
 
   it("delete by file scopes precisely", async () => {
-    const store = new VectorStore(join(tmp, "vectors"), identity, state);
+    const store = createVectorStore(join(tmp, "vectors"), identity, state);
     await store.upsertChunks([
       chunk("c1", unitVector(1, 0, 0, 0), { relPath: "a.ts" }),
       chunk("c2", unitVector(0, 1, 0, 0), { relPath: "b.ts" }),
@@ -109,7 +109,7 @@ describe("VectorStore (LanceDB)", () => {
   });
 
   it("applies a SQL `where` predicate to filter results", async () => {
-    const store = new VectorStore(join(tmp, "vectors"), identity, state);
+    const store = createVectorStore(join(tmp, "vectors"), identity, state);
     await store.upsertChunks([
       chunk("py1", unitVector(1, 0, 0, 0), {
         metadata: { language: "py", kind: "function", start_line: 1, end_line: 5, symbols: "" },
