@@ -22,7 +22,7 @@
     "dev:web": "npm run dev --workspace @loctx/web",
     "dev:mcp": "npm run dev --workspace @loctx/mcp"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "Alex Mahabir",
   "homepage": "https://github.com/alex4u2nv/loctx",
   "repository": {
