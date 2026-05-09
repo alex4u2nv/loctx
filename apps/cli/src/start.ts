@@ -138,18 +138,18 @@ async function startWatchers(
   projects: ReadonlyArray<Project>,
   config: Config,
 ): Promise<WatcherService[]> {
-  const watchers: WatcherService[] = [];
-  for (const project of projects) {
-    const w = new WatcherService(project, runtime.indexer, {
-      debounceMs: config.watcher.debounceMs,
-      onEvent: (event, relPath) => {
-        console.error(`[loctx watch] ${event}\t${project.name}/${relPath}`);
-      },
-    });
-    await w.start();
-    watchers.push(w);
-  }
-  return watchers;
+  return Promise.all(
+    projects.map(async (project) => {
+      const w = new WatcherService(project, runtime.indexer, {
+        debounceMs: config.watcher.debounceMs,
+        onEvent: (event, relPath) => {
+          console.error(`[loctx watch] ${event}\t${project.name}/${relPath}`);
+        },
+      });
+      await w.start();
+      return w;
+    }),
+  );
 }
 
 // ---- web ---------------------------------------------------------------

@@ -188,19 +188,19 @@ export function inventoryProjects(
     lastIndexedAt: recordedById.get(project.id)?.lastIndexedAt ?? null,
   }));
 
-  const orphaned: OrphanedProject[] = [];
-  for (const r of recorded) {
-    if (discoveredIds.has(r.id)) continue;
-    const rootExists = isDir(r.root);
-    orphaned.push({
-      project: { id: r.id, name: r.name, root: r.root },
-      lastIndexedAt: r.lastIndexedAt,
-      rootExists,
-      reason: rootExists ? "outside-roots" : "missing",
-    });
-  }
-  // Stable ordering: orphaned by root path.
-  orphaned.sort((a, b) => a.project.root.localeCompare(b.project.root));
+  const orphaned: OrphanedProject[] = recorded
+    .filter((r) => !discoveredIds.has(r.id))
+    .map((r) => {
+      const rootExists = isDir(r.root);
+      return {
+        project: { id: r.id, name: r.name, root: r.root },
+        lastIndexedAt: r.lastIndexedAt,
+        rootExists,
+        reason: rootExists ? ("outside-roots" as const) : ("missing" as const),
+      };
+    })
+    // Stable ordering: orphaned by root path.
+    .sort((a, b) => a.project.root.localeCompare(b.project.root));
   return Object.freeze({ active: Object.freeze(active), orphaned: Object.freeze(orphaned) });
 }
 

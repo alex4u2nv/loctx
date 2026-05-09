@@ -21,7 +21,7 @@ import {
   rmSync,
   writeSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 const LOCK_FILENAME = "loctx.pid";
 
@@ -175,8 +175,3 @@ function sleep(ms: number): Promise<void> {
 export function daemonLockPath(dataDir: string): string {
   return join(dataDir, LOCK_FILENAME);
 }
-
-// Avoid an unused-import lint warning on dirname when building the
-// docstring example above; some linters strip module-level imports they
-// don't see referenced. Keep this no-op tied to a real value.
-void dirname;
