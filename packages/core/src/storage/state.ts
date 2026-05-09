@@ -15,7 +15,7 @@ import {
 } from "../models.js";
 import { loadQueries } from "../sql/loader.js";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const QUERIES = loadQueries("../sql/state.sql", import.meta.url);
 
@@ -89,9 +89,18 @@ export class StateStore {
     const row = this.db.prepare(pragmaText).get() as { user_version: number } | undefined;
     const current = row?.user_version ?? 0;
     if (current >= SCHEMA_VERSION) return;
-    const schema = QUERIES["schema_v1"];
-    if (schema === undefined) throw new Error("Missing schema_v1 in state.sql");
-    this.db.exec(schema);
+
+    if (current < 1) {
+      const schemaV1 = QUERIES["schema_v1"];
+      if (schemaV1 === undefined) throw new Error("Missing schema_v1 in state.sql");
+      this.db.exec(schemaV1);
+    }
+    if (current < 2) {
+      const schemaV2 = QUERIES["schema_v2"];
+      if (schemaV2 === undefined) throw new Error("Missing schema_v2 in state.sql");
+      this.db.exec(schemaV2);
+    }
+
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
