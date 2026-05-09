@@ -533,8 +533,23 @@ program
   );
 program
   .command("doctor")
-  .description("Check configuration, storage, and embedding readiness.")
-  .action(() => unimplemented("doctor"));
+  .description("Check configuration, storage, daemon, schema, and discovery health.")
+  .action(async () => {
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    const checks = await runDoctorChecks(config);
+
+    let worst: "ok" | "warn" | "error" = "ok";
+    for (const c of checks) {
+      const tag = c.status === "ok" ? "[ ok ]" : c.status === "warn" ? "[warn]" : "[err ]";
+      console.log(`${tag} ${c.name.padEnd(22)} ${c.detail}`);
+      if (c.status === "error") worst = "error";
+      else if (c.status === "warn" && worst !== "error") worst = "warn";
+    }
+    console.log("");
+    console.log(`summary: ${worst}`);
+    if (worst === "error") process.exit(1);
+  });
 
 // ---- status -------------------------------------------------------------
 
@@ -671,6 +686,154 @@ reset.action(() => {
   console.log("loctx reset: specify a subcommand (e.g. 'index' or 'project').");
   console.log("No destructive default. Use --help for options.");
 });
+
+// ---- doctor checks ------------------------------------------------------
+
+interface DoctorCheck {
+  readonly name: string;
+  readonly status: "ok" | "warn" | "error";
+  readonly detail: string;
+}
+
+async function runDoctorChecks(config: Config): Promise<DoctorCheck[]> {
+  const { existsSync, statSync } = await import("node:fs");
+  const checks: DoctorCheck[] = [];
+
+  // Config presence + source.
+  checks.push({
+    name: "config",
+    status: "ok",
+    detail: `loaded from ${config.source ?? "(defaults)"}; project=${config.projectSource ?? "(none)"}`,
+  });
+
+  // Storage paths.
+  for (const [label, p] of [
+    ["dataDir", config.paths.dataDir],
+    ["configDir", config.paths.configDir],
+    ["vectorDir", config.paths.vectorDir],
+    ["logsDir", config.paths.logsDir],
+  ] as const) {
+    if (!existsSync(p)) {
+      checks.push({
+        name: `path:${label}`,
+        status: "warn",
+        detail: `${p} (will be created on first use)`,
+      });
+      continue;
+    }
+    try {
+      const st = statSync(p);
+      checks.push({
+        name: `path:${label}`,
+        status: st.isDirectory() ? "ok" : "error",
+        detail: st.isDirectory() ? p : `${p} exists but is not a directory`,
+      });
+    } catch (err) {
+      checks.push({
+        name: `path:${label}`,
+        status: "error",
+        detail: `${p}: ${(err as Error).message}`,
+      });
+    }
+  }
+
+  // Daemon lock state.
+  const lock = readActiveDaemon(config.paths.dataDir);
+  checks.push(
+    lock !== null
+      ? {
+          name: "daemon",
+          status: "ok",
+          detail: `running PID ${lock.pid} on ${lock.hostname}:${lock.port}; started ${lock.startedAt}`,
+        }
+      : {
+          name: "daemon",
+          status: "warn",
+          detail: "not running (loctx start to launch)",
+        },
+  );
+
+  // Schema + project counts (open the state DB read-only-ish).
+  if (existsSync(config.paths.stateDb)) {
+    try {
+      const state = new StateStore(config.paths.stateDb);
+      try {
+        const projects = state.listProjects();
+        checks.push({
+          name: "state.sqlite3",
+          status: "ok",
+          detail: `${projects.length} project rows, schema healthy`,
+        });
+        let totalErrors = 0;
+        for (const p of projects) {
+          const errs = state.listFiles(p.id).filter((f) => f.error !== null).length;
+          totalErrors += errs;
+        }
+        if (totalErrors > 0) {
+          checks.push({
+            name: "index errors",
+            status: "warn",
+            detail: `${totalErrors} files indexed with errors (run 'loctx index' to retry)`,
+          });
+        } else {
+          checks.push({ name: "index errors", status: "ok", detail: "none" });
+        }
+      } finally {
+        state.close();
+      }
+    } catch (err) {
+      checks.push({
+        name: "state.sqlite3",
+        status: "error",
+        detail: (err as Error).message,
+      });
+    }
+  } else {
+    checks.push({
+      name: "state.sqlite3",
+      status: "warn",
+      detail: `${config.paths.stateDb} doesn't exist yet; run 'loctx index' to create it`,
+    });
+  }
+
+  // Project discovery.
+  try {
+    const discovery = new WorkspaceDiscovery(config.workspaceRoots);
+    const projects = discovery.discoverProjects();
+    checks.push({
+      name: "discovery",
+      status: projects.length > 0 ? "ok" : "warn",
+      detail:
+        projects.length > 0
+          ? `${projects.length} projects under ${config.workspaceRoots.join(", ")}`
+          : `no .git-marked projects under ${config.workspaceRoots.join(", ")}`,
+    });
+  } catch (err) {
+    checks.push({
+      name: "discovery",
+      status: "error",
+      detail: (err as Error).message,
+    });
+  }
+
+  // Embedding model identity.
+  checks.push({
+    name: "embedding",
+    status: "ok",
+    detail: `${config.embedding.provider}/${config.embedding.model} normalize=${config.embedding.normalize}${
+      config.embedding.providerOverride ? ` override=${config.embedding.providerOverride}` : ""
+    }`,
+  });
+
+  // Retrieval mode.
+  checks.push({
+    name: "retrieval",
+    status: "ok",
+    detail: `mode=${config.retrieval.mode} rrfK=${config.retrieval.rrfK}`,
+  });
+
+  return checks;
+}
 
 // ---- run ----------------------------------------------------------------
 
