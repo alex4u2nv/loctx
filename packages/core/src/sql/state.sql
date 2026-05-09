@@ -45,6 +45,32 @@ CREATE TABLE IF NOT EXISTS collections (
     created_at TEXT NOT NULL
 );
 
+-- :name schema_v2
+-- BM25 / FTS5 lexical index over chunks. Coexists with the LanceDB vector
+-- store; together they back hybrid retrieval (vector + lexical + RRF).
+--
+-- Columns:
+--   chunk_id, file_id, project_id, rel_path  — stored but not indexed
+--                                              (UNINDEXED keeps them out of
+--                                              the term dictionary; we use
+--                                              them for filtering + join).
+--   document                                  — chunk body, BM25-ranked.
+--   symbols                                   — function/class names or
+--                                              markdown heading path; lets
+--                                              symbol queries land at the top.
+--
+-- Tokenizer: porter for English stemming, unicode61 for Unicode normalization.
+-- Reasonable default for the mixed code+prose corpus loctx targets.
+CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+    chunk_id UNINDEXED,
+    file_id UNINDEXED,
+    project_id UNINDEXED,
+    rel_path UNINDEXED,
+    document,
+    symbols,
+    tokenize = 'porter unicode61'
+);
+
 -- :name pragma_enable_foreign_keys
 PRAGMA foreign_keys = ON;
 
