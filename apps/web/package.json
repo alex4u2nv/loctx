@@ -4,6 +4,9 @@
   "description": "Next.js admin / management UI for loctx.",
   "type": "module",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "next build",
     "dev": "next dev",
