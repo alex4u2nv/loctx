@@ -115,6 +115,10 @@ Once `loctx start` is running, visit `http://localhost:3000`:
 
 ## Connecting MCP clients
 
+For a complete walkthrough of every supported client, the verification
+sequence, and troubleshooting, see [docs/MCP.md](docs/MCP.md). The
+short form follows.
+
 ### stdio (binary spawned as child process)
 
 Configure your agent to launch `loctx-mcp` as the MCP server. Example for
