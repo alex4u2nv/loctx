@@ -12,7 +12,13 @@
  *   - {@link registerTools}      — wires `tools/list` + `tools/call` onto an MCP Server.
  */
 
-import { type Runtime, type SearchResponse, Validator, inventoryProjects } from "@loctx/core";
+import {
+  type ProjectId,
+  type Runtime,
+  type SearchResponse,
+  Validator,
+  inventoryProjects,
+} from "@loctx/core";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
@@ -34,7 +40,7 @@ export interface RefreshInput {
 }
 
 export interface ProjectStatusEntry {
-  readonly id: string;
+  readonly id: ProjectId;
   readonly name: string;
   readonly root: string;
   /**
@@ -129,14 +135,7 @@ export const tools = {
       ...baseline,
       indexedFileCounts: Object.freeze(
         Object.fromEntries(
-          entries.map(
-            (p) =>
-              [
-                p.id,
-                runtime.state.listFiles(p.id as Parameters<typeof runtime.state.listFiles>[0])
-                  .length,
-              ] as const,
-          ),
+          entries.map((p) => [p.id, runtime.state.listFiles(p.id).length] as const),
         ),
       ),
     };
@@ -221,6 +220,22 @@ export const TOOL_DEFINITIONS = [
 // ---- MCP Server adapter ------------------------------------------------
 
 /**
+ * Wire-name → handler map. Single source of truth for `tools/call` dispatch:
+ * adding a tool means adding one entry here (and one to TOOL_DEFINITIONS).
+ */
+const TOOL_HANDLERS = {
+  search_workspace: tools.search,
+  workspace_status: tools.status,
+  refresh_workspace: tools.refresh,
+} as const;
+
+type ToolName = keyof typeof TOOL_HANDLERS;
+
+function isToolName(name: string): name is ToolName {
+  return name in TOOL_HANDLERS;
+}
+
+/**
  * Wire ``tools/list`` and ``tools/call`` onto an MCP {@link Server} so it
  * dispatches into the pure handlers above. Used by both the stdio binary
  * and the SSE route — they share this single registry.
@@ -237,7 +252,8 @@ export function registerTools(server: Server, runtime: Runtime): void {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     try {
-      const result = await dispatch(runtime, name, args);
+      if (!isToolName(name)) throw new ToolError(`Unknown tool: ${name}`);
+      const result = await TOOL_HANDLERS[name](runtime, args);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
       };
@@ -249,17 +265,4 @@ export function registerTools(server: Server, runtime: Runtime): void {
       };
     }
   });
-}
-
-async function dispatch(runtime: Runtime, name: string, args: unknown): Promise<unknown> {
-  switch (name) {
-    case "search_workspace":
-      return tools.search(runtime, args);
-    case "workspace_status":
-      return tools.status(runtime, args);
-    case "refresh_workspace":
-      return tools.refresh(runtime, args);
-    default:
-      throw new ToolError(`Unknown tool: ${name}`);
-  }
 }

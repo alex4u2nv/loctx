@@ -8,7 +8,7 @@
  */
 
 import { getAdminContext } from "@/lib/admin-context";
-import { inventoryProjects } from "@loctx/core";
+import { type Project, inventoryProjects } from "@loctx/core";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,8 +26,8 @@ export default function ProjectsPage() {
   const { state, discovery } = getAdminContext();
   const inventory = inventoryProjects(discovery, state);
 
-  const buildRow = (project: { id: string; name: string; root: string }): Row => {
-    const files = state.listFiles(project.id as Parameters<typeof state.listFiles>[0]);
+  const buildRow = (project: Project): Row => {
+    const files = state.listFiles(project.id);
     const errors = files.filter((f) => f.error !== null).length;
     const lastIndexed = files
       .map((f) => f.indexedAt)
