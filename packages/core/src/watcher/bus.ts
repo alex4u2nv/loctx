@@ -23,18 +23,30 @@ export interface WatcherEvent {
   readonly at: number; // epoch ms
 }
 
-class WatcherBus extends EventEmitter {
-  publish(event: WatcherEvent): void {
-    this.emit("event", event);
-  }
+/**
+ * Closure-bound bus over a private EventEmitter. Exposes a typed
+ * `publish` + `subscribe` (with disposer) instead of leaking
+ * EventEmitter's untyped `emit`/`on`/`off` to consumers.
+ */
+function createWatcherBus(): WatcherBus {
+  const emitter = new EventEmitter();
+  return {
+    publish: (event) => {
+      emitter.emit("event", event);
+    },
+    subscribe: (listener) => {
+      emitter.on("event", listener);
+      return () => {
+        emitter.off("event", listener);
+      };
+    },
+  };
+}
 
-  subscribe(listener: (event: WatcherEvent) => void): () => void {
-    this.on("event", listener);
-    return () => {
-      this.off("event", listener);
-    };
-  }
+export interface WatcherBus {
+  readonly publish: (event: WatcherEvent) => void;
+  readonly subscribe: (listener: (event: WatcherEvent) => void) => () => void;
 }
 
 /** Singleton — every importer in the same Node process sees the same bus. */
-export const watcherBus = new WatcherBus();
+export const watcherBus: WatcherBus = createWatcherBus();

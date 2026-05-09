@@ -60,37 +60,29 @@ export class ProjectIndexer {
     this.state.upsertProject(project);
     const filter = this.filterFactory(project);
     const started = performance.now();
-    let indexed = 0;
-    let skipped = 0;
-    let failed = 0;
-    const failures: FileIndexResult[] = [];
 
+    // Sequential by design: parallelizing across the embedding model would
+    // amplify GPU/CPU pressure without bounding it. Collect results first,
+    // then tally — counters drop out of pure filters over the discriminated
+    // union, no mutation.
+    const results: FileIndexResult[] = [];
     for (const absPath of iterFiles(project.root, filter.rules.ignoredDirs)) {
-      const result = await this.indexFile(project, absPath, { filter });
-      switch (result.kind) {
-        case "indexed":
-          indexed += 1;
-          break;
-        case "skipped":
-          skipped += 1;
-          break;
-        case "error":
-          failed += 1;
-          failures.push(result);
-          break;
-      }
+      results.push(await this.indexFile(project, absPath, { filter }));
     }
 
+    const indexed = results.filter((r) => r.kind === "indexed").length;
+    const skipped = results.filter((r) => r.kind === "skipped").length;
+    const failures = results.filter((r) => r.kind === "error");
+
     this.state.markProjectIndexed(project.id);
-    const elapsedSeconds = (performance.now() - started) / 1000;
     return Object.freeze({
       project,
       indexed,
       skipped,
-      failed,
-      elapsedSeconds,
+      failed: failures.length,
+      elapsedSeconds: (performance.now() - started) / 1000,
       failures: Object.freeze(failures),
-      total: indexed + skipped + failed,
+      total: results.length,
     });
   }
 
@@ -267,10 +259,8 @@ function* iterFiles(root: string, ignoredDirs: ReadonlySet<string>): Generator<s
         yield join(dir, entry.name);
       }
     }
-    // Push in reverse so we pop in alphabetical order.
-    for (let i = subdirs.length - 1; i >= 0; i--) {
-      const sub = subdirs[i];
-      if (sub !== undefined) stack.push(sub);
-    }
+    // Push in reverse so we pop in alphabetical order. subdirs is local —
+    // mutating it in place is fine, and reads more cleanly than an index loop.
+    stack.push(...subdirs.reverse());
   }
 }

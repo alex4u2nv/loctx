@@ -156,11 +156,11 @@ export class WorkspaceSearcher {
 // ---- helpers -----------------------------------------------------------
 
 function buildWhere(scope: ResolvedScope, language?: string): string | null {
-  const clauses: string[] = [];
-  if (scope.project !== null) clauses.push(`project_id = ${quoteSql(scope.project.id)}`);
-  if (language) clauses.push(`language = ${quoteSql(language)}`);
-  if (clauses.length === 0) return null;
-  return clauses.join(" AND ");
+  const clauses = [
+    scope.project !== null ? `project_id = ${quoteSql(scope.project.id)}` : null,
+    language ? `language = ${quoteSql(language)}` : null,
+  ].filter((c): c is string => c !== null);
+  return clauses.length === 0 ? null : clauses.join(" AND ");
 }
 
 function quoteSql(s: string): string {
