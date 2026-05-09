@@ -194,7 +194,9 @@ describe("WorkspaceSearcher path-based scope", () => {
     await searcher.search({ query: "auth", path: "/tmp/alpha/src/auth" });
     expect(lexCapture.lastQuery?.projectId).toBe("p1");
     expect(lexCapture.lastQuery?.relPathPrefix).toBe("src/auth/");
-    expect(lexCapture.lastQuery?.query).toBe("auth");
+    // Searcher converts natural-language input into an FTS5 OR expression
+    // with each token quoted; single-token query becomes `"auth"`.
+    expect(lexCapture.lastQuery?.query).toBe('"auth"');
   });
 
   it("warns and falls back to all when path is outside every indexed project", async () => {
