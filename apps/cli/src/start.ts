@@ -23,6 +23,8 @@ import {
   WatcherService,
   acquireDaemonLock,
   buildRuntime,
+  checkNofile,
+  nofileBumpHint,
   stopActiveDaemon,
 } from "@loctx/core";
 
@@ -74,6 +76,8 @@ export async function start(config: Config, options: StartOptions): Promise<void
         "the watcher and admin UI will run but stay empty until projects are added.",
     );
   }
+
+  if (options.enableWatch) warnIfNofileLow(projects.length);
 
   const watchers = options.enableWatch ? await startWatchers(runtime, projects, config) : [];
   const httpStop = options.enableWeb
@@ -129,6 +133,25 @@ export async function start(config: Config, options: StartOptions): Promise<void
   // Unreachable; satisfies TypeScript's flow analysis.
   void watchers;
   void httpStop;
+}
+
+// ---- preflight ---------------------------------------------------------
+
+function warnIfNofileLow(projectCount: number): void {
+  const status = checkNofile();
+  if (status === null || status.ok) return;
+  console.error(
+    `[loctx start] WARNING: open-files limit is ${status.current} (recommended >= ${status.recommended}).`,
+  );
+  console.error(
+    `[loctx start] chokidar opens ~1-2 fds per watched dir; with ${projectCount} project(s) this will likely flood with EMFILE.`,
+  );
+  console.error(
+    nofileBumpHint()
+      .split("\n")
+      .map((l) => `[loctx start] ${l}`)
+      .join("\n"),
+  );
 }
 
 // ---- watchers ----------------------------------------------------------

@@ -14,6 +14,7 @@ export * from "./models.js";
 export * from "./network.js";
 export * from "./paths.js";
 export * from "./trusted-models.js";
+export * from "./ulimit.js";
 export * from "./chunking/index.js";
 export * from "./embeddings/index.js";
 export * from "./indexing/index.js";

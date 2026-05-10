@@ -31,6 +31,21 @@ npx loctx start --port 3000
 The first `loctx start` (or `loctx index`) downloads the default embedding
 model (~90MB) into the Hugging Face cache; subsequent runs are fast.
 
+### Open-files limit (macOS / Linux)
+
+The watcher opens roughly 1–2 file descriptors per watched directory. With
+several mid-sized projects under your workspace roots, the OS default
+(macOS: 256, many Linux distros: 1024) is too low and the watcher will
+flood with `EMFILE: too many open files`. Bump it before starting:
+
+```bash
+ulimit -n 10240                       # for the current shell
+echo 'ulimit -n 10240' >> ~/.zshrc    # permanent (or ~/.bashrc)
+```
+
+`loctx doctor` flags this; `loctx start --no-watch` is a workaround if
+you can't change the limit.
+
 ## Install
 
 Two paths today.
