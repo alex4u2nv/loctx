@@ -32,7 +32,17 @@ export type QueryCategory =
   | "config"
   | "drift"
   | "refactor"
-  | "analyzer";
+  | "analyzer"
+  /** "where does this error come from", "what handles this error type". */
+  | "debug"
+  /** "how do we usually structure X", "show me how we typically do Y". */
+  | "pattern"
+  /** "every place that imports X", "all callers of deprecated method". */
+  | "refactor-recon"
+  /** "what's our writing style", "what's the on-call escalation path". */
+  | "skill-process"
+  /** Answer spans both code AND docs (cross-corpus). */
+  | "cross-corpus";
 
 export interface EvalCase {
   readonly name: string;
@@ -51,6 +61,13 @@ export interface EvalCase {
    * Tighter (1-3) for queries we have high confidence on.
    */
   readonly maxRank?: number;
+  /**
+   * Marks queries that genuinely need dense-embedding semantic matching
+   * to land — under FakeEmbeddingProvider's BM25-only ranking they'll
+   * be loose. Production use of the real model will tighten them. The
+   * eval harness still gates on hit@5 ≥ 80% across the whole set.
+   */
+  readonly needsDenseEmbedding?: boolean;
 }
 
 export const EVAL_CASES: ReadonlyArray<EvalCase> = Object.freeze([
@@ -305,5 +322,125 @@ export const EVAL_CASES: ReadonlyArray<EvalCase> = Object.freeze([
     category: "analyzer",
     query: "dataclasses ingest config loader",
     expectedRelPath: "pipeline/config.py",
+  },
+
+  // ---- Debug / error workflows (#97) ----------------------------------
+  // "Where does this error come from?" / "What handles this error type?"
+  // Lexical-friendly: the exact error string usually appears in the throw.
+  {
+    name: "debug: missing bearer token error origin",
+    category: "debug",
+    query: "missing bearer token error",
+    expectedRelPath: "src/auth/jwt.ts",
+  },
+  {
+    name: "debug: rate limit exceeded error",
+    category: "debug",
+    query: "rateLimit middleware perMinute throw exceeded",
+    expectedRelPath: "src/middleware/rate-limiter.ts",
+  },
+  {
+    name: "debug: PermissionError credential rejected",
+    category: "debug",
+    query: "PermissionError credential rejected",
+    expectedRelPath: "pipeline/ingest.py",
+  },
+  {
+    name: "debug: OverflowError source over throttle",
+    category: "debug",
+    query: "OverflowError source over throttle",
+    expectedRelPath: "pipeline/ingest.py",
+  },
+
+  // ---- Pattern-following (#97) ----------------------------------------
+  // "How do we usually structure X" — agent reuses local idioms.
+  {
+    name: "pattern: token bucket per-second throttle",
+    category: "pattern",
+    query: "token bucket per second throttle pattern",
+    expectedRelPath: "pipeline/throttle.py",
+  },
+  {
+    name: "pattern: in-memory rate limiter middleware",
+    category: "pattern",
+    query: "in-memory rate limiter middleware pattern",
+    expectedRelPath: "src/middleware/rate-limiter.ts",
+  },
+  {
+    name: "pattern: load service config from toml",
+    category: "pattern",
+    query: "loadServiceConfig parseToml service config",
+    expectedRelPath: "src/config/loader.ts",
+  },
+
+  // ---- Refactor recon (#97) -------------------------------------------
+  // "Every place that imports old auth", "all callers of deprecated X".
+  {
+    name: "refactor-recon: callers of credential_check",
+    category: "refactor-recon",
+    query: "callers of credential_check ingest pipeline",
+    expectedRelPath: "pipeline/ingest.py",
+  },
+  {
+    name: "refactor-recon: callers of throttle.admit",
+    category: "refactor-recon",
+    query: "throttle admit callers ingest",
+    expectedRelPath: "pipeline/ingest.py",
+  },
+  {
+    name: "refactor-recon: drift between alpha auth and beta auth",
+    category: "refactor-recon",
+    query: "forked auth pipeline drift alpha beta",
+    expectedRelPath: "docs/architecture.md",
+  },
+
+  // ---- Skill / process lookups (#97) ----------------------------------
+  {
+    name: "skill-process: house writing style",
+    category: "skill-process",
+    query: "house writing style active voice",
+    expectedRelPath: "skills/writing-style/SKILL.md",
+  },
+  {
+    name: "skill-process: code style python pathlib",
+    category: "skill-process",
+    query: "python pathlib code style",
+    expectedRelPath: "skills/code-style/SKILL.md",
+  },
+  {
+    name: "skill-process: PagerDuty acknowledge timeout",
+    category: "skill-process",
+    query: "pagerduty acknowledge alarm 5 minutes incident",
+    expectedRelPath: "processes/incident-response.md",
+  },
+  {
+    name: "skill-process: client workspace naming convention",
+    category: "skill-process",
+    query: "client workspace slug naming convention",
+    expectedRelPath: "processes/onboarding.md",
+  },
+
+  // ---- Cross-corpus drift (#97) ---------------------------------------
+  // Answer spans BOTH code and docs. We assert on the doc chunk because
+  // it ties the implementation back to the design — the bit an agent
+  // actually needs in a "how does X work" conversation.
+  {
+    name: "cross-corpus: how does the rate limiter work (design doc)",
+    category: "cross-corpus",
+    query: "rate limit middleware design throttle requests",
+    expectedRelPath: "docs/architecture.md",
+    needsDenseEmbedding: true,
+  },
+  {
+    name: "cross-corpus: throttle implementation tied to design",
+    category: "cross-corpus",
+    query: "RequestThrottle limits requests per source design",
+    expectedRelPath: "docs/architecture.md",
+  },
+  {
+    name: "cross-corpus: authentication design analogue",
+    category: "cross-corpus",
+    query: "credential_check analogue authenticateUser",
+    expectedRelPath: "docs/architecture.md",
   },
 ]);
