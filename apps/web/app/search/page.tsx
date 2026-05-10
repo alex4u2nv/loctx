@@ -177,6 +177,11 @@ function Results({
                 <span className="dim">{result.symbols.join(", ")}</span>
               ) : null}
             </div>
+            {result.matchReasons.length > 0 ? (
+              <div className="dim" style={{ marginTop: "0.25rem", fontSize: "0.85em" }}>
+                why: {result.matchReasons.join(", ")}
+              </div>
+            ) : null}
             <pre className="snippet">{clip(result.snippet, 14)}</pre>
           </li>
         ))}

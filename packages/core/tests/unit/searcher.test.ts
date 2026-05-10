@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceDiscovery } from "../../src/discovery.js";
 import type { EmbeddingProvider } from "../../src/embeddings/index.js";
-import { type Project, projectId } from "../../src/models.js";
+import { type AnalyzerMetadata, type Project, projectId } from "../../src/models.js";
 import { WorkspaceSearcher } from "../../src/retrieval/searcher.js";
 import type { LexicalMatch, LexicalQuery, StateStore } from "../../src/storage/state.js";
 import type { VectorMatch, VectorQuery, VectorStore } from "../../src/storage/vectors.js";
@@ -52,6 +52,10 @@ function fakeState(matches: ReadonlyArray<LexicalMatch> = [], capture?: StateCap
       if (capture !== undefined) capture.lastQuery = q;
       return [...matches];
     },
+    // Searcher batch-fetches analyzer metadata after fusion (#60). The
+    // unit suite isn't testing analyzer ranking; return empty so the
+    // existing assertions stay focused on RRF + scope behavior.
+    getAnalyzersByChunkIds: () => new Map(),
   } as unknown as StateStore;
 }
 
@@ -322,6 +326,7 @@ describe("WorkspaceSearcher hybrid retrieval (RRF)", () => {
       searchLexical: vi.fn(() => {
         throw new Error("FTS5 syntax error");
       }),
+      getAnalyzersByChunkIds: () => new Map(),
     } as unknown as StateStore;
     const searcher = new WorkspaceSearcher(
       fakeVectors([
@@ -339,5 +344,127 @@ describe("WorkspaceSearcher hybrid retrieval (RRF)", () => {
     const r = await searcher.search({ query: "with: bad syntax" });
     expect(r.results).toHaveLength(1);
     expect(r.results[0]?.sources).toEqual(["vector"]);
+  });
+});
+
+describe("WorkspaceSearcher analyzer-driven match reasons (#60)", () => {
+  const proj = fakeProject("p1", "demo", "/tmp/demo");
+
+  function meta(partial: Partial<AnalyzerMetadata>): AnalyzerMetadata {
+    return Object.freeze({
+      imports: Object.freeze<string[]>([]),
+      exports: Object.freeze<string[]>([]),
+      calls: Object.freeze<string[]>([]),
+      maxNestingDepth: 0,
+      maxLoopDepth: 0,
+      paramCount: 0,
+      hasAsync: false,
+      hasRecursionHint: false,
+      riskyCalls: Object.freeze<string[]>([]),
+      analysisSource: "tree-sitter",
+      analysisVersion: 1,
+      ...partial,
+    });
+  }
+
+  function stateWithAnalyzers(
+    matches: ReadonlyArray<LexicalMatch>,
+    byChunk: Record<string, AnalyzerMetadata>,
+  ): StateStore {
+    return {
+      searchLexical: () => [...matches],
+      getAnalyzersByChunkIds: (ids: ReadonlyArray<string>) => {
+        const m = new Map<string, AnalyzerMetadata | null>();
+        for (const id of ids) m.set(id, byChunk[id] ?? null);
+        return m;
+      },
+    } as unknown as StateStore;
+  }
+
+  it("fires symbol_match + exported when an exported name appears in the query", async () => {
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([
+        {
+          chunkId: "c1",
+          score: 0.8,
+          document: "export function authenticateUser() {}",
+          metadata: { ...baseMeta, project_id: "p1", rel_path: "auth.ts" },
+        },
+      ]),
+      fakeEmbeddings(),
+      fakeDiscovery([proj]),
+      stateWithAnalyzers([], { c1: meta({ exports: ["authenticateUser"] }) }),
+    );
+    const r = await searcher.search({ query: "authenticateUser please" });
+    expect(r.results[0]?.matchReasons).toEqual(
+      expect.arrayContaining(["symbol_match", "exported"]),
+    );
+  });
+
+  it("fires risky_call_category only when the query mentions the category", async () => {
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([
+        {
+          chunkId: "r1",
+          score: 0.5,
+          document: "exec(cmd)",
+          metadata: { ...baseMeta, project_id: "p1", rel_path: "shell.ts" },
+        },
+      ]),
+      fakeEmbeddings(),
+      fakeDiscovery([proj]),
+      stateWithAnalyzers([], { r1: meta({ riskyCalls: ["exec", "spawn"] }) }),
+    );
+    const yes = await searcher.search({ query: "where do we exec a shell command" });
+    expect(yes.results[0]?.matchReasons).toContain("risky_call_category");
+    const no = await searcher.search({ query: "innocuous query" });
+    expect(no.results[0]?.matchReasons).not.toContain("risky_call_category");
+  });
+
+  it("fires complexity_signal only when the query asks for it AND the chunk qualifies", async () => {
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([
+        {
+          chunkId: "x1",
+          score: 0.5,
+          document: "deeply nested",
+          metadata: { ...baseMeta, project_id: "p1", rel_path: "nested.ts" },
+        },
+      ]),
+      fakeEmbeddings(),
+      fakeDiscovery([proj]),
+      stateWithAnalyzers([], { x1: meta({ maxNestingDepth: 6 }) }),
+    );
+    const yes = await searcher.search({ query: "deeply nested function" });
+    expect(yes.results[0]?.matchReasons).toContain("complexity_signal");
+    const no = await searcher.search({ query: "function" });
+    expect(no.results[0]?.matchReasons).not.toContain("complexity_signal");
+  });
+
+  it("attaches analyzer payload (or null when missing) to every result", async () => {
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([
+        {
+          chunkId: "c1",
+          score: 0.5,
+          document: "x",
+          metadata: { ...baseMeta, project_id: "p1", rel_path: "a.ts" },
+        },
+        {
+          chunkId: "c2",
+          score: 0.4,
+          document: "y",
+          metadata: { ...baseMeta, project_id: "p1", rel_path: "b.ts" },
+        },
+      ]),
+      fakeEmbeddings(),
+      fakeDiscovery([proj]),
+      stateWithAnalyzers([], { c1: meta({ hasAsync: true }) }),
+    );
+    const r = await searcher.search({ query: "anything" });
+    const c1 = r.results.find((x) => x.relPath === "a.ts");
+    const c2 = r.results.find((x) => x.relPath === "b.ts");
+    expect(c1?.analyzer?.hasAsync).toBe(true);
+    expect(c2?.analyzer).toBeNull();
   });
 });

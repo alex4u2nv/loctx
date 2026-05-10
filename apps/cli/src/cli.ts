@@ -172,6 +172,9 @@ program
             result.symbols.length > 0 ? `  ${result.symbols.join(", ")}` : "",
           ].join("");
           console.log(header);
+          if (result.matchReasons.length > 0) {
+            console.log(`    # why: ${result.matchReasons.join(", ")}`);
+          }
           console.log(indent(clip(result.snippet)));
           console.log();
         }

@@ -11,6 +11,7 @@ import {
   type FileId,
   type Project,
   type ProjectId,
+  analyzerMetadataFromJson,
   analyzerMetadataToJson,
   identityToString,
   projectId as toProjectId,
@@ -317,6 +318,30 @@ export class StateStore {
     return this.readAll<LexicalRow>("search_lexical_all", [query.query, limit]).map(
       lexicalMatchFromRow,
     );
+  }
+
+  // ---- analyzer metadata ----------------------------------------------
+
+  /**
+   * Batch-fetch analyzer metadata for the given chunk ids. Returns a map
+   * keyed by chunk_id; missing chunks (or chunks indexed before v3) map
+   * to null. SQLite has no array bind, so we materialise N positional
+   * placeholders inline. The id list is internally generated (chunk ids
+   * from a search result), not user input — no injection surface.
+   */
+  getAnalyzersByChunkIds(chunkIds: ReadonlyArray<string>): Map<string, AnalyzerMetadata | null> {
+    const result = new Map<string, AnalyzerMetadata | null>();
+    if (chunkIds.length === 0) return result;
+    const placeholders = chunkIds.map(() => "?").join(",");
+    const sql = `SELECT chunk_id, metadata_json FROM chunks WHERE chunk_id IN (${placeholders})`;
+    const rows = this.db.prepare(sql).all(...chunkIds) as Array<{
+      chunk_id: string;
+      metadata_json: string | null;
+    }>;
+    for (const row of rows) {
+      result.set(row.chunk_id, analyzerMetadataFromJson(row.metadata_json));
+    }
+    return result;
   }
 
   // ---- collections ----------------------------------------------------

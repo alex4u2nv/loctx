@@ -31,7 +31,8 @@ export type QueryCategory =
   | "command"
   | "config"
   | "drift"
-  | "refactor";
+  | "refactor"
+  | "analyzer";
 
 export interface EvalCase {
   readonly name: string;
@@ -267,5 +268,42 @@ export const EVAL_CASES: ReadonlyArray<EvalCase> = Object.freeze([
     query: "ingest",
     language: "python",
     expectedRelPath: "pipeline/ingest.py",
+  },
+
+  // Analyzer-driven (#60). Each case exercises a different analyzer
+  // signal so that ranking boosts in WorkspaceSearcher have a regression
+  // gate. Without analyzer reasons firing, several of these would still
+  // pass on lexical alone — that's fine; the goal is to ensure adding
+  // boosts doesn't sink them. With #97's expansion we'll add cases that
+  // genuinely require the boost to land in top-k.
+  {
+    name: "analyzer: risky shell call (child_process exec)",
+    category: "analyzer",
+    query: "exec child_process spawn shell command",
+    expectedRelPath: "src/jobs/runner.ts",
+  },
+  {
+    name: "analyzer: deeply nested job runner",
+    category: "analyzer",
+    query: "deeply nested loops job runner steps",
+    expectedRelPath: "src/jobs/runner.ts",
+  },
+  {
+    name: "analyzer: async authentication chain",
+    category: "analyzer",
+    query: "async authenticate verifyJwt",
+    expectedRelPath: "src/auth/login.ts",
+  },
+  {
+    name: "analyzer: ingest calls credential and throttle",
+    category: "analyzer",
+    query: "ingest admit throttle credential",
+    expectedRelPath: "pipeline/ingest.py",
+  },
+  {
+    name: "analyzer: dataclass-imported config loader",
+    category: "analyzer",
+    query: "dataclasses ingest config loader",
+    expectedRelPath: "pipeline/config.py",
   },
 ]);

@@ -112,6 +112,36 @@ declare function readFileSync(path: string, enc: string): string;
 `,
       },
       {
+        // Analyzer-signal fixture: deeply nested + async + risky shell call
+        // (child_process.exec). Used by analyzer-driven eval cases — query
+        // "deeply nested job runner" should rank complexity_signal hits
+        // here, and "exec child_process spawn" should fire
+        // risky_call_category.
+        relPath: "src/jobs/runner.ts",
+        content: `import { exec, spawn } from "node:child_process";
+
+export async function runJob(spec: { id: string; steps: string[] }): Promise<number> {
+  for (const step of spec.steps) {
+    if (step.startsWith("shell:")) {
+      for (const line of step.slice("shell:".length).split(";")) {
+        for (const cmd of line.split("&&")) {
+          if (cmd.trim().length > 0) {
+            await new Promise<void>((resolve, reject) => {
+              exec(cmd, (err) => (err ? reject(err) : resolve()));
+            });
+          }
+        }
+      }
+    } else if (step.startsWith("spawn:")) {
+      const [bin, ...args] = step.slice("spawn:".length).split(" ");
+      spawn(bin ?? "true", args);
+    }
+  }
+  return spec.steps.length;
+}
+`,
+      },
+      {
         relPath: "README.md",
         content: `# Alpha Service
 

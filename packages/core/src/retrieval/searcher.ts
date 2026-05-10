@@ -21,7 +21,7 @@ import { detectLanguage } from "../chunking/index.js";
 import type { RetrievalConfig } from "../config.js";
 import type { WorkspaceDiscovery } from "../discovery.js";
 import type { EmbeddingProvider } from "../embeddings/index.js";
-import type { Project } from "../models.js";
+import type { AnalyzerMetadata, Project } from "../models.js";
 import type { LexicalMatch, StateStore, VectorMatch, VectorStore } from "../storage/index.js";
 
 /** What kind of slice the searcher applied. Reported back on the response. */
@@ -55,6 +55,27 @@ export interface ResolvedScope {
  */
 export type RetrievalSource = "vector" | "lexical";
 
+/**
+ * Why a result ranked where it did. Surfaced to agents so they can
+ * explain their tool calls; also a debugging aid for retrieval quality.
+ *
+ *   - symbol_match        chunk defines/exports a symbol that appears in the query
+ *   - import_match        chunk imports a module/path mentioned in the query
+ *   - call_match          chunk calls an identifier mentioned in the query
+ *   - risky_call_category chunk uses a risky API category (eval/exec/...) the query named
+ *   - complexity_signal   query asks about complexity/depth/nesting and chunk scores high
+ *   - async_match         query mentions async and chunk uses async
+ *   - exported            chunk exports the matched symbol (slight rank bump on its own)
+ */
+export type MatchReason =
+  | "symbol_match"
+  | "import_match"
+  | "call_match"
+  | "risky_call_category"
+  | "complexity_signal"
+  | "async_match"
+  | "exported";
+
 export interface SearchResult {
   readonly projectId: string;
   readonly projectName: string;
@@ -78,6 +99,21 @@ export interface SearchResult {
   readonly symbols: ReadonlyArray<string>;
   /** Branches that contributed to this result. */
   readonly sources: ReadonlyArray<RetrievalSource>;
+  /**
+   * Cheap AST-derived metadata for this chunk — imports, calls,
+   * complexity, risky-call categories, etc. Null when the chunk was
+   * indexed before the v3 schema or is a non-code (markdown/prose)
+   * chunk that the analyzer skips. Always present as a key so existing
+   * agents that ignore it stay happy.
+   */
+  readonly analyzer: AnalyzerMetadata | null;
+  /**
+   * Why this chunk ranked here. Empty array when no analyzer-driven
+   * reason fired (the rank is pure RRF over vector + lexical). Each
+   * entry corresponds to a {@link MatchReason} category — see its docs
+   * for what each signal means.
+   */
+  readonly matchReasons: ReadonlyArray<MatchReason>;
 }
 
 export interface SearchResponse {
@@ -138,15 +174,30 @@ export class WorkspaceSearcher {
     const projectsById = new Map<string, Project>();
     for (const p of this.discovery.discoverProjects()) projectsById.set(p.id, p);
 
-    const fused = rrfFuse(matches, lexicalMatches, this.retrieval.rrfK).slice(0, limit);
+    // Pre-fetch analyzer metadata for the over-fetched candidate set so
+    // we can apply analyzer-aware boosts BEFORE the slice(limit) cut.
+    // Without that, a chunk that would have moved into the top-N because
+    // of a symbol_match never gets the chance.
+    const candidateIds = uniqueIds(matches, lexicalMatches);
+    const analyzers = this.state.getAnalyzersByChunkIds(candidateIds);
+    const queryTerms = analyzerQueryTerms(request.query);
+
+    const fused = rrfFuse(matches, lexicalMatches, this.retrieval.rrfK);
+    for (const entry of fused) {
+      const reasons = computeMatchReasons(analyzers.get(entry.chunkId) ?? null, queryTerms);
+      entry.matchReasons = reasons;
+      entry.score += reasons.length * BOOST_PER_REASON;
+    }
+    fused.sort((a, b) => b.score - a.score);
+    const top = fused.slice(0, limit);
 
     const vectorById = new Map(matches.map((m) => [m.chunkId, m]));
     const lexicalById = new Map(lexicalMatches.map((m) => [m.chunkId, m]));
 
-    const results: SearchResult[] = fused.map((entry) => {
+    const results: SearchResult[] = top.map((entry) => {
       const v = vectorById.get(entry.chunkId);
       const l = lexicalById.get(entry.chunkId);
-      return assembleResult(entry, v, l, projectsById);
+      return assembleResult(entry, v, l, projectsById, analyzers.get(entry.chunkId) ?? null);
     });
 
     return Object.freeze({
@@ -285,9 +336,20 @@ function toFtsExpression(raw: string): string {
 
 interface FusedEntry {
   readonly chunkId: string;
-  readonly score: number;
+  score: number;
   readonly sources: ReadonlyArray<RetrievalSource>;
+  matchReasons: ReadonlyArray<MatchReason>;
 }
+
+/**
+ * Per-reason RRF score bump. Calibrated against the base contribution
+ * `1 / (rrfK + rank)` ≈ 0.016 at rank 1 with k=60: a single matched
+ * reason adds ~25% of the top-rank slot, two reasons add ~50%, enough
+ * to nudge a strongly-matching analyzer hit past a marginal pure-text
+ * one without overpowering RRF on its own. Heuristic; revisit when
+ * #97's expanded eval set provides numbers to tune against.
+ */
+const BOOST_PER_REASON = 0.004;
 
 /**
  * Reciprocal rank fusion. Each branch contributes `1 / (k + rank)` to the
@@ -318,8 +380,149 @@ function rrfFuse(
       chunkId,
       score: e.score,
       sources: Object.freeze([...e.sources].sort()),
+      matchReasons: Object.freeze<MatchReason[]>([]),
     }))
     .sort((a, b) => b.score - a.score);
+}
+
+function uniqueIds(
+  vector: ReadonlyArray<VectorMatch>,
+  lexical: ReadonlyArray<LexicalMatch>,
+): string[] {
+  const set = new Set<string>();
+  for (const m of vector) set.add(m.chunkId);
+  for (const m of lexical) set.add(m.chunkId);
+  return [...set];
+}
+
+// ---- analyzer-driven match reasons + boosts ---------------------------
+
+/** Words that signal "the user is asking about complexity / nesting". */
+const COMPLEXITY_QUERY_WORDS = new Set([
+  "complex",
+  "complexity",
+  "deep",
+  "deeply",
+  "nested",
+  "nesting",
+  "recursive",
+  "recursion",
+]);
+/** Thresholds beyond which a chunk counts as "high complexity". */
+const HIGH_NESTING_DEPTH = 4;
+const HIGH_LOOP_DEPTH = 2;
+const HIGH_PARAM_COUNT = 5;
+
+/** Risky-call category names a query can mention to fire that reason. */
+const RISKY_CATEGORY_TOKENS: ReadonlyArray<string> = [
+  "eval",
+  "exec",
+  "system",
+  "child_process",
+  "subprocess",
+  "shell",
+  "spawn",
+  "dangerouslysetinnerhtml",
+];
+
+interface QueryTerms {
+  readonly tokens: ReadonlySet<string>;
+  readonly raw: string;
+  readonly mentionsAsync: boolean;
+  readonly mentionsComplexity: boolean;
+  readonly riskyMentions: ReadonlySet<string>;
+}
+
+function analyzerQueryTerms(rawQuery: string): QueryTerms {
+  const lower = rawQuery.toLowerCase();
+  const tokens = new Set(lower.split(/[^\p{L}\p{N}_]+/u).filter((t) => t.length >= 2));
+  const riskyMentions = new Set<string>();
+  for (const cat of RISKY_CATEGORY_TOKENS) {
+    if (lower.includes(cat)) riskyMentions.add(cat);
+  }
+  let mentionsComplexity = false;
+  for (const w of COMPLEXITY_QUERY_WORDS) {
+    if (tokens.has(w)) {
+      mentionsComplexity = true;
+      break;
+    }
+  }
+  return {
+    tokens,
+    raw: lower,
+    mentionsAsync: tokens.has("async") || tokens.has("await"),
+    mentionsComplexity,
+    riskyMentions,
+  };
+}
+
+function computeMatchReasons(
+  meta: AnalyzerMetadata | null,
+  q: QueryTerms,
+): ReadonlyArray<MatchReason> {
+  if (meta === null) return Object.freeze([]);
+  const reasons = new Set<MatchReason>();
+
+  // Symbol / export match: any exported name appears as a query token.
+  for (const exp of meta.exports) {
+    if (q.tokens.has(exp.toLowerCase())) {
+      reasons.add("symbol_match");
+      reasons.add("exported");
+      break;
+    }
+  }
+
+  // Import match: any imported module/path token appears in the query.
+  for (const imp of meta.imports) {
+    const lower = imp.toLowerCase();
+    if (q.tokens.has(lower)) {
+      reasons.add("import_match");
+      break;
+    }
+    // Path-style imports: "./auth/jwt" → match if "jwt" or "auth" in query.
+    for (const part of lower.split(/[\\/.]+/u)) {
+      if (part.length >= 2 && q.tokens.has(part)) {
+        reasons.add("import_match");
+        break;
+      }
+    }
+    if (reasons.has("import_match")) break;
+  }
+
+  // Call match: an identifier this chunk calls is a query token.
+  for (const call of meta.calls) {
+    if (q.tokens.has(call.toLowerCase())) {
+      reasons.add("call_match");
+      break;
+    }
+  }
+
+  // Risky call: query named a category, chunk uses it.
+  if (q.riskyMentions.size > 0 && meta.riskyCalls.length > 0) {
+    for (const r of meta.riskyCalls) {
+      if (q.riskyMentions.has(r.toLowerCase())) {
+        reasons.add("risky_call_category");
+        break;
+      }
+    }
+  }
+
+  // Complexity signal: query asked, chunk qualifies.
+  if (q.mentionsComplexity) {
+    if (
+      meta.maxNestingDepth >= HIGH_NESTING_DEPTH ||
+      meta.maxLoopDepth >= HIGH_LOOP_DEPTH ||
+      meta.paramCount >= HIGH_PARAM_COUNT ||
+      meta.hasRecursionHint
+    ) {
+      reasons.add("complexity_signal");
+    }
+  }
+
+  // Async match.
+  if (q.mentionsAsync && meta.hasAsync) reasons.add("async_match");
+
+  return Object.freeze([...reasons]);
 }
 
 /**
@@ -333,6 +536,7 @@ function assembleResult(
   vector: VectorMatch | undefined,
   lexical: LexicalMatch | undefined,
   projectsById: ReadonlyMap<string, Project>,
+  analyzer: AnalyzerMetadata | null,
 ): SearchResult {
   const projectId = lexical?.projectId ?? String(vector?.metadata["project_id"] ?? "");
   const relPath = lexical?.relPath ?? String(vector?.metadata["rel_path"] ?? "");
@@ -365,6 +569,8 @@ function assembleResult(
     kind,
     symbols,
     sources: fused.sources,
+    analyzer,
+    matchReasons: fused.matchReasons,
   });
 }
 
