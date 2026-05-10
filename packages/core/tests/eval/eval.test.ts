@@ -53,6 +53,11 @@ beforeAll(async () => {
     retrieval: Object.freeze({ mode: "hybrid", rrfK: 60 }),
     reconciliation: Object.freeze({ runOnStart: false, intervalSeconds: 0 }),
     discovery: Object.freeze({ extraMarkers: Object.freeze<string[]>([]), maxDepth: 4 }),
+    analyzers: Object.freeze({
+      backgroundEnabled: false,
+      concurrency: 2,
+      perTaskTimeoutMs: 60_000,
+    }),
     source: null,
     projectSource: null,
     sources: Object.freeze({}),
