@@ -19,8 +19,13 @@ import { execFileSync, spawnSync } from "node:child_process";
 /** Marker env var: set when the current process is the post-respawn child. */
 export const NOFILE_RESPAWN_ENV = "LOCTX_NOFILE_RAISED";
 
-/** Suggested floor for fluent multi-project watching. */
-export const RECOMMENDED_NOFILE = 4096;
+/**
+ * Suggested floor for fluent multi-project watching. 10240 matches the
+ * `ulimit -n 10240` that macOS users typically set in `~/.zshrc`. 4096
+ * was too tight in practice — workspaces with 15-20 projects, each
+ * with deep trees, blow through it during chokidar's initial scan.
+ */
+export const RECOMMENDED_NOFILE = 10240;
 
 export interface NofileStatus {
   readonly current: number;
@@ -75,9 +80,9 @@ export function checkNofile(recommended = RECOMMENDED_NOFILE): NofileStatus | nu
 /** Human-readable hint shown when the limit is too low. */
 export function nofileBumpHint(): string {
   return [
-    "Increase the open-files limit so the filesystem watcher doesn't crash:",
-    "  short-term:  ulimit -n 10240",
-    "  permanent:   add `ulimit -n 10240` to your ~/.zshrc or ~/.bashrc",
+    `Increase the open-files limit so the filesystem watcher doesn't crash:`,
+    `  short-term:  ulimit -n ${RECOMMENDED_NOFILE}`,
+    `  permanent:   add \`ulimit -n ${RECOMMENDED_NOFILE}\` to your ~/.zshrc or ~/.bashrc`,
   ].join("\n");
 }
 
