@@ -8,22 +8,28 @@
  */
 
 import { getAdminContext } from "@/lib/admin-context";
-import { type Project, inventoryProjects } from "@loctx/core";
+import { type Project, type StateStore, inventoryProjects } from "@loctx/core";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Row = Project & {
   files: number;
+  chunks: number;
   errors: number;
   lastIndexed: string | null;
+  lastReconciled: string | null;
 };
 
 export default function ProjectsPage() {
   const { state, discovery } = getAdminContext();
   const inventory = inventoryProjects(discovery, state);
 
-  const buildRow = (project: Project): Row => {
+  // Chunk counts come straight from the chunks table, joined to files by
+  // file_id. Cheap one-shot read; runs on every nav, page is force-dynamic.
+  const chunkCounts = chunkCountsByProject(state);
+
+  const buildRow = (project: Project, lastReconciled: string | null): Row => {
     const files = state.listFiles(project.id);
     const errors = files.filter((f) => f.error !== null).length;
     const lastIndexed = files
@@ -35,21 +41,27 @@ export default function ProjectsPage() {
       name: project.name,
       root: project.root,
       files: files.length,
+      chunks: chunkCounts.get(project.id) ?? 0,
       errors,
       lastIndexed: lastIndexed ?? null,
+      lastReconciled,
     };
   };
 
-  const activeRows = inventory.active.map((a) => buildRow(a.project));
+  const activeRows = inventory.active.map((a) => buildRow(a.project, a.lastReconciledAt));
   const orphanedRows = inventory.orphaned.map((o) => ({
-    ...buildRow(o.project),
+    ...buildRow(o.project, o.lastReconciledAt),
     reason: o.reason,
     rootExists: o.rootExists,
   }));
 
   const totals = activeRows.reduce(
-    (acc, row) => ({ files: acc.files + row.files, errors: acc.errors + row.errors }),
-    { files: 0, errors: 0 },
+    (acc, row) => ({
+      files: acc.files + row.files,
+      chunks: acc.chunks + row.chunks,
+      errors: acc.errors + row.errors,
+    }),
+    { files: 0, chunks: 0, errors: 0 },
   );
 
   return (
@@ -59,6 +71,7 @@ export default function ProjectsPage() {
       <p className="summary">
         {activeRows.length} active<span className="sep">·</span>
         {totals.files} files indexed<span className="sep">·</span>
+        {totals.chunks} chunks<span className="sep">·</span>
         {totals.errors} errors
         {orphanedRows.length > 0 ? (
           <>
@@ -98,6 +111,7 @@ function ProjectsTable({
   emptyMessage: string;
   showReason?: boolean;
 }) {
+  const baseCols = 8;
   return (
     <table className="data-table">
       <thead>
@@ -106,8 +120,10 @@ function ProjectsTable({
           <th>name</th>
           <th>root</th>
           <th className="num">files</th>
+          <th className="num">chunks</th>
           <th className="num">errors</th>
           <th>last indexed</th>
+          <th>last reconciled</th>
           {showReason ? <th>reason</th> : null}
         </tr>
       </thead>
@@ -118,9 +134,13 @@ function ProjectsTable({
             <td>{row.name}</td>
             <td className={row.rootExists === false ? "err" : "dim"}>{row.root}</td>
             <td className="num">{row.files}</td>
+            <td className="num">{row.chunks}</td>
             <td className={`num ${row.errors > 0 ? "err" : ""}`}>{row.errors}</td>
             <td className="dim">
               {row.lastIndexed ? new Date(row.lastIndexed).toLocaleString() : "—"}
+            </td>
+            <td className="dim">
+              {row.lastReconciled ? new Date(row.lastReconciled).toLocaleString() : "never"}
             </td>
             {showReason ? (
               <td className={row.rootExists === false ? "err" : "warn"}>{row.reason}</td>
@@ -130,7 +150,7 @@ function ProjectsTable({
         {rows.length === 0 && emptyMessage !== "" ? (
           <tr>
             <td
-              colSpan={showReason ? 7 : 6}
+              colSpan={showReason ? baseCols + 1 : baseCols}
               style={{ color: "var(--subtle)", textAlign: "center", padding: "var(--space-5)" }}
             >
               {emptyMessage}
@@ -140,4 +160,23 @@ function ProjectsTable({
       </tbody>
     </table>
   );
+}
+
+/**
+ * Per-project chunk count. One SQL aggregate over `chunks` joined to
+ * `files`. Cheap; no migration required since both tables are part of
+ * schema_v1.
+ */
+function chunkCountsByProject(state: StateStore): Map<string, number> {
+  const db = (state as unknown as { db: { prepare(sql: string): { all(): Array<unknown> } } })[
+    "db"
+  ];
+  const rows = db
+    .prepare(
+      "SELECT files.project_id AS project_id, COUNT(chunks.chunk_id) AS n " +
+        "FROM chunks INNER JOIN files ON chunks.file_id = files.file_id " +
+        "GROUP BY files.project_id",
+    )
+    .all() as Array<{ project_id: string; n: number }>;
+  return new Map(rows.map((r) => [r.project_id, Number(r.n)]));
 }
