@@ -22,7 +22,7 @@ import {
 } from "../models.js";
 import { loadQueries } from "../sql/loader.js";
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 const QUERIES = loadQueries("../sql/state.sql", import.meta.url);
 
@@ -91,6 +91,24 @@ export interface LexicalQuery {
   readonly projectId?: string;
   /** Restrict to documents whose `rel_path` starts with this prefix (e.g. `src/auth/`). */
   readonly relPathPrefix?: string;
+}
+
+/**
+ * Persisted result from a background analyzer (#61, #62). One row per
+ * (file_id, analyzer). `payloadJson` carries the analyzer-specific
+ * findings; the schema is the analyzer's contract, not loctx's.
+ */
+export interface FileEnrichmentRow {
+  readonly fileId: FileId;
+  readonly analyzer: string;
+  readonly analyzerVersion: number;
+  /** Hash of the file content the result was computed against. */
+  readonly contentSha: string;
+  readonly status: "complete" | "failed" | "skipped";
+  readonly payloadJson?: string;
+  readonly error?: string;
+  readonly enqueuedAt?: string;
+  readonly completedAt?: string;
 }
 
 /**
@@ -193,6 +211,12 @@ export class StateStore {
       if (!this.columnExists("projects", "last_reconciled_at")) {
         this.db.exec(schemaV4);
       }
+    }
+
+    if (current < 5) {
+      const schemaV5 = QUERIES["schema_v5"];
+      if (schemaV5 === undefined) throw new Error("Missing schema_v5 in state.sql");
+      this.db.exec(schemaV5);
     }
 
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -434,6 +458,53 @@ export class StateStore {
       result.set(row.chunk_id, analyzerMetadataFromJson(row.metadata_json));
     }
     return result;
+  }
+
+  // ---- file enrichments (#61, #62) ------------------------------------
+
+  /**
+   * Persist a background analyzer's result for a single (file, analyzer)
+   * pair. Upserts on conflict so re-running the analyzer overwrites
+   * the previous payload. Caller serialises the payload to JSON.
+   */
+  upsertFileEnrichment(row: FileEnrichmentRow): void {
+    this.write("upsert_file_enrichment", [
+      row.fileId,
+      row.analyzer,
+      row.analyzerVersion,
+      row.contentSha,
+      row.status,
+      row.payloadJson ?? null,
+      row.error ?? null,
+      row.enqueuedAt ?? null,
+      row.completedAt ?? null,
+    ]);
+  }
+
+  getFileEnrichment(fileId: FileId, analyzer: string): FileEnrichmentRow | null {
+    const row = this.readOne<{
+      analyzer: string;
+      analyzer_version: number;
+      content_sha: string;
+      status: string;
+      payload_json: string | null;
+      error: string | null;
+      enqueued_at: string | null;
+      completed_at: string | null;
+    }>("get_file_enrichment", [fileId, analyzer]);
+    if (row === undefined) return null;
+    const out: FileEnrichmentRow = {
+      fileId,
+      analyzer: row.analyzer,
+      analyzerVersion: row.analyzer_version,
+      contentSha: row.content_sha,
+      status: row.status as FileEnrichmentRow["status"],
+      ...(row.payload_json !== null ? { payloadJson: row.payload_json } : {}),
+      ...(row.error !== null ? { error: row.error } : {}),
+      ...(row.enqueued_at !== null ? { enqueuedAt: row.enqueued_at } : {}),
+      ...(row.completed_at !== null ? { completedAt: row.completed_at } : {}),
+    };
+    return out;
   }
 
   // ---- collections ----------------------------------------------------

@@ -935,6 +935,33 @@ async function runDoctorChecks(config: Config): Promise<DoctorCheck[]> {
       : "background queue disabled (analyzers.background_enabled = false)",
   });
 
+  // Lizard analyzer (#62). Probes the configured binary so users see
+  // 'available + enabled' vs 'enabled but missing' vs 'available but
+  // disabled' clearly. Probe is best-effort (network-free, ~2s).
+  if (config.analyzers.lizard.enabled || config.analyzers.backgroundEnabled) {
+    const { detectLizard } = await import("@loctx/core");
+    const found = await detectLizard(config.analyzers.lizard.command);
+    if (config.analyzers.lizard.enabled && found === null) {
+      checks.push({
+        name: "analyzers.lizard",
+        status: "warn",
+        detail: `enabled but '${config.analyzers.lizard.command}' not found on PATH; install lizard or unset analyzers.lizard.enabled`,
+      });
+    } else if (config.analyzers.lizard.enabled && found !== null) {
+      checks.push({
+        name: "analyzers.lizard",
+        status: "ok",
+        detail: `enabled, command='${found}'`,
+      });
+    } else if (found !== null) {
+      checks.push({
+        name: "analyzers.lizard",
+        status: "ok",
+        detail: "available but disabled (set analyzers.lizard.enabled = true to opt in)",
+      });
+    }
+  }
+
   return checks;
 }
 
