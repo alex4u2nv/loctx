@@ -89,6 +89,10 @@ export interface AnalyzerConfig {
   readonly lizard: LizardAnalyzerConfig;
   /** Duplicate-code detector (#65). Pure-JS token-window hashing, no external deps. */
   readonly duplicates: DuplicatesAnalyzerConfig;
+  /** Semgrep CE rule-pack analyzer (#64). External binary, opt-in. */
+  readonly semgrep: RulePackAnalyzerConfig;
+  /** ast-grep rule-pack analyzer (#64). External binary, opt-in. */
+  readonly astGrep: RulePackAnalyzerConfig;
 }
 
 export interface LizardAnalyzerConfig {
@@ -105,6 +109,22 @@ export interface DuplicatesAnalyzerConfig {
   readonly windowSize: number;
   /** Minimum distinct tokens required for a window to count. Filters boilerplate. */
   readonly minUniqueTokens: number;
+}
+
+/**
+ * Shared shape for rule-pack analyzers (Semgrep, ast-grep). Both shell
+ * out to an external binary, accept rule directories or files, and need
+ * a per-file finding cap so a noisy rule pack can't blow up storage.
+ */
+export interface RulePackAnalyzerConfig {
+  /** Opt-in. False by default; runs only when both this and `analyzers.background_enabled` are true. */
+  readonly enabled: boolean;
+  /** Command to invoke. Override for venv installs or full paths. */
+  readonly command: string;
+  /** Rule directories or files passed to the runner. Empty disables. */
+  readonly ruleDirs: ReadonlyArray<string>;
+  /** Cap on findings persisted per file. Excess findings are dropped. */
+  readonly maxFindingsPerFile: number;
 }
 
 /**
@@ -198,6 +218,18 @@ const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
     enabled: false,
     windowSize: 50,
     minUniqueTokens: 15,
+  }),
+  semgrep: Object.freeze({
+    enabled: false,
+    command: "semgrep",
+    ruleDirs: Object.freeze<string[]>([]),
+    maxFindingsPerFile: 50,
+  }),
+  astGrep: Object.freeze({
+    enabled: false,
+    command: "ast-grep",
+    ruleDirs: Object.freeze<string[]>([]),
+    maxFindingsPerFile: 50,
   }),
 });
 
@@ -480,6 +512,16 @@ function mergeAnalyzers(
     sectionRecord(gloA, "duplicates", "<global>"),
     sources,
   );
+  const semgrepPick = makePicker(
+    sectionRecord(projA, "semgrep", "<project>"),
+    sectionRecord(gloA, "semgrep", "<global>"),
+    sources,
+  );
+  const astGrepPick = makePicker(
+    sectionRecord(projA, "astGrep", "<project>") ?? sectionRecord(projA, "ast_grep", "<project>"),
+    sectionRecord(gloA, "astGrep", "<global>") ?? sectionRecord(gloA, "ast_grep", "<global>"),
+    sources,
+  );
   return Object.freeze({
     backgroundEnabled: pick(
       "analyzers.backgroundEnabled",
@@ -531,6 +573,56 @@ function mergeAnalyzers(
         "min_unique_tokens",
         INT_NON_NEG,
         DEFAULT_ANALYZERS.duplicates.minUniqueTokens,
+      ),
+    }),
+    semgrep: Object.freeze({
+      enabled: semgrepPick(
+        "analyzers.semgrep.enabled",
+        "enabled",
+        BOOL,
+        DEFAULT_ANALYZERS.semgrep.enabled,
+      ),
+      command: semgrepPick(
+        "analyzers.semgrep.command",
+        "command",
+        STR,
+        DEFAULT_ANALYZERS.semgrep.command,
+      ),
+      ruleDirs: Object.freeze(
+        semgrepPick("analyzers.semgrep.ruleDirs", "rule_dirs", STR_ARRAY, [
+          ...DEFAULT_ANALYZERS.semgrep.ruleDirs,
+        ]),
+      ),
+      maxFindingsPerFile: semgrepPick(
+        "analyzers.semgrep.maxFindingsPerFile",
+        "max_findings_per_file",
+        INT_NON_NEG,
+        DEFAULT_ANALYZERS.semgrep.maxFindingsPerFile,
+      ),
+    }),
+    astGrep: Object.freeze({
+      enabled: astGrepPick(
+        "analyzers.astGrep.enabled",
+        "enabled",
+        BOOL,
+        DEFAULT_ANALYZERS.astGrep.enabled,
+      ),
+      command: astGrepPick(
+        "analyzers.astGrep.command",
+        "command",
+        STR,
+        DEFAULT_ANALYZERS.astGrep.command,
+      ),
+      ruleDirs: Object.freeze(
+        astGrepPick("analyzers.astGrep.ruleDirs", "rule_dirs", STR_ARRAY, [
+          ...DEFAULT_ANALYZERS.astGrep.ruleDirs,
+        ]),
+      ),
+      maxFindingsPerFile: astGrepPick(
+        "analyzers.astGrep.maxFindingsPerFile",
+        "max_findings_per_file",
+        INT_NON_NEG,
+        DEFAULT_ANALYZERS.astGrep.maxFindingsPerFile,
       ),
     }),
   });

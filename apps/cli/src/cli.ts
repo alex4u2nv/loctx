@@ -191,6 +191,11 @@ program
               `    # complexity: fn=${l.functionName} ccn=${l.ccn} nloc=${l.nloc} tokens=${l.tokens} params=${l.parameters}`,
             );
           }
+          for (const f of result.enrichments.findings) {
+            const tag = f.category === "" ? f.severity : `${f.severity}/${f.category}`;
+            const msg = f.message === "" ? "" : `: ${f.message}`;
+            console.log(`    # ${f.analyzer} ${tag} ${f.ruleId} L${f.lineFrom}-${f.lineTo}${msg}`);
+          }
           console.log(indent(clip(result.snippet)));
           console.log();
         }

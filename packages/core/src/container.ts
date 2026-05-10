@@ -13,11 +13,15 @@
 
 import { readFileSync } from "node:fs";
 import {
+  AST_GREP_VERSION,
   DUPLICATES_VERSION,
   EnrichmentQueue,
   LIZARD_VERSION,
+  SEMGREP_VERSION,
   computeDuplicateWindows,
+  runAstGrep,
   runLizard,
+  runSemgrep,
 } from "./analyzers/index.js";
 import type { Config } from "./config.js";
 import { DEFAULT_PROJECT_MARKERS, type MarkerSpec, WorkspaceDiscovery } from "./discovery.js";
@@ -128,6 +132,42 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
             // Read off-thread is fine; duplicates is a CPU-only pass over
             // the file body and the queue caps concurrency.
             run: async () => computeDuplicateWindows(readFileSync(absPath, "utf-8"), dupOpts),
+          }),
+        );
+      }
+      if (config.analyzers.semgrep.enabled && config.analyzers.semgrep.ruleDirs.length > 0) {
+        const sg = config.analyzers.semgrep;
+        enrichments.enqueue(
+          analyzerTaskMeta({
+            fileId,
+            project,
+            analyzer: "semgrep",
+            analyzerVersion: SEMGREP_VERSION,
+            contentSha,
+            run: () =>
+              runSemgrep(absPath, {
+                command: sg.command,
+                ruleDirs: sg.ruleDirs,
+                maxFindingsPerFile: sg.maxFindingsPerFile,
+              }),
+          }),
+        );
+      }
+      if (config.analyzers.astGrep.enabled && config.analyzers.astGrep.ruleDirs.length > 0) {
+        const ag = config.analyzers.astGrep;
+        enrichments.enqueue(
+          analyzerTaskMeta({
+            fileId,
+            project,
+            analyzer: "ast-grep",
+            analyzerVersion: AST_GREP_VERSION,
+            contentSha,
+            run: () =>
+              runAstGrep(absPath, {
+                command: ag.command,
+                ruleDirs: ag.ruleDirs,
+                maxFindingsPerFile: ag.maxFindingsPerFile,
+              }),
           }),
         );
       }
