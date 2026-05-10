@@ -39,6 +39,7 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
       listFiles: (id: string) => (id === "proj-a" ? [{}, {}, {}] : [{}]),
       listProjects: () =>
         projects.map((p) => ({ ...p, lastIndexedAt: "2026-05-08T00:00:00.000Z" })),
+      findDuplicateGroups: () => [],
     },
     searcher: {
       search: async () => ({
@@ -82,12 +83,13 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
 // ---- tool catalog ---------------------------------------------------
 
 describe("TOOL_DEFINITIONS", () => {
-  it("exposes the four loctx tools", () => {
+  it("exposes the five loctx tools", () => {
     const names = TOOL_DEFINITIONS.map((t) => t.name);
     expect(names).toEqual([
       "search_workspace",
       "workspace_status",
       "find_usages",
+      "find_duplicates",
       "refresh_workspace",
     ]);
   });

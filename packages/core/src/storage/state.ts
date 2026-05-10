@@ -94,6 +94,26 @@ export interface LexicalQuery {
 }
 
 /**
+ * One file's contribution to a duplicate group (#65). Coordinates are
+ * absolute file lines (1-based, inclusive). The full file path can be
+ * resolved through the StateStore's `files` table by `fileId`.
+ */
+export interface DuplicateMember {
+  readonly fileId: FileId;
+  readonly startLine: number;
+  readonly endLine: number;
+}
+
+/**
+ * A group of duplicate windows that share the same content hash across
+ * at least 2 files. Surfaced by `StateStore.findDuplicateGroups`.
+ */
+export interface DuplicateGroup {
+  readonly hash: string;
+  readonly members: ReadonlyArray<DuplicateMember>;
+}
+
+/**
  * Persisted result from a background analyzer (#61, #62). One row per
  * (file_id, analyzer). `payloadJson` carries the analyzer-specific
  * findings; the schema is the analyzer's contract, not loctx's.
@@ -458,6 +478,52 @@ export class StateStore {
       result.set(row.chunk_id, analyzerMetadataFromJson(row.metadata_json));
     }
     return result;
+  }
+
+  // ---- duplicates aggregation (#65) -----------------------------------
+
+  /**
+   * Cross-file aggregation of duplicate windows. Reads every
+   * `duplicates` enrichment row, groups windows by hash, and returns
+   * groups that hit at least `minMembers` distinct files. The
+   * per-file payloads are written by the duplicates analyzer; the
+   * grouping happens here at query time so we don't pay an N² cost
+   * during indexing. Output is sorted by group size (most-duplicated
+   * first).
+   */
+  findDuplicateGroups(minMembers = 2): DuplicateGroup[] {
+    const rows = this.readAll<{ file_id: string; payload_json: string | null }>(
+      "list_file_enrichments_by_analyzer",
+      ["duplicates"],
+    );
+    const byHash = new Map<string, DuplicateMember[]>();
+    for (const row of rows) {
+      if (row.payload_json === null) continue;
+      let payload: {
+        windows?: ReadonlyArray<{ hash: string; startLine: number; endLine: number }>;
+      };
+      try {
+        payload = JSON.parse(row.payload_json);
+      } catch {
+        continue;
+      }
+      for (const w of payload.windows ?? []) {
+        const list = byHash.get(w.hash) ?? [];
+        list.push({
+          fileId: row.file_id as FileId,
+          startLine: w.startLine,
+          endLine: w.endLine,
+        });
+        byHash.set(w.hash, list);
+      }
+    }
+    const groups: DuplicateGroup[] = [];
+    for (const [hash, members] of byHash.entries()) {
+      const distinctFiles = new Set(members.map((m) => m.fileId));
+      if (distinctFiles.size < minMembers) continue;
+      groups.push({ hash, members: Object.freeze(members) });
+    }
+    return groups.sort((a, b) => b.members.length - a.members.length);
   }
 
   // ---- file enrichments (#61, #62) ------------------------------------

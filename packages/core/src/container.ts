@@ -11,7 +11,14 @@
  * deterministic from a `Config` snapshot.
  */
 
-import { EnrichmentQueue, LIZARD_VERSION, runLizard } from "./analyzers/index.js";
+import { readFileSync } from "node:fs";
+import {
+  DUPLICATES_VERSION,
+  EnrichmentQueue,
+  LIZARD_VERSION,
+  computeDuplicateWindows,
+  runLizard,
+} from "./analyzers/index.js";
 import type { Config } from "./config.js";
 import { DEFAULT_PROJECT_MARKERS, type MarkerSpec, WorkspaceDiscovery } from "./discovery.js";
 import {
@@ -103,6 +110,24 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
             analyzerVersion: LIZARD_VERSION,
             contentSha,
             run: () => runLizard(command, absPath),
+          }),
+        );
+      }
+      if (config.analyzers.duplicates.enabled) {
+        const dupOpts = {
+          windowSize: config.analyzers.duplicates.windowSize,
+          minUniqueTokens: config.analyzers.duplicates.minUniqueTokens,
+        };
+        enrichments.enqueue(
+          analyzerTaskMeta({
+            fileId,
+            project,
+            analyzer: "duplicates",
+            analyzerVersion: DUPLICATES_VERSION,
+            contentSha,
+            // Read off-thread is fine; duplicates is a CPU-only pass over
+            // the file body and the queue caps concurrency.
+            run: async () => computeDuplicateWindows(readFileSync(absPath, "utf-8"), dupOpts),
           }),
         );
       }
