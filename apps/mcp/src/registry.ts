@@ -171,7 +171,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "search_workspace",
     description:
-      "Semantic search over the locally-indexed workspace. Returns ranked code chunks. Each result includes `absPath` (absolute path on disk), `relPath` (relative to project root), `projectRoot`, `projectName`, line range, score, and snippet — so a single call is enough to open, grep, or cite the file without follow-up lookups. Pass `path` to scope the search; omit it to search every indexed project.",
+      "Semantic search over the locally-indexed workspace. Returns ranked code chunks. Each result includes `absPath` (absolute path on disk), `relPath` (relative to project root), `projectRoot`, `projectName`, line range, score, snippet, `matchReasons` (e.g. symbol_match, import_match, call_match, risky_call_category, complexity_signal, async_match) and `analyzer` (cheap AST metadata: imports, exports, calls, complexity, risky-call categories). `analyzer` is null for non-code chunks. Pass `path` to scope the search; omit it to search every indexed project.",
     inputSchema: {
       type: "object",
       required: ["query"],
