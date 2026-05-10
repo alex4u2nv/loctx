@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  DEFAULT_PROJECT_MARKERS,
   WorkspaceDiscovery,
   chunkIdFor,
   fileIdFor,
@@ -99,5 +100,97 @@ describe("WorkspaceDiscovery", () => {
     gitInit(join(tmp, "a", "b", "c"));
     const projects = new WorkspaceDiscovery([tmp], { maxDepth }).discoverProjects();
     expect(projects).toEqual([]);
+  });
+});
+
+describe("project discovery markers (#81)", () => {
+  function withFile(dir: string, name: string, content = "") {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, name), content);
+  }
+  function withDir(dir: string, name: string) {
+    mkdirSync(join(dir, name), { recursive: true });
+  }
+
+  it("discovers a non-git project via package.json", () => {
+    withFile(join(tmp, "node-pkg"), "package.json", "{}");
+    const hits = new WorkspaceDiscovery([tmp]).discoverWithMarkers();
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.marker).toBe("package.json");
+    expect(hits[0]?.markerKind).toBe("build");
+  });
+
+  it("discovers via .idea (IDE marker)", () => {
+    const root = join(tmp, "intellij-proj");
+    mkdirSync(root, { recursive: true });
+    withDir(root, ".idea");
+    const hits = new WorkspaceDiscovery([tmp]).discoverWithMarkers();
+    expect(hits[0]?.marker).toBe(".idea");
+    expect(hits[0]?.markerKind).toBe("ide");
+  });
+
+  it("discovers via *.code-workspace (suffix marker)", () => {
+    const root = join(tmp, "vscode-multi");
+    withFile(root, "team.code-workspace", "{}");
+    const hits = new WorkspaceDiscovery([tmp]).discoverWithMarkers();
+    expect(hits[0]?.markerKind).toBe("ide");
+    expect(hits[0]?.marker).toBe(".code-workspace");
+  });
+
+  it("git wins over package.json at the same dir", () => {
+    const root = join(tmp, "both");
+    gitInit(root);
+    writeFileSync(join(root, "package.json"), "{}");
+    const hits = new WorkspaceDiscovery([tmp]).discoverWithMarkers();
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.markerKind).toBe("git");
+    expect(hits[0]?.marker).toBe(".git");
+  });
+
+  it("does not treat node_modules contents as projects", () => {
+    const root = join(tmp, "app");
+    withFile(root, "package.json", "{}");
+    const dep = join(root, "node_modules", "leftpad");
+    mkdirSync(dep, { recursive: true });
+    writeFileSync(join(dep, "package.json"), "{}");
+    const hits = new WorkspaceDiscovery([tmp]).discoverWithMarkers();
+    expect(hits.map((h) => h.project.name)).toEqual(["app"]);
+  });
+
+  it("custom markers extend defaults via constructor option", () => {
+    const root = join(tmp, "zig-like");
+    withFile(root, "build.zig", "");
+    const defaults = new WorkspaceDiscovery([tmp]).discoverWithMarkers();
+    expect(defaults).toEqual([]);
+    const extended = new WorkspaceDiscovery([tmp], {
+      markers: [...DEFAULT_PROJECT_MARKERS, { name: "build.zig", kind: "file", group: "build" }],
+    }).discoverWithMarkers();
+    expect(extended.map((h) => h.marker)).toContain("build.zig");
+  });
+
+  it("discoverProjects returns same set as discoverWithMarkers without metadata", () => {
+    withFile(join(tmp, "p1"), "package.json", "{}");
+    withFile(join(tmp, "p2"), "Cargo.toml", "");
+    const d = new WorkspaceDiscovery([tmp]);
+    expect(
+      d
+        .discoverProjects()
+        .map((p) => p.id)
+        .sort(),
+    ).toEqual(
+      d
+        .discoverWithMarkers()
+        .map((h) => h.project.id)
+        .sort(),
+    );
+  });
+
+  it("resolveProject walks upward to nearest marker (any kind)", () => {
+    const root = join(tmp, "py-proj");
+    withFile(root, "pyproject.toml", "");
+    const nested = join(root, "src", "deep");
+    mkdirSync(nested, { recursive: true });
+    const project = new WorkspaceDiscovery([tmp]).resolveProject(nested);
+    expect(project?.root).toBe(root);
   });
 });

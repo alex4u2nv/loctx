@@ -19,6 +19,8 @@ type Row = Project & {
   errors: number;
   lastIndexed: string | null;
   lastReconciled: string | null;
+  marker: string | null;
+  markerKind: string | null;
 };
 
 export default function ProjectsPage() {
@@ -29,7 +31,12 @@ export default function ProjectsPage() {
   // file_id. Cheap one-shot read; runs on every nav, page is force-dynamic.
   const chunkCounts = chunkCountsByProject(state);
 
-  const buildRow = (project: Project, lastReconciled: string | null): Row => {
+  const buildRow = (
+    project: Project,
+    lastReconciled: string | null,
+    marker: string | null,
+    markerKind: string | null,
+  ): Row => {
     const files = state.listFiles(project.id);
     const errors = files.filter((f) => f.error !== null).length;
     const lastIndexed = files
@@ -45,12 +52,17 @@ export default function ProjectsPage() {
       errors,
       lastIndexed: lastIndexed ?? null,
       lastReconciled,
+      marker,
+      markerKind,
     };
   };
 
-  const activeRows = inventory.active.map((a) => buildRow(a.project, a.lastReconciledAt));
+  const activeRows = inventory.active.map((a) =>
+    buildRow(a.project, a.lastReconciledAt, a.marker, a.markerKind),
+  );
   const orphanedRows = inventory.orphaned.map((o) => ({
-    ...buildRow(o.project, o.lastReconciledAt),
+    // Orphans no longer have a marker on disk; null is honest.
+    ...buildRow(o.project, o.lastReconciledAt, null, null),
     reason: o.reason,
     rootExists: o.rootExists,
   }));
@@ -111,7 +123,7 @@ function ProjectsTable({
   emptyMessage: string;
   showReason?: boolean;
 }) {
-  const baseCols = 8;
+  const baseCols = 9;
   return (
     <table className="data-table">
       <thead>
@@ -119,6 +131,7 @@ function ProjectsTable({
           <th>id</th>
           <th>name</th>
           <th>root</th>
+          <th>marker</th>
           <th className="num">files</th>
           <th className="num">chunks</th>
           <th className="num">errors</th>
@@ -133,6 +146,11 @@ function ProjectsTable({
             <td className="dim">{row.id}</td>
             <td>{row.name}</td>
             <td className={row.rootExists === false ? "err" : "dim"}>{row.root}</td>
+            <td className="dim">
+              {row.marker !== null
+                ? `${row.marker}${row.markerKind !== null ? ` (${row.markerKind})` : ""}`
+                : "—"}
+            </td>
             <td className="num">{row.files}</td>
             <td className="num">{row.chunks}</td>
             <td className={`num ${row.errors > 0 ? "err" : ""}`}>{row.errors}</td>

@@ -12,7 +12,7 @@
  */
 
 import type { Config } from "./config.js";
-import { WorkspaceDiscovery } from "./discovery.js";
+import { DEFAULT_PROJECT_MARKERS, type MarkerSpec, WorkspaceDiscovery } from "./discovery.js";
 import {
   type EmbeddingProvider,
   FakeEmbeddingProvider,
@@ -51,7 +51,18 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
   // Lazy providers (Local) need a warmup; in-process providers (Fake) skip it.
   await embeddings.ensureReady?.();
   const vectors = createVectorStore(config.paths.vectorDir, embeddings.identity, state);
-  const discovery = new WorkspaceDiscovery(config.workspaceRoots);
+  const extraMarkers: MarkerSpec[] = config.discovery.extraMarkers.map((name) => ({
+    name,
+    kind: "file" as const,
+    group: "build" as const,
+  }));
+  const discovery = new WorkspaceDiscovery(config.workspaceRoots, {
+    maxDepth: config.discovery.maxDepth,
+    markers:
+      extraMarkers.length === 0
+        ? DEFAULT_PROJECT_MARKERS
+        : [...DEFAULT_PROJECT_MARKERS, ...extraMarkers],
+  });
 
   const filterFor = (project: Project): ProjectFilter =>
     new ProjectFilter(project, rules, combinedGitignore(project.root));

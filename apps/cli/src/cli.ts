@@ -606,9 +606,10 @@ program
       console.log(`    - ${root}`);
     }
     console.log(`  active projects (${inventory.active.length}):`);
-    for (const { project, lastIndexedAt } of inventory.active) {
+    for (const { project, lastIndexedAt, marker, markerKind } of inventory.active) {
       const stamp = lastIndexedAt ? `  (indexed ${lastIndexedAt})` : "";
-      console.log(`    ${project.id}  ${project.name}  ${project.root}${stamp}`);
+      const tag = `[${marker}${markerKind !== "git" ? `:${markerKind}` : ""}]`;
+      console.log(`    ${project.id}  ${project.name}  ${project.root}  ${tag}${stamp}`);
     }
     if (inventory.orphaned.length > 0) {
       console.log(`  orphaned projects (${inventory.orphaned.length}, still queryable):`);
@@ -814,15 +815,30 @@ async function runDoctorChecks(config: Config): Promise<DoctorCheck[]> {
   // Project discovery.
   try {
     const discovery = new WorkspaceDiscovery(config.workspaceRoots);
-    const projects = discovery.discoverProjects();
-    checks.push({
-      name: "discovery",
-      status: projects.length > 0 ? "ok" : "warn",
-      detail:
-        projects.length > 0
-          ? `${projects.length} projects under ${config.workspaceRoots.join(", ")}`
-          : `no .git-marked projects under ${config.workspaceRoots.join(", ")}`,
-    });
+    const hits = discovery.discoverWithMarkers();
+    if (hits.length === 0) {
+      checks.push({
+        name: "discovery",
+        status: "warn",
+        detail: `no project markers under ${config.workspaceRoots.join(", ")}`,
+      });
+    } else {
+      // Tally by marker kind so users can see whether they're picking up
+      // git roots vs. IDE/build-only directories.
+      const byKind = hits.reduce<Record<string, number>>((acc, h) => {
+        acc[h.markerKind] = (acc[h.markerKind] ?? 0) + 1;
+        return acc;
+      }, {});
+      const breakdown = Object.entries(byKind)
+        .sort()
+        .map(([k, n]) => `${k}=${n}`)
+        .join(", ");
+      checks.push({
+        name: "discovery",
+        status: "ok",
+        detail: `${hits.length} projects (${breakdown}) under ${config.workspaceRoots.join(", ")}`,
+      });
+    }
   } catch (err) {
     checks.push({
       name: "discovery",

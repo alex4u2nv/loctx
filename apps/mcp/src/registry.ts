@@ -55,6 +55,10 @@ export interface ProjectStatusEntry {
   readonly lastIndexedAt: string | null;
   /** Last reconciliation pass for this project (#14). Null if never reconciled. */
   readonly lastReconciledAt: string | null;
+  /** Marker file/dir that identified the directory as a project (#81). Active only. */
+  readonly marker?: string;
+  /** Marker confidence group (#81). Active only. */
+  readonly markerKind?: "git" | "ide" | "build";
 }
 
 export interface StatusOutput {
@@ -134,6 +138,8 @@ export const tools = {
           status: "active",
           lastIndexedAt: a.lastIndexedAt,
           lastReconciledAt: a.lastReconciledAt,
+          marker: a.marker,
+          markerKind: a.markerKind,
         }),
       ),
       ...inventory.orphaned.map(
