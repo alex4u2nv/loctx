@@ -169,14 +169,17 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
  * directly without download events).
  */
 function defaultProgressLogger(): (event: ProgressEvent) => void {
+  // Use stdout (console.log) rather than stderr — these are informational,
+  // not warnings, and Next.js dev mode promotes anything on stderr into
+  // its red error overlay even though the daemon is healthy.
   let announced = false;
   return (event) => {
     if (!announced && event.status === "download") {
       announced = true;
-      console.error("[loctx embeddings] downloading model on first run (~90MB to your HF cache)");
+      console.log("[loctx embeddings] downloading model on first run (~90MB to your HF cache)");
     }
     if (event.status === "ready") {
-      console.error("[loctx embeddings] ready");
+      console.log("[loctx embeddings] ready");
     }
   };
 }
