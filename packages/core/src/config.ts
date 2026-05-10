@@ -84,6 +84,21 @@ export interface ReconciliationConfig {
   readonly intervalSeconds: number;
 }
 
+/**
+ * Project discovery (#81). Walks `workspace_roots` looking for marker
+ * files/directories that identify a project root.
+ *
+ *   - `extraMarkers`  additional filenames recognized as project markers,
+ *                     beyond the built-in defaults. All classified as
+ *                     "build" tier (lower confidence than `.git` /
+ *                     `.idea` / `.vscode`).
+ *   - `maxDepth`      walk-depth cap. Default 4.
+ */
+export interface DiscoveryConfig {
+  readonly extraMarkers: ReadonlyArray<string>;
+  readonly maxDepth: number;
+}
+
 export type ConfigSource = "default" | "global" | "project" | "env";
 
 /** Where each leaf came from. Keyed by dot-path (e.g. "embedding.model"). */
@@ -97,6 +112,7 @@ export interface Config {
   readonly daemon: DaemonConfig;
   readonly retrieval: RetrievalConfig;
   readonly reconciliation: ReconciliationConfig;
+  readonly discovery: DiscoveryConfig;
   /** Path of the global YAML if loaded; null when only defaults applied. */
   readonly source: string | null;
   /** Path of the project YAML if discovered; null otherwise. */
@@ -125,6 +141,11 @@ const DEFAULT_RRF_K = 60;
 const DEFAULT_RETRIEVAL: RetrievalConfig = Object.freeze({
   mode: "hybrid",
   rrfK: DEFAULT_RRF_K,
+});
+
+const DEFAULT_DISCOVERY: DiscoveryConfig = Object.freeze({
+  extraMarkers: Object.freeze<string[]>([]),
+  maxDepth: 4,
 });
 
 const DEFAULT_RECONCILIATION: ReconciliationConfig = Object.freeze({
@@ -185,6 +206,7 @@ export function loadConfig(options?: string | LoadConfigOptions): Config {
     daemon: merged.daemon,
     retrieval: merged.retrieval,
     reconciliation: merged.reconciliation,
+    discovery: merged.discovery,
     source: globalRaw === null ? null : globalPath,
     projectSource: projectRaw === null ? null : projectPath,
     sources: Object.freeze(sources),
@@ -248,6 +270,7 @@ interface MergedFields {
   readonly daemon: DaemonConfig;
   readonly retrieval: RetrievalConfig;
   readonly reconciliation: ReconciliationConfig;
+  readonly discovery: DiscoveryConfig;
 }
 
 function mergeFields(
@@ -264,6 +287,7 @@ function mergeFields(
     daemon: mergeDaemon(project, global, sources),
     retrieval: mergeRetrieval(project, global, sources),
     reconciliation: mergeReconciliation(project, global, sources),
+    discovery: mergeDiscovery(project, global, sources),
   };
 }
 
@@ -364,6 +388,26 @@ function mergeReconciliation(
       INT_NON_NEG,
       DEFAULT_RECONCILIATION.intervalSeconds,
     ),
+  });
+}
+
+function mergeDiscovery(
+  project: Record<string, unknown> | null,
+  global: Record<string, unknown> | null,
+  sources: Record<string, ConfigSource>,
+): DiscoveryConfig {
+  const pick = makePicker(
+    sectionRecord(project, "discovery", "<project>"),
+    sectionRecord(global, "discovery", "<global>"),
+    sources,
+  );
+  return Object.freeze({
+    extraMarkers: Object.freeze(
+      pick("discovery.extraMarkers", "extra_markers", STR_ARRAY, [
+        ...DEFAULT_DISCOVERY.extraMarkers,
+      ]),
+    ),
+    maxDepth: pick("discovery.maxDepth", "max_depth", INT_NON_NEG, DEFAULT_DISCOVERY.maxDepth),
   });
 }
 

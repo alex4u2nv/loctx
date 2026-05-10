@@ -29,6 +29,8 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
     },
     discovery: {
       discoverProjects: () => projects,
+      discoverWithMarkers: () =>
+        projects.map((p) => ({ project: p, marker: ".git", markerKind: "git" })),
       resolveProject: (path: string) =>
         projects.find((p) => path.startsWith(p.root)) ?? null,
       configuredRoots: ["/ws"] as ReadonlyArray<string>,

@@ -119,6 +119,7 @@ function makeConfig(workspaceRoot: string, dataDir: string): Config {
     daemon: Object.freeze({ port: 0, hostname: "localhost" }),
     retrieval: Object.freeze({ mode: "hybrid", rrfK: 60 }),
     reconciliation: Object.freeze({ runOnStart: false, intervalSeconds: 0 }),
+    discovery: Object.freeze({ extraMarkers: Object.freeze<string[]>([]), maxDepth: 4 }),
     source: null,
     projectSource: null,
     sources: Object.freeze({}),

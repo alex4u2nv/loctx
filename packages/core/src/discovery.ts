@@ -16,11 +16,71 @@ import {
 } from "./models.js";
 import type { StateStore } from "./storage/state.js";
 
-const PROJECT_MARKER = ".git";
 const DEFAULT_MAX_DEPTH = 4;
 const PROJECT_ID_LEN = 16;
 const FILE_ID_LEN = 16;
 const CHUNK_HASH_LEN = 8;
+
+/**
+ * Project root markers, ordered by confidence. The first matching marker
+ * at a directory wins; markers higher in this list outrank lower ones.
+ *
+ *   - **git**: `.git/`. Highest confidence.
+ *   - **ide**: an IDE has registered the directory as a workspace root.
+ *   - **build**: a build/package manifest exists. Lowest confidence;
+ *     `package.json` lives in too many `node_modules/*` to be reliable
+ *     on its own. The ignored-dirs filter below keeps those out.
+ */
+export type MarkerKind = "git" | "ide" | "build";
+
+export interface MarkerSpec {
+  /** Filename or directory name, or a suffix pattern like `.code-workspace`. */
+  readonly name: string;
+  /** Whether to test by exact name (file/dir) or by suffix-of-filename match. */
+  readonly kind: "dir" | "file" | "fileSuffix";
+  readonly group: MarkerKind;
+}
+
+export const DEFAULT_PROJECT_MARKERS: ReadonlyArray<MarkerSpec> = Object.freeze([
+  { name: ".git", kind: "dir", group: "git" },
+  { name: ".idea", kind: "dir", group: "ide" },
+  { name: ".vscode", kind: "dir", group: "ide" },
+  { name: ".code-workspace", kind: "fileSuffix", group: "ide" },
+  { name: "package.json", kind: "file", group: "build" },
+  { name: "pyproject.toml", kind: "file", group: "build" },
+  { name: "Cargo.toml", kind: "file", group: "build" },
+  { name: "go.mod", kind: "file", group: "build" },
+  { name: "pom.xml", kind: "file", group: "build" },
+  { name: "build.gradle", kind: "file", group: "build" },
+  { name: "build.gradle.kts", kind: "file", group: "build" },
+  { name: "Makefile", kind: "file", group: "build" },
+  { name: "CMakeLists.txt", kind: "file", group: "build" },
+]);
+
+/**
+ * Directories never treated as project roots regardless of markers
+ * found inside them. Avoids `node_modules/<pkg>/package.json` and
+ * similar build/dep cache traps. Keep in sync with the filtering
+ * defaults; intentional duplication so discovery does not depend on
+ * the chunker's filtering layer.
+ */
+const SKIP_DIR_NAMES: ReadonlySet<string> = new Set([
+  "node_modules",
+  ".venv",
+  "venv",
+  "__pycache__",
+  "dist",
+  "build",
+  ".next",
+  "target",
+  "vendor",
+  ".tox",
+  ".cache",
+  ".pnpm",
+]);
+
+/** Confidence ranking; lower number = higher confidence. */
+const MARKER_RANK: Record<MarkerKind, number> = { git: 0, ide: 1, build: 2 };
 
 /** Deterministic project id derived from the resolved absolute root path. */
 export function projectIdFor(root: string): ProjectId {
@@ -71,17 +131,38 @@ export function makeProject(root: string): Project {
 
 export interface DiscoveryOptions {
   readonly maxDepth?: number;
+  /**
+   * Override the marker list. Use to extend, restrict, or re-order the
+   * defaults. First-matching, group-ranked precedence still applies.
+   */
+  readonly markers?: ReadonlyArray<MarkerSpec>;
+}
+
+/**
+ * A project plus the marker that identified it. Returned by
+ * {@link WorkspaceDiscovery.discoverWithMarkers}; surfaced in
+ * `loctx doctor`, the admin UI's projects page, and MCP
+ * `workspace_status`.
+ */
+export interface DiscoveryHit {
+  readonly project: Project;
+  /** Filename or directory name of the matched marker (e.g. `.git`, `package.json`). */
+  readonly marker: string;
+  /** Marker confidence group. */
+  readonly markerKind: MarkerKind;
 }
 
 export class WorkspaceDiscovery {
   private readonly roots: ReadonlyArray<string>;
   private readonly maxDepth: number;
+  private readonly markers: ReadonlyArray<MarkerSpec>;
 
   constructor(workspaceRoots: Iterable<string>, options: DiscoveryOptions = {}) {
     this.roots = Object.freeze(
       [...workspaceRoots].map((r) => resolveSafe(r)).filter((r): r is string => r !== null),
     );
     this.maxDepth = Math.max(0, options.maxDepth ?? DEFAULT_MAX_DEPTH);
+    this.markers = options.markers ?? DEFAULT_PROJECT_MARKERS;
   }
 
   get configuredRoots(): ReadonlyArray<string> {
@@ -90,18 +171,27 @@ export class WorkspaceDiscovery {
 
   /** Discover every project under configured roots. Dedupe by id, sort by root path. */
   discoverProjects(): Project[] {
-    const seen = new Map<string, Project>();
-    for (const root of this.roots) {
-      if (!isDir(root)) continue;
-      for (const projectRoot of this.iterProjectRoots(root, 0)) {
-        const project = makeProject(projectRoot);
-        if (!seen.has(project.id)) seen.set(project.id, project);
-      }
-    }
-    return [...seen.values()].sort((a, b) => a.root.localeCompare(b.root));
+    return this.discoverWithMarkers().map((h) => h.project);
   }
 
-  /** Walk upward from cwd looking for the nearest `.git/` directory. */
+  /**
+   * Like {@link discoverProjects} but each entry includes the marker
+   * that identified the directory as a project. Useful for status,
+   * doctor, and admin UI surfaces that explain *why* a directory was
+   * picked up.
+   */
+  discoverWithMarkers(): DiscoveryHit[] {
+    const seen = new Map<string, DiscoveryHit>();
+    for (const root of this.roots) {
+      if (!isDir(root)) continue;
+      for (const hit of this.iterProjectHits(root, 0)) {
+        if (!seen.has(hit.project.id)) seen.set(hit.project.id, hit);
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.project.root.localeCompare(b.project.root));
+  }
+
+  /** Walk upward from cwd looking for the nearest project marker. */
   resolveProject(cwd: string): Project | null {
     let current = resolveSafe(cwd);
     if (current === null) return null;
@@ -110,7 +200,7 @@ export class WorkspaceDiscovery {
     }
     let last = "";
     while (current !== last) {
-      if (isDir(join(current, PROJECT_MARKER))) {
+      if (this.detectMarker(current) !== null) {
         return makeProject(current);
       }
       last = current;
@@ -119,9 +209,10 @@ export class WorkspaceDiscovery {
     return null;
   }
 
-  private *iterProjectRoots(directory: string, depth: number): Generator<string> {
-    if (isDir(join(directory, PROJECT_MARKER))) {
-      yield directory;
+  private *iterProjectHits(directory: string, depth: number): Generator<DiscoveryHit> {
+    const marker = this.detectMarker(directory);
+    if (marker !== null) {
+      yield { project: makeProject(directory), marker: marker.name, markerKind: marker.group };
       return; // do not descend into a project's subdirectories
     }
     if (depth >= this.maxDepth) return;
@@ -134,7 +225,10 @@ export class WorkspaceDiscovery {
     }
 
     for (const name of entries) {
-      if (name.startsWith(".")) continue;
+      // Skip dotfiles (won't match dir markers since those start with `.`
+      // but are added below) and known build/cache directories so we
+      // don't descend into `node_modules/<pkg>/package.json`.
+      if (name.startsWith(".") || SKIP_DIR_NAMES.has(name)) continue;
       const child = join(directory, name);
       try {
         const stat = lstatSync(child);
@@ -142,8 +236,54 @@ export class WorkspaceDiscovery {
       } catch {
         continue;
       }
-      yield* this.iterProjectRoots(child, depth + 1);
+      yield* this.iterProjectHits(child, depth + 1);
     }
+  }
+
+  /**
+   * Return the highest-ranked marker present at `directory`, or null if
+   * none. Higher-ranked marker groups (git → ide → build) win over
+   * lower-ranked, regardless of declaration order.
+   */
+  private detectMarker(directory: string): MarkerSpec | null {
+    let entries: string[] | null = null;
+    let best: MarkerSpec | null = null;
+    for (const spec of this.markers) {
+      if (spec.kind === "dir") {
+        if (isDir(join(directory, spec.name))) {
+          best = bestOf(best, spec);
+        }
+      } else if (spec.kind === "file") {
+        if (isFile(join(directory, spec.name))) {
+          best = bestOf(best, spec);
+        }
+      } else if (spec.kind === "fileSuffix") {
+        if (entries === null) {
+          try {
+            entries = readdirSync(directory);
+          } catch {
+            entries = [];
+          }
+        }
+        if (entries.some((n) => n.endsWith(spec.name))) {
+          best = bestOf(best, spec);
+        }
+      }
+    }
+    return best;
+  }
+}
+
+function bestOf(a: MarkerSpec | null, b: MarkerSpec): MarkerSpec {
+  if (a === null) return b;
+  return MARKER_RANK[a.group] <= MARKER_RANK[b.group] ? a : b;
+}
+
+function isFile(path: string): boolean {
+  try {
+    return lstatSync(path).isFile();
+  } catch {
+    return false;
   }
 }
 
@@ -153,6 +293,9 @@ export interface ActiveProject {
   readonly project: Project;
   readonly lastIndexedAt: string | null;
   readonly lastReconciledAt: string | null;
+  /** Marker filename/dirname that identified this directory as a project. */
+  readonly marker: string;
+  readonly markerKind: MarkerKind;
 }
 
 export interface OrphanedProject {
@@ -193,15 +336,17 @@ export function inventoryProjects(
 ): ProjectInventory {
   const recorded = state.listProjects();
   const recordedById = new Map(recorded.map((r) => [r.id, r]));
-  const discovered = discovery.discoverProjects();
-  const discoveredIds = new Set(discovered.map((p) => p.id));
+  const discovered = discovery.discoverWithMarkers();
+  const discoveredIds = new Set(discovered.map((h) => h.project.id));
 
-  const active: ActiveProject[] = discovered.map((project) => {
-    const r = recordedById.get(project.id);
+  const active: ActiveProject[] = discovered.map((hit) => {
+    const r = recordedById.get(hit.project.id);
     return {
-      project,
+      project: hit.project,
       lastIndexedAt: r?.lastIndexedAt ?? null,
       lastReconciledAt: r?.lastReconciledAt ?? null,
+      marker: hit.marker,
+      markerKind: hit.markerKind,
     };
   });
 
