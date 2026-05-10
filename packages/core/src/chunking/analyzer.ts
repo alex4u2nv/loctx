@@ -14,9 +14,21 @@
  * don't recognize.
  */
 
-import type { AnalyzerMetadata } from "../models.js";
+import type { AnalyzerMetadata, SymbolRefKind } from "../models.js";
 
 export const ANALYZER_VERSION = 1;
+
+/**
+ * One identifier reference inside a chunk. Coordinates are absolute file
+ * lines (1-based) so consumers can jump straight to the source. The
+ * indexer assigns chunk_id/file_id/project_id when persisting; the
+ * extractor only knows about (symbol, kind, line).
+ */
+export interface SymbolRefExtract {
+  readonly symbol: string;
+  readonly kind: SymbolRefKind;
+  readonly line: number;
+}
 
 interface TreeSitterNode {
   readonly type: string;
@@ -303,4 +315,90 @@ function stripQuotes(s: string): string {
 
 function dedupe(items: ReadonlyArray<string>): string[] {
   return [...new Set(items)];
+}
+
+/**
+ * Walk the chunk subtree and collect every symbol reference worth
+ * recording in the cross-reference graph (#96): the chunk's own
+ * definition, every import target, and every callee. Variable
+ * assignments and parameter names are excluded — they generate noise
+ * without a real "find usages" payoff.
+ *
+ * Returns an empty array for languages without a profile so the indexer
+ * can persist nothing without checking.
+ */
+export function extractSymbolRefs(
+  node: TreeSitterNode,
+  language: string,
+): ReadonlyArray<SymbolRefExtract> {
+  const profile = PROFILES[language];
+  if (profile === undefined) return Object.freeze([]);
+
+  const refs: SymbolRefExtract[] = [];
+
+  // Definition: the chunk root's own name (if present). Wrappers like
+  // `export_statement` (TS/JS) or `decorated_definition` (Python) don't
+  // expose `name` directly — drill into the inner declaration so the def
+  // row still lands. Single line — the wrapper's first line.
+  const def = findDefName(node);
+  if (def !== null) {
+    refs.push({ symbol: def, kind: "def", line: node.startPosition.row + 1 });
+  }
+
+  walkRefs(node, profile, refs);
+
+  // De-dupe (symbol, kind, line) — same call appearing twice on one line
+  // is rare but possible and isn't useful as separate rows.
+  return Object.freeze(dedupeRefs(refs));
+}
+
+/**
+ * Find the chunk's primary symbol name. Tries `name` field first; falls
+ * back to recursing into common wrapper nodes (`export_statement`,
+ * `decorated_definition`) so wrapped declarations still produce a def
+ * row.
+ */
+function findDefName(node: TreeSitterNode): string | null {
+  const named = node.childForFieldName("name");
+  if (named !== null && named.text.length > 0) return named.text;
+  const WRAPPER_TYPES = new Set([
+    "export_statement",
+    "decorated_definition",
+    "async_function_definition",
+  ]);
+  if (!WRAPPER_TYPES.has(node.type)) return null;
+  for (const child of node.namedChildren) {
+    const inner = child.childForFieldName("name");
+    if (inner !== null && inner.text.length > 0) return inner.text;
+  }
+  return null;
+}
+
+function walkRefs(node: TreeSitterNode, profile: LanguageProfile, out: SymbolRefExtract[]): void {
+  if (profile.importNodes.has(node.type)) {
+    const target = importTargetText(node);
+    if (target !== null && target !== "") {
+      out.push({ symbol: target, kind: "import", line: node.startPosition.row + 1 });
+    }
+  } else if (profile.callNodes.has(node.type)) {
+    const callee = calleeText(node);
+    if (callee !== null && callee !== "") {
+      out.push({ symbol: callee, kind: "call", line: node.startPosition.row + 1 });
+    }
+  }
+  for (const child of node.namedChildren) {
+    walkRefs(child, profile, out);
+  }
+}
+
+function dedupeRefs(refs: ReadonlyArray<SymbolRefExtract>): SymbolRefExtract[] {
+  const seen = new Set<string>();
+  const out: SymbolRefExtract[] = [];
+  for (const r of refs) {
+    const key = `${r.symbol}${r.kind}${r.line}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
 }

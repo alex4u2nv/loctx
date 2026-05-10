@@ -124,10 +124,15 @@ describe("loctx start", () => {
     expect(result.protocolVersion).toBe("2024-11-05");
   });
 
-  it("MCP tools/list returns the three loctx tools", async () => {
+  it("MCP tools/list returns the four loctx tools", async () => {
     const result = await mcpCall("tools/list");
     const names = (result.tools as Array<{ name: string }>).map((t) => t.name);
-    expect(names).toEqual(["search_workspace", "workspace_status", "refresh_workspace"]);
+    expect(names).toEqual([
+      "search_workspace",
+      "workspace_status",
+      "find_usages",
+      "refresh_workspace",
+    ]);
   });
 
   it("MCP tools/call workspace_status discovers the fake project", async () => {

@@ -419,4 +419,178 @@ describe("StateStore", () => {
 
     store.close();
   });
+
+  it("findSymbol returns def + refs split by kind, sorted (#96)", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    // Two separate files so the JOIN to `files` produces distinct relPaths.
+    const defFile: FileState = {
+      ...fileState(project, "aaa"),
+      fileId: toFileId("file-auth"),
+      relPath: "src/auth.ts",
+    };
+    const callerFile: FileState = {
+      ...fileState(project, "bbb"),
+      fileId: toFileId("file-login"),
+      relPath: "src/login.ts",
+    };
+    store.upsertFile(defFile);
+    store.upsertFile(callerFile);
+
+    store.replaceChunks(defFile.fileId, [
+      {
+        chunkId: "def_chunk",
+        fileId: defFile.fileId,
+        projectId: project.id,
+        relPath: defFile.relPath,
+        startLine: 1,
+        endLine: 5,
+        kind: "function",
+        symbols: ["authenticateUser"],
+        document: "function body",
+        symbolRefs: [
+          { symbol: "authenticateUser", kind: "def", line: 1 },
+          { symbol: "verifyJwt", kind: "call", line: 3 },
+        ],
+      },
+    ]);
+    store.replaceChunks(callerFile.fileId, [
+      {
+        chunkId: "caller_chunk",
+        fileId: callerFile.fileId,
+        projectId: project.id,
+        relPath: callerFile.relPath,
+        startLine: 10,
+        endLine: 14,
+        kind: "function",
+        symbols: ["login"],
+        document: "calls authenticateUser",
+        symbolRefs: [
+          { symbol: "authenticateUser", kind: "call", line: 12 },
+          { symbol: "authenticateUser", kind: "call", line: 13 },
+        ],
+      },
+    ]);
+
+    const result = store.findSymbol(project.id, "authenticateUser");
+    expect(result.defs).toHaveLength(1);
+    expect(result.defs[0]?.relPath).toBe("src/auth.ts");
+    expect(result.defs[0]?.line).toBe(1);
+    expect(result.refs).toHaveLength(2);
+    expect(result.refs.every((r) => r.kind === "call")).toBe(true);
+    // Sorted by file/line — login.ts:12 before login.ts:13.
+    expect(result.refs[0]?.line).toBe(12);
+    expect(result.refs[1]?.line).toBe(13);
+    // Each hit carries the surrounding chunk range for jump UX.
+    expect(result.refs[0]?.chunkStartLine).toBe(10);
+    expect(result.refs[0]?.chunkEndLine).toBe(14);
+
+    store.close();
+  });
+
+  it("findSymbol scopes by project — different project's refs are excluded", () => {
+    const projA = makeProject();
+    const projB = { ...makeProject(), id: projectId("project-beta"), name: "beta" };
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(projA);
+    store.upsertProject(projB);
+    const fa: FileState = { ...fileState(projA), relPath: "src/a.ts" };
+    const fb: FileState = {
+      ...fileState(projB),
+      fileId: toFileId("file-beta-1"),
+      relPath: "src/b.ts",
+    };
+    store.upsertFile(fa);
+    store.upsertFile(fb);
+
+    store.replaceChunks(fa.fileId, [
+      {
+        chunkId: "a1",
+        fileId: fa.fileId,
+        projectId: projA.id,
+        relPath: "src/a.ts",
+        startLine: 1,
+        endLine: 5,
+        kind: "function",
+        symbols: ["foo"],
+        document: "x",
+        symbolRefs: [{ symbol: "foo", kind: "def", line: 1 }],
+      },
+    ]);
+    store.replaceChunks(fb.fileId, [
+      {
+        chunkId: "b1",
+        fileId: fb.fileId,
+        projectId: projB.id,
+        relPath: "src/b.ts",
+        startLine: 1,
+        endLine: 5,
+        kind: "function",
+        symbols: ["foo"],
+        document: "y",
+        symbolRefs: [{ symbol: "foo", kind: "def", line: 1 }],
+      },
+    ]);
+
+    const a = store.findSymbol(projA.id, "foo");
+    expect(a.defs.map((d) => d.relPath)).toEqual(["src/a.ts"]);
+    const b = store.findSymbol(projB.id, "foo");
+    expect(b.defs.map((d) => d.relPath)).toEqual(["src/b.ts"]);
+  });
+
+  it("findSymbol returns empty when symbol is unknown", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const result = store.findSymbol(project.id, "nonexistent");
+    expect(result.defs).toEqual([]);
+    expect(result.refs).toEqual([]);
+    store.close();
+  });
+
+  it("replaceChunks deletes prior symbol_refs on re-index", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const fs = fileState(project);
+    store.upsertFile(fs);
+
+    store.replaceChunks(fs.fileId, [
+      {
+        chunkId: "v1",
+        fileId: fs.fileId,
+        projectId: project.id,
+        relPath: "src/a.ts",
+        startLine: 1,
+        endLine: 5,
+        kind: "function",
+        symbols: ["foo"],
+        document: "x",
+        symbolRefs: [
+          { symbol: "foo", kind: "def", line: 1 },
+          { symbol: "stale", kind: "call", line: 2 },
+        ],
+      },
+    ]);
+    store.replaceChunks(fs.fileId, [
+      {
+        chunkId: "v2",
+        fileId: fs.fileId,
+        projectId: project.id,
+        relPath: "src/a.ts",
+        startLine: 1,
+        endLine: 5,
+        kind: "function",
+        symbols: ["foo"],
+        document: "y",
+        symbolRefs: [{ symbol: "foo", kind: "def", line: 1 }],
+      },
+    ]);
+
+    const stale = store.findSymbol(project.id, "stale");
+    expect(stale.refs).toEqual([]);
+    const foo = store.findSymbol(project.id, "foo");
+    expect(foo.defs).toHaveLength(1);
+  });
 });

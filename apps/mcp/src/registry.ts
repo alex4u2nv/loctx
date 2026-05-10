@@ -16,6 +16,7 @@ import {
   type ProjectId,
   type Runtime,
   type SearchResponse,
+  type SymbolRefHit,
   Validator,
   inventoryProjects,
 } from "@loctx/core";
@@ -70,6 +71,27 @@ export interface RefreshOutput {
     readonly skipped: number;
     readonly failed: number;
     readonly elapsedSeconds: number;
+  }>;
+}
+
+export interface FindUsagesInput {
+  readonly symbol: string;
+  /**
+   * Optional path to scope the lookup to a single project. If absent, the
+   * tool searches every project that contains a row for `symbol`.
+   * Anything outside `workspace_roots` is rejected.
+   */
+  readonly path?: string;
+}
+
+export interface FindUsagesOutput {
+  readonly symbol: string;
+  /** Per-project hits. Empty list when the symbol is unknown. */
+  readonly projects: ReadonlyArray<{
+    readonly projectId: string;
+    readonly projectName: string;
+    readonly defs: ReadonlyArray<SymbolRefHit>;
+    readonly refs: ReadonlyArray<SymbolRefHit>;
   }>;
 }
 
@@ -141,6 +163,39 @@ export const tools = {
     };
   },
 
+  async findUsages(runtime: Runtime, input: unknown): Promise<FindUsagesOutput> {
+    const v = new Validator(ToolError, "find_usages");
+    const data = v.requireRecord(input ?? {}, "arguments");
+    const symbol = v.getStr(data, "symbol");
+    if (!symbol) throw new ToolError("symbol is required and must be a non-empty string");
+    const path = v.getStr(data, "path");
+
+    // Scope: if path given, narrow to one project. Otherwise sweep all.
+    let projects = runtime.discovery.discoverProjects();
+    if (path !== undefined) {
+      const scoped = runtime.discovery.resolveProject(path);
+      if (scoped === null) {
+        throw new ToolError(
+          `path ${path} is not inside any indexed project; omit path to search every project.`,
+        );
+      }
+      projects = [scoped];
+    }
+
+    const out: Array<{
+      readonly projectId: string;
+      readonly projectName: string;
+      readonly defs: ReadonlyArray<SymbolRefHit>;
+      readonly refs: ReadonlyArray<SymbolRefHit>;
+    }> = [];
+    for (const project of projects) {
+      const { defs, refs } = runtime.state.findSymbol(project.id, symbol);
+      if (defs.length === 0 && refs.length === 0) continue;
+      out.push({ projectId: project.id, projectName: project.name, defs, refs });
+    }
+    return Object.freeze({ symbol, projects: Object.freeze(out) });
+  },
+
   async refresh(runtime: Runtime, input: unknown): Promise<RefreshOutput> {
     const v = new Validator(ToolError, "refresh_workspace");
     const data = v.requireRecord(input ?? {}, "arguments");
@@ -202,6 +257,26 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "find_usages",
+    description:
+      "Cross-reference lookup for a symbol: returns its definitions and every callsite/import. Distinct from `search_workspace` because it is exact-match by name, not ranked retrieval. Each hit carries `relPath`, `line` (the exact reference), `chunkStartLine`/`chunkEndLine` (surrounding chunk), and `kind` (`def`|`call`|`import`|`reference`). Pass `path` to scope to one project; omit to search every project that knows the symbol.",
+    inputSchema: {
+      type: "object",
+      required: ["symbol"],
+      properties: {
+        symbol: {
+          type: "string",
+          description: "Identifier name to look up (function, class, exported variable).",
+        },
+        path: {
+          type: "string",
+          description:
+            "Absolute or relative path inside the project to scope to. Omit to search every indexed project.",
+        },
+      },
+    },
+  },
+  {
     name: "refresh_workspace",
     description:
       "Reindex one project (when path is given) or every discovered project. Returns per-project indexed/skipped/failed counts.",
@@ -227,6 +302,7 @@ const TOOL_HANDLERS = {
   search_workspace: tools.search,
   workspace_status: tools.status,
   refresh_workspace: tools.refresh,
+  find_usages: tools.findUsages,
 } as const;
 
 type ToolName = keyof typeof TOOL_HANDLERS;

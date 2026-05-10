@@ -206,6 +206,9 @@ export class ProjectIndexer {
         document: c.content,
         ...(c.analyzer !== undefined ? { analyzer: c.analyzer } : {}),
         ...(c.symbols.length > 0 && c.symbols[0] !== undefined ? { symbolDef: c.symbols[0] } : {}),
+        ...(c.symbolRefs !== undefined && c.symbolRefs.length > 0
+          ? { symbolRefs: c.symbolRefs }
+          : {}),
       };
     });
     this.state.replaceChunks(fileId, chunkInserts);

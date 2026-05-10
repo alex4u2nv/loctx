@@ -90,11 +90,16 @@ async function connectedPair(runtime: Runtime): Promise<{ client: Client; server
 }
 
 describe("MCP Server + registry over in-memory transport", () => {
-  it("tools/list returns the three loctx tools", async () => {
+  it("tools/list returns the four loctx tools", async () => {
     const { client } = await connectedPair(stubRuntime());
     const result = await client.listTools();
     const names = result.tools.map((t) => t.name);
-    expect(names).toEqual(["search_workspace", "workspace_status", "refresh_workspace"]);
+    expect(names).toEqual([
+      "search_workspace",
+      "workspace_status",
+      "find_usages",
+      "refresh_workspace",
+    ]);
   });
 
   it("tools/call workspace_status returns project metadata", async () => {

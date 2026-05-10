@@ -12,7 +12,7 @@
  */
 
 import { createRequire } from "node:module";
-import { extractAnalyzer } from "./analyzer.js";
+import { extractAnalyzer, extractSymbolRefs } from "./analyzer.js";
 import { type Chunker, type CodeChunk, type SourceDocument, chunkShaFor } from "./base.js";
 import { LineWindowChunker } from "./prose.js";
 
@@ -233,6 +233,7 @@ function chunkFromNode(node: TreeSitterNode, source: string, language: string): 
   const lines = source.split(/\r?\n/);
   const body = lines.slice(startLine - 1, endLine).join("\n");
   const analyzer = extractAnalyzer(node, language);
+  const symbolRefs = extractSymbolRefs(node, language);
   return {
     startLine,
     endLine,
@@ -241,6 +242,7 @@ function chunkFromNode(node: TreeSitterNode, source: string, language: string): 
     symbols: extractSymbols(node),
     chunkSha: chunkShaFor(body),
     ...(analyzer !== null ? { analyzer } : {}),
+    ...(symbolRefs.length > 0 ? { symbolRefs } : {}),
   };
 }
 

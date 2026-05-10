@@ -188,6 +188,29 @@ DELETE FROM files WHERE project_id = ?;
 -- :name delete_project
 DELETE FROM projects WHERE id = ?;
 
+-- :name insert_symbol_ref
+INSERT INTO symbol_refs (symbol, project_id, file_id, chunk_id, line, kind)
+VALUES (?, ?, ?, ?, ?, ?);
+
+-- :name delete_symbol_refs_for_file
+DELETE FROM symbol_refs WHERE file_id = ?;
+
+-- :name delete_symbol_refs_for_project
+DELETE FROM symbol_refs WHERE project_id = ?;
+
+-- :name find_symbol_in_project
+-- Definitions + references (calls/imports/reference) for a single symbol
+-- in a single project. Caller splits into defs + refs by `kind`. Files
+-- joined so the caller can present rel_path without a second round-trip.
+SELECT s.symbol, s.project_id, s.file_id, s.chunk_id, s.line, s.kind,
+       f.rel_path AS rel_path,
+       c.start_line AS chunk_start, c.end_line AS chunk_end
+FROM symbol_refs s
+INNER JOIN files f ON s.file_id = f.file_id
+INNER JOIN chunks c ON s.chunk_id = c.chunk_id
+WHERE s.project_id = ? AND s.symbol = ?
+ORDER BY s.kind, f.rel_path, s.line;
+
 -- :name search_lexical_all
 SELECT chunks_fts.chunk_id, chunks_fts.file_id, chunks_fts.project_id, chunks_fts.rel_path,
        chunks_fts.document, chunks_fts.symbols,
