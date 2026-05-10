@@ -847,6 +847,39 @@ async function runDoctorChecks(config: Config): Promise<DoctorCheck[]> {
     detail: `mode=${config.retrieval.mode} rrfK=${config.retrieval.rrfK}`,
   });
 
+  // Reconciliation drift (#14). For each known project, show how stale
+  // the last reconciliation pass is. "never" is fine on a fresh install
+  // but suspect once the daemon has been running.
+  try {
+    const discovery2 = new WorkspaceDiscovery(config.workspaceRoots);
+    const state = new StateStore(config.paths.stateDb);
+    try {
+      const inv = inventoryProjects(discovery2, state);
+      const stale = inv.active.filter((a) => a.lastReconciledAt === null);
+      const totalActive = inv.active.length;
+      checks.push({
+        name: "reconciliation",
+        status: stale.length === 0 ? "ok" : "warn",
+        detail:
+          totalActive === 0
+            ? "no active projects"
+            : `${totalActive - stale.length}/${totalActive} reconciled${
+                stale.length > 0
+                  ? ` — never run for: ${stale.map((s) => s.project.name).join(", ")}`
+                  : ""
+              }`,
+      });
+    } finally {
+      state.close();
+    }
+  } catch (err) {
+    checks.push({
+      name: "reconciliation",
+      status: "error",
+      detail: (err as Error).message,
+    });
+  }
+
   // File-descriptor budget. chokidar opens ~1-2 fds per watched dir;
   // a low default (256 on macOS, 1024 on most Linux) crashes the watcher
   // on multi-project setups with EMFILE floods.

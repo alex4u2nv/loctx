@@ -5,3 +5,4 @@ export {
   type IndexSummary,
   ProjectIndexer,
 } from "./indexer.js";
+export { type ReconciliationSummary, Reconciler } from "./reconciler.js";

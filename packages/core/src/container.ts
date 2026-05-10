@@ -20,7 +20,7 @@ import {
 } from "./embeddings/index.js";
 import { type FilteringRules, ProjectFilter, loadFilteringRules } from "./filtering.js";
 import { combinedGitignore } from "./gitignore.js";
-import { ProjectIndexer } from "./indexing/index.js";
+import { ProjectIndexer, Reconciler } from "./indexing/index.js";
 import type { Project } from "./models.js";
 import { WorkspaceSearcher } from "./retrieval/index.js";
 import { StateStore, type VectorStore, createVectorStore } from "./storage/index.js";
@@ -33,6 +33,7 @@ export interface Runtime {
   readonly discovery: WorkspaceDiscovery;
   readonly rules: FilteringRules;
   readonly indexer: ProjectIndexer;
+  readonly reconciler: Reconciler;
   readonly searcher: WorkspaceSearcher;
   /**
    * Release every resource the runtime owns. Awaitable so callers can
@@ -56,6 +57,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
     new ProjectFilter(project, rules, combinedGitignore(project.root));
 
   const indexer = new ProjectIndexer(state, vectors, embeddings, filterFor);
+  const reconciler = new Reconciler(state, indexer);
   const searcher = new WorkspaceSearcher(vectors, embeddings, discovery, state, config.retrieval);
 
   return Object.freeze({
@@ -66,6 +68,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
     discovery,
     rules,
     indexer,
+    reconciler,
     searcher,
     close: async () => {
       await embeddings.dispose?.();
