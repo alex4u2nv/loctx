@@ -123,6 +123,7 @@ function makeConfig(workspaceRoot: string, dataDir: string): Config {
       backgroundEnabled: false,
       concurrency: 2,
       perTaskTimeoutMs: 60_000,
+      lizard: Object.freeze({ enabled: false, command: "lizard" }),
     }),
     source: null,
     projectSource: null,

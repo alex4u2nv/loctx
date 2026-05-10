@@ -104,6 +104,26 @@ CREATE INDEX IF NOT EXISTS idx_symbol_refs_chunk ON symbol_refs(chunk_id);
 -- `loctx doctor` and the MCP `workspace_status` payload.
 ALTER TABLE projects ADD COLUMN last_reconciled_at TEXT;
 
+-- :name schema_v5
+-- Background analyzer enrichments (#61, #62, #64, #65). One row per
+-- (file, analyzer) — analyzers store their findings against the file
+-- they ran on, keyed by content_sha so stale entries are easy to
+-- detect during reconciliation.
+CREATE TABLE IF NOT EXISTS file_enrichments (
+    file_id TEXT NOT NULL,
+    analyzer TEXT NOT NULL,
+    analyzer_version INTEGER NOT NULL,
+    content_sha TEXT NOT NULL,
+    status TEXT NOT NULL,           -- 'complete' | 'failed' | 'skipped'
+    payload_json TEXT,
+    error TEXT,
+    enqueued_at TEXT,
+    completed_at TEXT,
+    PRIMARY KEY (file_id, analyzer)
+);
+CREATE INDEX IF NOT EXISTS idx_file_enrichments_analyzer
+    ON file_enrichments(analyzer);
+
 -- :name pragma_enable_foreign_keys
 PRAGMA foreign_keys = ON;
 
@@ -196,6 +216,37 @@ DELETE FROM files WHERE project_id = ?;
 
 -- :name delete_project
 DELETE FROM projects WHERE id = ?;
+
+-- :name upsert_file_enrichment
+INSERT INTO file_enrichments (
+    file_id, analyzer, analyzer_version, content_sha, status,
+    payload_json, error, enqueued_at, completed_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(file_id, analyzer) DO UPDATE SET
+    analyzer_version = excluded.analyzer_version,
+    content_sha = excluded.content_sha,
+    status = excluded.status,
+    payload_json = excluded.payload_json,
+    error = excluded.error,
+    enqueued_at = excluded.enqueued_at,
+    completed_at = excluded.completed_at;
+
+-- :name get_file_enrichment
+SELECT analyzer, analyzer_version, content_sha, status, payload_json, error,
+       enqueued_at, completed_at
+FROM file_enrichments
+WHERE file_id = ? AND analyzer = ?;
+
+-- :name list_file_enrichments_by_analyzer
+SELECT file_id, analyzer_version, content_sha, status, payload_json, error,
+       enqueued_at, completed_at
+FROM file_enrichments
+WHERE analyzer = ?
+ORDER BY file_id;
+
+-- :name delete_file_enrichments_for_file
+DELETE FROM file_enrichments WHERE file_id = ?;
 
 -- :name insert_symbol_ref
 INSERT INTO symbol_refs (symbol, project_id, file_id, chunk_id, line, kind)

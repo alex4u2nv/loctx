@@ -85,6 +85,15 @@ export interface AnalyzerConfig {
   readonly concurrency: number;
   /** Per-task timeout in milliseconds. */
   readonly perTaskTimeoutMs: number;
+  /** Lizard complexity analyzer (#62). */
+  readonly lizard: LizardAnalyzerConfig;
+}
+
+export interface LizardAnalyzerConfig {
+  /** Opt-in. False by default; runs only when both this and `analyzers.background_enabled` are true. */
+  readonly enabled: boolean;
+  /** Command to invoke. Defaults to `lizard` on PATH. Override for venv installs or full paths. */
+  readonly command: string;
 }
 
 /**
@@ -152,6 +161,7 @@ const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
   backgroundEnabled: false,
   concurrency: 2,
   perTaskTimeoutMs: 60_000,
+  lizard: Object.freeze({ enabled: false, command: "lizard" }),
 });
 
 const VALID_RETRIEVAL_MODES: ReadonlySet<RetrievalMode> = Object.freeze(
@@ -397,9 +407,12 @@ function mergeAnalyzers(
   global: Record<string, unknown> | null,
   sources: Record<string, ConfigSource>,
 ): AnalyzerConfig {
-  const pick = makePicker(
-    sectionRecord(project, "analyzers", "<project>"),
-    sectionRecord(global, "analyzers", "<global>"),
+  const projA = sectionRecord(project, "analyzers", "<project>");
+  const gloA = sectionRecord(global, "analyzers", "<global>");
+  const pick = makePicker(projA, gloA, sources);
+  const lizardPick = makePicker(
+    sectionRecord(projA, "lizard", "<project>"),
+    sectionRecord(gloA, "lizard", "<global>"),
     sources,
   );
   return Object.freeze({
@@ -421,6 +434,20 @@ function mergeAnalyzers(
       INT_NON_NEG,
       DEFAULT_ANALYZERS.perTaskTimeoutMs,
     ),
+    lizard: Object.freeze({
+      enabled: lizardPick(
+        "analyzers.lizard.enabled",
+        "enabled",
+        BOOL,
+        DEFAULT_ANALYZERS.lizard.enabled,
+      ),
+      command: lizardPick(
+        "analyzers.lizard.command",
+        "command",
+        STR,
+        DEFAULT_ANALYZERS.lizard.command,
+      ),
+    }),
   });
 }
 

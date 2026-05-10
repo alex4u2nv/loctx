@@ -10,7 +10,7 @@ import { type CodeChunk, chunkFile, detectLanguage } from "../chunking/index.js"
 import { chunkIdFor, fileIdFor } from "../discovery.js";
 import type { EmbeddingProvider } from "../embeddings/index.js";
 import type { ProjectFilter } from "../filtering.js";
-import { type ChunkId, type Project, identityToString } from "../models.js";
+import { type ChunkId, type FileId, type Project, identityToString } from "../models.js";
 import type {
   ChunkInsert,
   EmbeddedChunk,
@@ -37,12 +37,28 @@ export interface IndexSummary {
   readonly total: number;
 }
 
+/**
+ * Hook fired after a file is successfully (re)indexed. Used by the
+ * background analyzer dispatcher in container.ts to enqueue
+ * enrichments for the freshly-indexed file. Optional; skipping it
+ * leaves the indexer's behavior unchanged.
+ */
+export type AfterFileIndexed = (event: {
+  readonly project: Project;
+  readonly fileId: FileId;
+  readonly absPath: string;
+  readonly relPath: string;
+  readonly contentSha: string;
+}) => void;
+
 export interface IndexerOptions {
   readonly chunkerFn?: ChunkerFn;
+  readonly afterFileIndexed?: AfterFileIndexed;
 }
 
 export class ProjectIndexer {
   private readonly chunkerFn: ChunkerFn;
+  private readonly afterFileIndexed: AfterFileIndexed;
 
   constructor(
     public readonly state: StateStore,
@@ -52,6 +68,7 @@ export class ProjectIndexer {
     options: IndexerOptions = {},
   ) {
     this.chunkerFn = options.chunkerFn ?? chunkFile;
+    this.afterFileIndexed = options.afterFileIndexed ?? (() => undefined);
   }
 
   // ---- public --------------------------------------------------------
@@ -261,6 +278,21 @@ export class ProjectIndexer {
       error: null,
     };
     this.state.upsertFile(fileState);
+
+    // Background analyzer enrichment hook (#61, #62, #64, #65). Synchronous
+    // — handler is expected to enqueue work without blocking. Wrapped in
+    // try/catch so a misbehaving dispatcher cannot break indexing.
+    try {
+      this.afterFileIndexed({
+        project,
+        fileId,
+        absPath,
+        relPath,
+        contentSha,
+      });
+    } catch (err) {
+      console.error(`[indexer] afterFileIndexed hook threw: ${(err as Error).message}`);
+    }
   }
 }
 
