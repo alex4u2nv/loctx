@@ -51,6 +51,12 @@ beforeAll(async () => {
     watcher: Object.freeze({ debounceMs: 0 }),
     daemon: Object.freeze({ port: 0, hostname: "localhost" }),
     retrieval: Object.freeze({ mode: "hybrid", rrfK: 60 }),
+    reconciliation: Object.freeze({ runOnStart: false, intervalSeconds: 0 }),
+    analyzers: Object.freeze({
+      backgroundEnabled: false,
+      concurrency: 2,
+      perTaskTimeoutMs: 60_000,
+    }),
     source: null,
     projectSource: null,
     sources: Object.freeze({}),

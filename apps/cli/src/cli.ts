@@ -898,6 +898,17 @@ async function runDoctorChecks(config: Config): Promise<DoctorCheck[]> {
     });
   }
 
+  // Background analyzer queue (#61). Reports config + boot-stats for
+  // any heavy analyzer that registered with runtime.enrichments.
+  // Empty queue when background_enabled=false; that's fine.
+  checks.push({
+    name: "analyzers",
+    status: "ok",
+    detail: config.analyzers.backgroundEnabled
+      ? `background queue: concurrency=${config.analyzers.concurrency}, timeout=${config.analyzers.perTaskTimeoutMs}ms`
+      : "background queue disabled (analyzers.background_enabled = false)",
+  });
+
   return checks;
 }
 

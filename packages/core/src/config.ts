@@ -73,6 +73,21 @@ export interface RetrievalConfig {
 }
 
 /**
+ * Background analyzer enrichment (#61): out-of-band runners for heavy
+ * analyzers (Lizard, Semgrep, clone detection) that must not block the
+ * watcher or search. Disabled by default; individual analyzers opt in
+ * via their own config sections.
+ */
+export interface AnalyzerConfig {
+  /** Master switch. When false, no background tasks run regardless of analyzer config. */
+  readonly backgroundEnabled: boolean;
+  /** Max concurrent background runners. */
+  readonly concurrency: number;
+  /** Per-task timeout in milliseconds. */
+  readonly perTaskTimeoutMs: number;
+}
+
+/**
  * Reconciliation behavior (#14): catches up the index after the daemon
  * was offline (deleted/modified files) and trims drift over time.
  *
@@ -97,6 +112,7 @@ export interface Config {
   readonly daemon: DaemonConfig;
   readonly retrieval: RetrievalConfig;
   readonly reconciliation: ReconciliationConfig;
+  readonly analyzers: AnalyzerConfig;
   /** Path of the global YAML if loaded; null when only defaults applied. */
   readonly source: string | null;
   /** Path of the project YAML if discovered; null otherwise. */
@@ -130,6 +146,12 @@ const DEFAULT_RETRIEVAL: RetrievalConfig = Object.freeze({
 const DEFAULT_RECONCILIATION: ReconciliationConfig = Object.freeze({
   runOnStart: true,
   intervalSeconds: 600,
+});
+
+const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
+  backgroundEnabled: false,
+  concurrency: 2,
+  perTaskTimeoutMs: 60_000,
 });
 
 const VALID_RETRIEVAL_MODES: ReadonlySet<RetrievalMode> = Object.freeze(
@@ -185,6 +207,7 @@ export function loadConfig(options?: string | LoadConfigOptions): Config {
     daemon: merged.daemon,
     retrieval: merged.retrieval,
     reconciliation: merged.reconciliation,
+    analyzers: merged.analyzers,
     source: globalRaw === null ? null : globalPath,
     projectSource: projectRaw === null ? null : projectPath,
     sources: Object.freeze(sources),
@@ -248,6 +271,7 @@ interface MergedFields {
   readonly daemon: DaemonConfig;
   readonly retrieval: RetrievalConfig;
   readonly reconciliation: ReconciliationConfig;
+  readonly analyzers: AnalyzerConfig;
 }
 
 function mergeFields(
@@ -264,6 +288,7 @@ function mergeFields(
     daemon: mergeDaemon(project, global, sources),
     retrieval: mergeRetrieval(project, global, sources),
     reconciliation: mergeReconciliation(project, global, sources),
+    analyzers: mergeAnalyzers(project, global, sources),
   };
 }
 
@@ -363,6 +388,38 @@ function mergeReconciliation(
       "interval_seconds",
       INT_NON_NEG,
       DEFAULT_RECONCILIATION.intervalSeconds,
+    ),
+  });
+}
+
+function mergeAnalyzers(
+  project: Record<string, unknown> | null,
+  global: Record<string, unknown> | null,
+  sources: Record<string, ConfigSource>,
+): AnalyzerConfig {
+  const pick = makePicker(
+    sectionRecord(project, "analyzers", "<project>"),
+    sectionRecord(global, "analyzers", "<global>"),
+    sources,
+  );
+  return Object.freeze({
+    backgroundEnabled: pick(
+      "analyzers.backgroundEnabled",
+      "background_enabled",
+      BOOL,
+      DEFAULT_ANALYZERS.backgroundEnabled,
+    ),
+    concurrency: pick(
+      "analyzers.concurrency",
+      "concurrency",
+      INT_NON_NEG,
+      DEFAULT_ANALYZERS.concurrency,
+    ),
+    perTaskTimeoutMs: pick(
+      "analyzers.perTaskTimeoutMs",
+      "per_task_timeout_ms",
+      INT_NON_NEG,
+      DEFAULT_ANALYZERS.perTaskTimeoutMs,
     ),
   });
 }
