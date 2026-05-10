@@ -136,6 +136,41 @@ export class ProjectIndexer {
     this.state.deleteFile(project.id, relPath);
   }
 
+  /**
+   * Re-evaluate every indexed file against a freshly-built ProjectFilter
+   * and prune anything that's now excluded (#89). Used when an ignore
+   * rule changes — `.loctxignore`, `.gitignore`, or `.git/info/exclude`
+   * — to keep the index consistent with current intent without waiting
+   * for a full re-walk.
+   *
+   * Re-inclusion of newly un-ignored files is NOT done here: those
+   * re-enter via the normal watcher add/change path or the next full
+   * `indexProject` pass. Per the issue scope.
+   *
+   * Returns counts the watcher logs at debug verbosity.
+   */
+  async reevaluateFilter(project: Project): Promise<{
+    readonly checked: number;
+    readonly pruned: number;
+    readonly prunedRelPaths: ReadonlyArray<string>;
+  }> {
+    const filter = this.filterFactory(project);
+    const indexedFiles = this.state.listFiles(project.id);
+    const pruned: string[] = [];
+    for (const file of indexedFiles) {
+      const decision = filter.shouldIndex(join(project.root, file.relPath));
+      if (!decision.shouldIndex) {
+        await this.deleteFile(project, file.relPath);
+        pruned.push(file.relPath);
+      }
+    }
+    return Object.freeze({
+      checked: indexedFiles.length,
+      pruned: pruned.length,
+      prunedRelPaths: Object.freeze(pruned),
+    });
+  }
+
   // ---- internals -----------------------------------------------------
 
   private isUnchanged(
