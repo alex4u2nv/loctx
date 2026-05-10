@@ -632,4 +632,57 @@ describe("StateStore", () => {
     expect(updated?.error).toBe("lizard returned non-zero");
     expect(updated?.payloadJson).toBeUndefined();
   });
+
+  it("findDuplicateGroups groups by hash across files (#65)", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const fa: FileState = { ...fileState(project), fileId: toFileId("f-a"), relPath: "a.ts" };
+    const fb: FileState = { ...fileState(project), fileId: toFileId("f-b"), relPath: "b.ts" };
+    const fc: FileState = { ...fileState(project), fileId: toFileId("f-c"), relPath: "c.ts" };
+    store.upsertFile(fa);
+    store.upsertFile(fb);
+    store.upsertFile(fc);
+
+    const sharedHash = "abc123";
+    const uniqueHash = "unique";
+
+    store.upsertFileEnrichment({
+      fileId: fa.fileId,
+      analyzer: "duplicates",
+      analyzerVersion: 1,
+      contentSha: fa.contentSha,
+      status: "complete",
+      payloadJson: JSON.stringify({
+        windows: [{ hash: sharedHash, startLine: 5, endLine: 25 }],
+      }),
+    });
+    store.upsertFileEnrichment({
+      fileId: fb.fileId,
+      analyzer: "duplicates",
+      analyzerVersion: 1,
+      contentSha: fb.contentSha,
+      status: "complete",
+      payloadJson: JSON.stringify({
+        windows: [{ hash: sharedHash, startLine: 10, endLine: 30 }],
+      }),
+    });
+    store.upsertFileEnrichment({
+      fileId: fc.fileId,
+      analyzer: "duplicates",
+      analyzerVersion: 1,
+      contentSha: fc.contentSha,
+      status: "complete",
+      payloadJson: JSON.stringify({
+        windows: [{ hash: uniqueHash, startLine: 1, endLine: 20 }],
+      }),
+    });
+
+    const groups = store.findDuplicateGroups();
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.hash).toBe(sharedHash);
+    expect(groups[0]?.members.length).toBe(2);
+    const fileIds = groups[0]?.members.map((m) => m.fileId).sort();
+    expect(fileIds).toEqual(["f-a", "f-b"]);
+  });
 });

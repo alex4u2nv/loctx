@@ -13,3 +13,10 @@ export {
   parseLizardCsv,
   runLizard,
 } from "./lizard.js";
+export {
+  type DuplicateWindow,
+  type DuplicatesOptions,
+  type DuplicatesPayload,
+  DUPLICATES_VERSION,
+  computeDuplicateWindows,
+} from "./duplicates.js";

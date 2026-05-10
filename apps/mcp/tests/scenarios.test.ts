@@ -125,6 +125,7 @@ function makeConfig(workspaceRoot: string, dataDir: string): Config {
       concurrency: 2,
       perTaskTimeoutMs: 60_000,
       lizard: Object.freeze({ enabled: false, command: "lizard" }),
+      duplicates: Object.freeze({ enabled: false, windowSize: 50, minUniqueTokens: 15 }),
     }),
     source: null,
     projectSource: null,

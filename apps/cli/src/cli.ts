@@ -935,6 +935,18 @@ async function runDoctorChecks(config: Config): Promise<DoctorCheck[]> {
       : "background queue disabled (analyzers.background_enabled = false)",
   });
 
+  // Duplicate detector (#65). Pure-JS so no binary to probe; just
+  // surface enabled/disabled state.
+  if (config.analyzers.backgroundEnabled) {
+    checks.push({
+      name: "analyzers.duplicates",
+      status: "ok",
+      detail: config.analyzers.duplicates.enabled
+        ? `enabled, window=${config.analyzers.duplicates.windowSize}, minTokens=${config.analyzers.duplicates.minUniqueTokens}`
+        : "disabled (set analyzers.duplicates.enabled = true to opt in)",
+    });
+  }
+
   // Lizard analyzer (#62). Probes the configured binary so users see
   // 'available + enabled' vs 'enabled but missing' vs 'available but
   // disabled' clearly. Probe is best-effort (network-free, ~2s).

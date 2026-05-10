@@ -1,6 +1,8 @@
 export {
   type ChunkInsert,
   type ChunkState,
+  type DuplicateGroup,
+  type DuplicateMember,
   type FileEnrichmentRow,
   type FileState,
   type LexicalMatch,

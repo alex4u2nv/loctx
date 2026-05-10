@@ -13,6 +13,7 @@
  */
 
 import {
+  type DuplicateGroup,
   type ProjectId,
   type Runtime,
   type SearchResponse,
@@ -99,6 +100,15 @@ export interface FindUsagesOutput {
     readonly defs: ReadonlyArray<SymbolRefHit>;
     readonly refs: ReadonlyArray<SymbolRefHit>;
   }>;
+}
+
+export interface FindDuplicatesInput {
+  /** Minimum file count for a group to surface. Default 2. */
+  readonly minMembers?: number;
+}
+
+export interface FindDuplicatesOutput {
+  readonly groups: ReadonlyArray<DuplicateGroup>;
 }
 
 export class ToolError extends Error {}
@@ -207,6 +217,14 @@ export const tools = {
     return Object.freeze({ symbol, projects: Object.freeze(out) });
   },
 
+  async findDuplicates(runtime: Runtime, input: unknown): Promise<FindDuplicatesOutput> {
+    const v = new Validator(ToolError, "find_duplicates");
+    const data = v.requireRecord(input ?? {}, "arguments");
+    const minMembers = v.getInt(data, "min_members", { nonNegative: true }) ?? 2;
+    const groups = runtime.state.findDuplicateGroups(Math.max(2, minMembers));
+    return Object.freeze({ groups: Object.freeze(groups) });
+  },
+
   async refresh(runtime: Runtime, input: unknown): Promise<RefreshOutput> {
     const v = new Validator(ToolError, "refresh_workspace");
     const data = v.requireRecord(input ?? {}, "arguments");
@@ -294,6 +312,22 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "find_duplicates",
+    description:
+      "Cross-file duplicate-code detection. Returns groups where the same token-window appears in 2+ files. Heuristic — labelled as such. Requires `analyzers.background_enabled = true` and `analyzers.duplicates.enabled = true` in config; otherwise returns an empty list. Each group: `hash` and `members` (file_id, start/end line range).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        min_members: {
+          type: "integer",
+          minimum: 2,
+          default: 2,
+          description: "Minimum file count for a group to surface.",
+        },
+      },
+    },
+  },
+  {
     name: "refresh_workspace",
     description:
       "Reindex one project (when path is given) or every discovered project. Returns per-project indexed/skipped/failed counts.",
@@ -320,6 +354,7 @@ const TOOL_HANDLERS = {
   workspace_status: tools.status,
   refresh_workspace: tools.refresh,
   find_usages: tools.findUsages,
+  find_duplicates: tools.findDuplicates,
 } as const;
 
 type ToolName = keyof typeof TOOL_HANDLERS;

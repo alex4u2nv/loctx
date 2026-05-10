@@ -87,6 +87,8 @@ export interface AnalyzerConfig {
   readonly perTaskTimeoutMs: number;
   /** Lizard complexity analyzer (#62). */
   readonly lizard: LizardAnalyzerConfig;
+  /** Duplicate-code detector (#65). Pure-JS token-window hashing, no external deps. */
+  readonly duplicates: DuplicatesAnalyzerConfig;
 }
 
 export interface LizardAnalyzerConfig {
@@ -94,6 +96,15 @@ export interface LizardAnalyzerConfig {
   readonly enabled: boolean;
   /** Command to invoke. Defaults to `lizard` on PATH. Override for venv installs or full paths. */
   readonly command: string;
+}
+
+export interface DuplicatesAnalyzerConfig {
+  /** Opt-in. False by default. */
+  readonly enabled: boolean;
+  /** Tokens per sliding window. Larger = fewer false positives, more missed clones. */
+  readonly windowSize: number;
+  /** Minimum distinct tokens required for a window to count. Filters boilerplate. */
+  readonly minUniqueTokens: number;
 }
 
 /**
@@ -183,6 +194,11 @@ const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
   concurrency: 2,
   perTaskTimeoutMs: 60_000,
   lizard: Object.freeze({ enabled: false, command: "lizard" }),
+  duplicates: Object.freeze({
+    enabled: false,
+    windowSize: 50,
+    minUniqueTokens: 15,
+  }),
 });
 
 const VALID_RETRIEVAL_MODES: ReadonlySet<RetrievalMode> = Object.freeze(
@@ -459,6 +475,11 @@ function mergeAnalyzers(
     sectionRecord(gloA, "lizard", "<global>"),
     sources,
   );
+  const dupPick = makePicker(
+    sectionRecord(projA, "duplicates", "<project>"),
+    sectionRecord(gloA, "duplicates", "<global>"),
+    sources,
+  );
   return Object.freeze({
     backgroundEnabled: pick(
       "analyzers.backgroundEnabled",
@@ -490,6 +511,26 @@ function mergeAnalyzers(
         "command",
         STR,
         DEFAULT_ANALYZERS.lizard.command,
+      ),
+    }),
+    duplicates: Object.freeze({
+      enabled: dupPick(
+        "analyzers.duplicates.enabled",
+        "enabled",
+        BOOL,
+        DEFAULT_ANALYZERS.duplicates.enabled,
+      ),
+      windowSize: dupPick(
+        "analyzers.duplicates.windowSize",
+        "window_size",
+        INT_NON_NEG,
+        DEFAULT_ANALYZERS.duplicates.windowSize,
+      ),
+      minUniqueTokens: dupPick(
+        "analyzers.duplicates.minUniqueTokens",
+        "min_unique_tokens",
+        INT_NON_NEG,
+        DEFAULT_ANALYZERS.duplicates.minUniqueTokens,
       ),
     }),
   });

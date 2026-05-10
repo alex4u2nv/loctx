@@ -46,7 +46,7 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
       resolveProject: () => null,
       configuredRoots: ["/ws"],
     },
-    state: { listFiles: () => [], listProjects: () => [] },
+    state: { listFiles: () => [], listProjects: () => [], findDuplicateGroups: () => [] },
     searcher: {
       search: async () =>
         ({
@@ -92,7 +92,7 @@ async function connectedPair(runtime: Runtime): Promise<{ client: Client; server
 }
 
 describe("MCP Server + registry over in-memory transport", () => {
-  it("tools/list returns the four loctx tools", async () => {
+  it("tools/list returns the five loctx tools", async () => {
     const { client } = await connectedPair(stubRuntime());
     const result = await client.listTools();
     const names = result.tools.map((t) => t.name);
@@ -100,6 +100,7 @@ describe("MCP Server + registry over in-memory transport", () => {
       "search_workspace",
       "workspace_status",
       "find_usages",
+      "find_duplicates",
       "refresh_workspace",
     ]);
   });
