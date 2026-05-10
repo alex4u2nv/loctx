@@ -80,6 +80,13 @@ export async function start(config: Config, options: StartOptions): Promise<void
   if (options.enableWatch) warnIfNofileLow(projects.length);
 
   const watchers = options.enableWatch ? await startWatchers(runtime, projects, config) : [];
+
+  // Reconciliation (#14): catch up after the daemon was offline. We kick
+  // off boot reconciliation in the background so the HTTP / MCP surface
+  // doesn't wait on a long full-corpus walk; the watcher is already
+  // catching live events. The periodic timer drifts indefinitely until
+  // shutdown.
+  const reconciliationStop = startReconciliation(runtime, projects, config);
   const httpStop = options.enableWeb
     ? await startWeb(config, options)
     : async () => {
@@ -133,6 +140,51 @@ export async function start(config: Config, options: StartOptions): Promise<void
   // Unreachable; satisfies TypeScript's flow analysis.
   void watchers;
   void httpStop;
+  void reconciliationStop;
+}
+
+// ---- reconciliation ----------------------------------------------------
+
+function startReconciliation(
+  runtime: Runtime,
+  projects: ReadonlyArray<Project>,
+  config: Config,
+): () => void {
+  const { runOnStart, intervalSeconds } = config.reconciliation;
+  if (!runOnStart && intervalSeconds <= 0) return () => undefined;
+  if (projects.length === 0) return () => undefined;
+
+  const run = (label: string): void => {
+    runtime.reconciler
+      .reconcileAll(projects)
+      .then((summaries) => {
+        const tally = summaries.reduce(
+          (acc, s) => ({
+            pruned: acc.pruned + s.pruned,
+            reindexed: acc.reindexed + s.reindexed,
+          }),
+          { pruned: 0, reindexed: 0 },
+        );
+        console.error(
+          `[loctx reconcile] ${label} complete (${summaries.length} project(s), ` +
+            `pruned=${tally.pruned}, reindexed=${tally.reindexed})`,
+        );
+      })
+      .catch((err) => {
+        console.error(`[loctx reconcile] ${label} failed: ${(err as Error).message}`);
+      });
+  };
+
+  if (runOnStart) {
+    setImmediate(() => run("startup"));
+  }
+
+  if (intervalSeconds > 0) {
+    const timer = setInterval(() => run("periodic"), intervalSeconds * 1000);
+    timer.unref();
+    return () => clearInterval(timer);
+  }
+  return () => undefined;
 }
 
 // ---- preflight ---------------------------------------------------------

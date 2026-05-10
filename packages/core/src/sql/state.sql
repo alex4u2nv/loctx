@@ -98,6 +98,12 @@ CREATE INDEX IF NOT EXISTS idx_symbol_refs_lookup
     ON symbol_refs(project_id, symbol, kind);
 CREATE INDEX IF NOT EXISTS idx_symbol_refs_chunk ON symbol_refs(chunk_id);
 
+-- :name schema_v4
+-- Reconciliation tracking (#14). One column on `projects`; null until
+-- the first reconciliation pass writes a timestamp. Surfaced in
+-- `loctx doctor` and the MCP `workspace_status` payload.
+ALTER TABLE projects ADD COLUMN last_reconciled_at TEXT;
+
 -- :name pragma_enable_foreign_keys
 PRAGMA foreign_keys = ON;
 
@@ -118,10 +124,13 @@ ON CONFLICT(id) DO UPDATE SET
 SELECT id, name, root FROM projects WHERE id = ?;
 
 -- :name list_projects
-SELECT id, name, root, last_indexed_at FROM projects ORDER BY root;
+SELECT id, name, root, last_indexed_at, last_reconciled_at FROM projects ORDER BY root;
 
 -- :name mark_project_indexed
 UPDATE projects SET last_indexed_at = ? WHERE id = ?;
+
+-- :name mark_project_reconciled
+UPDATE projects SET last_reconciled_at = ? WHERE id = ?;
 
 -- :name upsert_file
 INSERT INTO files (

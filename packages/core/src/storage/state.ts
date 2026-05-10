@@ -22,7 +22,7 @@ import {
 } from "../models.js";
 import { loadQueries } from "../sql/loader.js";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const QUERIES = loadQueries("../sql/state.sql", import.meta.url);
 
@@ -182,8 +182,25 @@ export class StateStore {
       if (schemaV3 === undefined) throw new Error("Missing schema_v3 in state.sql");
       this.db.exec(schemaV3);
     }
+    if (current < 4) {
+      const schemaV4 = QUERIES["schema_v4"];
+      if (schemaV4 === undefined) throw new Error("Missing schema_v4 in state.sql");
+      // schema_v4 ADDs `projects.last_reconciled_at`. SQLite has no
+      // `ADD COLUMN IF NOT EXISTS`, and the column may already exist if
+      // the DB was opened by a newer build then walked back via PRAGMA
+      // user_version (test-suite scenario, plus possible downgrade).
+      // Skip the ALTER when the column is present.
+      if (!this.columnExists("projects", "last_reconciled_at")) {
+        this.db.exec(schemaV4);
+      }
+    }
 
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  }
+
+  private columnExists(table: string, column: string): boolean {
+    const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    return rows.some((r) => r.name === column);
   }
 
   // ---- projects -------------------------------------------------------
@@ -204,18 +221,31 @@ export class StateStore {
    * `lastIndexedAt` is null when the project row exists but has not been
    * marked indexed (e.g. discovered then aborted).
    */
-  listProjects(): Array<Project & { readonly lastIndexedAt: string | null }> {
-    type Row = { id: string; name: string; root: string; last_indexed_at: string | null };
+  listProjects(): Array<
+    Project & { readonly lastIndexedAt: string | null; readonly lastReconciledAt: string | null }
+  > {
+    type Row = {
+      id: string;
+      name: string;
+      root: string;
+      last_indexed_at: string | null;
+      last_reconciled_at: string | null;
+    };
     return this.readAll<Row>("list_projects").map((r) => ({
       id: toProjectId(r.id),
       name: r.name,
       root: r.root,
       lastIndexedAt: r.last_indexed_at,
+      lastReconciledAt: r.last_reconciled_at,
     }));
   }
 
   markProjectIndexed(id: ProjectId, at: Date = new Date()): void {
     this.write("mark_project_indexed", [at.toISOString(), id]);
+  }
+
+  markProjectReconciled(id: ProjectId, at: Date = new Date()): void {
+    this.write("mark_project_reconciled", [at.toISOString(), id]);
   }
 
   /**

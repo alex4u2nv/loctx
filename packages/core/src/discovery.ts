@@ -152,11 +152,13 @@ export class WorkspaceDiscovery {
 export interface ActiveProject {
   readonly project: Project;
   readonly lastIndexedAt: string | null;
+  readonly lastReconciledAt: string | null;
 }
 
 export interface OrphanedProject {
   readonly project: Project;
   readonly lastIndexedAt: string | null;
+  readonly lastReconciledAt: string | null;
   /** False if the recorded `root` no longer exists on disk. */
   readonly rootExists: boolean;
   /**
@@ -194,10 +196,14 @@ export function inventoryProjects(
   const discovered = discovery.discoverProjects();
   const discoveredIds = new Set(discovered.map((p) => p.id));
 
-  const active: ActiveProject[] = discovered.map((project) => ({
-    project,
-    lastIndexedAt: recordedById.get(project.id)?.lastIndexedAt ?? null,
-  }));
+  const active: ActiveProject[] = discovered.map((project) => {
+    const r = recordedById.get(project.id);
+    return {
+      project,
+      lastIndexedAt: r?.lastIndexedAt ?? null,
+      lastReconciledAt: r?.lastReconciledAt ?? null,
+    };
+  });
 
   const orphaned: OrphanedProject[] = recorded
     .filter((r) => !discoveredIds.has(r.id))
@@ -206,6 +212,7 @@ export function inventoryProjects(
       return {
         project: { id: r.id, name: r.name, root: r.root },
         lastIndexedAt: r.lastIndexedAt,
+        lastReconciledAt: r.lastReconciledAt,
         rootExists,
         reason: rootExists ? ("outside-roots" as const) : ("missing" as const),
       };

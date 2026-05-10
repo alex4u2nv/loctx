@@ -72,6 +72,18 @@ export interface RetrievalConfig {
   readonly rrfK: number;
 }
 
+/**
+ * Reconciliation behavior (#14): catches up the index after the daemon
+ * was offline (deleted/modified files) and trims drift over time.
+ *
+ *   - `runOnStart`        run a full pass once after watcher startup. Default true.
+ *   - `intervalSeconds`   periodic scan cadence. 0 disables. Default 600 (10 min).
+ */
+export interface ReconciliationConfig {
+  readonly runOnStart: boolean;
+  readonly intervalSeconds: number;
+}
+
 export type ConfigSource = "default" | "global" | "project" | "env";
 
 /** Where each leaf came from. Keyed by dot-path (e.g. "embedding.model"). */
@@ -84,6 +96,7 @@ export interface Config {
   readonly watcher: WatcherConfig;
   readonly daemon: DaemonConfig;
   readonly retrieval: RetrievalConfig;
+  readonly reconciliation: ReconciliationConfig;
   /** Path of the global YAML if loaded; null when only defaults applied. */
   readonly source: string | null;
   /** Path of the project YAML if discovered; null otherwise. */
@@ -112,6 +125,11 @@ const DEFAULT_RRF_K = 60;
 const DEFAULT_RETRIEVAL: RetrievalConfig = Object.freeze({
   mode: "hybrid",
   rrfK: DEFAULT_RRF_K,
+});
+
+const DEFAULT_RECONCILIATION: ReconciliationConfig = Object.freeze({
+  runOnStart: true,
+  intervalSeconds: 600,
 });
 
 const VALID_RETRIEVAL_MODES: ReadonlySet<RetrievalMode> = Object.freeze(
@@ -166,6 +184,7 @@ export function loadConfig(options?: string | LoadConfigOptions): Config {
     watcher: merged.watcher,
     daemon: merged.daemon,
     retrieval: merged.retrieval,
+    reconciliation: merged.reconciliation,
     source: globalRaw === null ? null : globalPath,
     projectSource: projectRaw === null ? null : projectPath,
     sources: Object.freeze(sources),
@@ -228,6 +247,7 @@ interface MergedFields {
   readonly watcher: WatcherConfig;
   readonly daemon: DaemonConfig;
   readonly retrieval: RetrievalConfig;
+  readonly reconciliation: ReconciliationConfig;
 }
 
 function mergeFields(
@@ -243,6 +263,7 @@ function mergeFields(
     watcher: mergeWatcher(project, global, sources),
     daemon: mergeDaemon(project, global, sources),
     retrieval: mergeRetrieval(project, global, sources),
+    reconciliation: mergeReconciliation(project, global, sources),
   };
 }
 
@@ -317,6 +338,32 @@ function mergeRetrieval(
   return Object.freeze({
     mode: modeStr as RetrievalMode,
     rrfK: pick("retrieval.rrfK", "rrf_k", INT_NON_NEG, DEFAULT_RETRIEVAL.rrfK),
+  });
+}
+
+function mergeReconciliation(
+  project: Record<string, unknown> | null,
+  global: Record<string, unknown> | null,
+  sources: Record<string, ConfigSource>,
+): ReconciliationConfig {
+  const pick = makePicker(
+    sectionRecord(project, "reconciliation", "<project>"),
+    sectionRecord(global, "reconciliation", "<global>"),
+    sources,
+  );
+  return Object.freeze({
+    runOnStart: pick(
+      "reconciliation.runOnStart",
+      "run_on_start",
+      BOOL,
+      DEFAULT_RECONCILIATION.runOnStart,
+    ),
+    intervalSeconds: pick(
+      "reconciliation.intervalSeconds",
+      "interval_seconds",
+      INT_NON_NEG,
+      DEFAULT_RECONCILIATION.intervalSeconds,
+    ),
   });
 }
 

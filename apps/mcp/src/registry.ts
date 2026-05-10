@@ -53,6 +53,8 @@ export interface ProjectStatusEntry {
   /** Only set on orphaned entries. */
   readonly orphanReason?: "outside-roots" | "missing";
   readonly lastIndexedAt: string | null;
+  /** Last reconciliation pass for this project (#14). Null if never reconciled. */
+  readonly lastReconciledAt: string | null;
 }
 
 export interface StatusOutput {
@@ -131,6 +133,7 @@ export const tools = {
           root: a.project.root,
           status: "active",
           lastIndexedAt: a.lastIndexedAt,
+          lastReconciledAt: a.lastReconciledAt,
         }),
       ),
       ...inventory.orphaned.map(
@@ -141,6 +144,7 @@ export const tools = {
           status: "orphaned",
           orphanReason: o.reason,
           lastIndexedAt: o.lastIndexedAt,
+          lastReconciledAt: o.lastReconciledAt,
         }),
       ),
     ];
