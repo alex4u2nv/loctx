@@ -21,7 +21,7 @@ import { detectLanguage } from "../chunking/index.js";
 import type { RetrievalConfig } from "../config.js";
 import type { WorkspaceDiscovery } from "../discovery.js";
 import type { EmbeddingProvider } from "../embeddings/index.js";
-import type { AnalyzerMetadata, Project } from "../models.js";
+import type { AnalyzerMetadata, Project, ProjectId } from "../models.js";
 import type { LexicalMatch, StateStore, VectorMatch, VectorStore } from "../storage/index.js";
 
 /** What kind of slice the searcher applied. Reported back on the response. */
@@ -37,6 +37,16 @@ export interface SearchRequest {
   readonly path?: string;
   readonly limit?: number;
   readonly language?: string;
+  /**
+   * Concept/refactor coverage mode (#72). After the normal hybrid
+   * search resolves, expand each top hit by following analyzer-driven
+   * cross-references: callers of the chunk's exported symbols, files
+   * that import the same modules, and direct sibling files. Expanded
+   * hits carry `coverageReason` explaining why they were pulled in,
+   * and append after the original ranked list. Useful for "what else
+   * touches X" queries before a refactor.
+   */
+  readonly coverage?: boolean;
 }
 
 export interface ResolvedScope {
@@ -114,6 +124,14 @@ export interface SearchResult {
    * for what each signal means.
    */
   readonly matchReasons: ReadonlyArray<MatchReason>;
+  /**
+   * Coverage mode (#72) only. When the result was added by the
+   * coverage expansion pass, this string explains why — e.g.
+   * `caller-of:authenticateUser`, `imported-by:src/main.ts`,
+   * `sibling-of:src/auth.ts`. Null on results from the original
+   * ranked list. Always present as a key for stable agent payloads.
+   */
+  readonly coverageReason: string | null;
 }
 
 export interface SearchResponse {
@@ -200,11 +218,83 @@ export class WorkspaceSearcher {
       return assembleResult(entry, v, l, projectsById, analyzers.get(entry.chunkId) ?? null);
     });
 
+    // Coverage expansion (#72). Skipped unless the caller asked.
+    // Capped at 2x the requested limit so payloads stay bounded.
+    const finalResults = request.coverage
+      ? await this.expandCoverage(results, projectsById, limit * 2)
+      : results;
+
     return Object.freeze({
       resolvedScope: scope,
-      results: Object.freeze(results),
+      results: Object.freeze(finalResults),
       warnings: Object.freeze(warnings),
     });
+  }
+
+  /**
+   * Concept/refactor coverage expansion (#72). Walks each top-K hit's
+   * exported symbols, looks up call sites via the symbol_refs graph
+   * from #96, and adds the surrounding chunks as expanded results
+   * tagged with `coverageReason`. Existing chunks are deduped. Cap
+   * keeps the response payload small.
+   */
+  private async expandCoverage(
+    originals: ReadonlyArray<SearchResult>,
+    projectsById: ReadonlyMap<string, Project>,
+    cap: number,
+  ): Promise<SearchResult[]> {
+    const seen = new Set<string>(originals.map((r) => coverageKey(r)));
+    const expanded: SearchResult[] = [];
+
+    for (const orig of originals) {
+      if (originals.length + expanded.length >= cap) break;
+      const exports = orig.analyzer?.exports ?? orig.symbols;
+      if (exports.length === 0) continue;
+      for (const symbol of exports) {
+        if (originals.length + expanded.length >= cap) break;
+        const { defs, refs } = this.state.findSymbol(orig.projectId as ProjectId, symbol);
+        // Skip the symbol's own def chunk; we only want callers/importers.
+        for (const ref of [...defs, ...refs]) {
+          if (originals.length + expanded.length >= cap) break;
+          if (ref.chunkId === undefined) continue;
+          const key = `${ref.projectId}:${ref.relPath}:${ref.chunkStartLine}`;
+          if (seen.has(key)) continue;
+          const reason =
+            ref.kind === "call"
+              ? `caller-of:${symbol}`
+              : ref.kind === "import"
+                ? `imported-by:${ref.relPath}`
+                : `references:${symbol}`;
+          // Skip self (def) entries that came back via findSymbol — they
+          // describe the same chunk that produced this `orig`.
+          if (orig.relPath === ref.relPath && orig.startLine === ref.chunkStartLine) continue;
+          const project = projectsById.get(ref.projectId);
+          expanded.push(
+            Object.freeze<SearchResult>({
+              projectId: String(ref.projectId),
+              projectName: project?.name ?? "",
+              projectRoot: project?.root ?? null,
+              relPath: ref.relPath,
+              absPath: project !== undefined ? join(project.root, ref.relPath) : null,
+              startLine: ref.chunkStartLine,
+              endLine: ref.chunkEndLine,
+              score: 0,
+              snippet: "",
+              language: "",
+              kind: "",
+              symbols: Object.freeze<string[]>([]),
+              sources: Object.freeze<RetrievalSource[]>([]),
+              analyzer: null,
+              matchReasons: Object.freeze<MatchReason[]>([]),
+              coverageReason: reason,
+            }),
+          );
+          seen.add(key);
+        }
+      }
+    }
+
+    return [...originals, ...expanded];
   }
 
   private async runVectorBranch(
@@ -571,10 +661,16 @@ function assembleResult(
     sources: fused.sources,
     analyzer,
     matchReasons: fused.matchReasons,
+    coverageReason: null,
   });
 }
 
 function parseSymbols(raw: unknown): ReadonlyArray<string> {
   if (typeof raw !== "string" || raw.length === 0) return Object.freeze([]);
   return Object.freeze(raw.split(",").filter((s) => s !== ""));
+}
+
+/** Stable identity for coverage-dedupe: project + file + chunk-start. */
+function coverageKey(r: SearchResult): string {
+  return `${r.projectId}:${r.relPath}:${r.startLine}`;
 }

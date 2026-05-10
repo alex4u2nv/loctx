@@ -124,6 +124,11 @@ program
   )
   .option("--limit <n>", "Maximum results", (v) => Number.parseInt(v, 10), 10)
   .option("--language <lang>", "Filter results to a single language.")
+  .option(
+    "--coverage",
+    "Coverage mode: append callers/importers of each top hit with a coverageReason.",
+    false,
+  )
   .action(
     async (
       query: string,
@@ -132,6 +137,7 @@ program
         all: boolean;
         limit: number;
         language?: string;
+        coverage: boolean;
       },
     ) => {
       if (opts.path !== undefined && opts.all) {
@@ -151,6 +157,7 @@ program
           ...(path !== undefined ? { path } : {}),
           limit: opts.limit,
           ...(opts.language !== undefined ? { language: opts.language } : {}),
+          ...(opts.coverage ? { coverage: true } : {}),
         });
 
         const scopeLabel = [
@@ -174,6 +181,9 @@ program
           console.log(header);
           if (result.matchReasons.length > 0) {
             console.log(`    # why: ${result.matchReasons.join(", ")}`);
+          }
+          if (result.coverageReason !== null) {
+            console.log(`    # coverage: ${result.coverageReason}`);
           }
           console.log(indent(clip(result.snippet)));
           console.log();
