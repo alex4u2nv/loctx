@@ -1,56 +1,16 @@
 # loctx
 
-Local-first code indexing and search service for MCP-capable coding agents.
+[![CI](https://github.com/alex4u2nv/loctx/actions/workflows/ci.yml/badge.svg)](https://github.com/alex4u2nv/loctx/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](#install)
 
-This is a TypeScript / Node monorepo with three top-level concerns:
+Local-first code indexing and search for MCP-capable coding agents.
 
-- **`packages/core`** — `@loctx/core`: the indexing engine. Discovery, filtering,
-  chunking, embeddings, SQLite state, LanceDB vectors, indexer, searcher,
-  filesystem watcher.
-- **`apps/cli`** — `@loctx/cli`: Commander CLI. `loctx index|search|status|watch|start`.
-- **`apps/mcp`** — `@loctx/mcp`: MCP stdio server (`loctx-mcp`) for agents that
-  spawn the server as a child process.
-- **`apps/web`** — `@loctx/web`: Next.js admin UI + MCP HTTP transport at `/mcp`.
+Three publishable npm packages: `@loctx/core` (indexing engine), `@loctx/cli` (`loctx` binary), `@loctx/mcp` (`loctx-mcp` stdio binary). The integrated daemon (`loctx start`) bundles a Next.js admin UI and the MCP HTTP transport on one port.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
-
-## Quick start
-
-```bash
-npm install
-npm run build
-
-# One command boots the watcher + admin UI + /mcp endpoint on a single port:
-npx loctx start --port 3000
-
-# → admin UI at http://localhost:3000/
-# → MCP endpoint at http://localhost:3000/mcp
-# → watcher live-indexing every file change under configured workspace_roots
-```
-
-The first `loctx start` (or `loctx index`) downloads the default embedding
-model (~90MB) into the Hugging Face cache; subsequent runs are fast.
-
-### Open-files limit (macOS / Linux)
-
-The watcher opens roughly 1–2 file descriptors per watched directory. With
-several mid-sized projects under your workspace roots, the OS default
-(macOS: 256, many Linux distros: 1024) is too low and the watcher will
-flood with `EMFILE: too many open files`. Bump it before starting:
-
-```bash
-ulimit -n 10240                       # for the current shell
-echo 'ulimit -n 10240' >> ~/.zshrc    # permanent (or ~/.bashrc)
-```
-
-`loctx doctor` flags this; `loctx start --no-watch` is a workaround if
-you can't change the limit.
+[ARCHITECTURE.md](ARCHITECTURE.md) covers the design. [docs/MCP.md](docs/MCP.md) covers client setup. [docs/PRIVACY.md](docs/PRIVACY.md) covers what stays local. [CONTRIBUTING.md](CONTRIBUTING.md) covers development. [CHANGELOG.md](CHANGELOG.md) covers releases.
 
 ## Install
-
-Two paths today.
-
-### Local development install
 
 ```bash
 git clone git@github.com:alex4u2nv/loctx.git
@@ -58,129 +18,51 @@ cd loctx
 npm install
 npm run build
 npm link --workspace @loctx/cli --workspace @loctx/mcp
-# → `loctx` and `loctx-mcp` are now on $PATH
 ```
 
-The web app (`loctx start`'s admin UI) stays at the workspace path —
-`@loctx/web` is a Next.js app, not a publishable library, so the daemon
-needs the workspace's `apps/web/.next` build output. Run `loctx start`
-from any directory; it locates the workspace via the linked binary.
+`@loctx/web` stays private. The daemon needs the workspace's `apps/web/.next` build output, so run `loctx start` from a clone (or wait for an umbrella package).
 
-### npm publish (planned, not yet shipped)
-
-`@loctx/core`, `@loctx/cli`, `@loctx/mcp` are publish-prepped (`files`,
-`publishConfig.access: public`, `prepublishOnly: npm run build`,
-`engines.node >= 22`). Once the npm scope is claimed, the install becomes:
+## Quick start
 
 ```bash
-npm install -g @loctx/cli @loctx/mcp
+loctx config init               # scaffold a commented config
+$EDITOR ~/.config/loctx/config.yaml
+loctx start
 ```
 
-`@loctx/web` stays private — the integrated daemon UI lives in the
-workspace. A future top-level `loctx` umbrella package may bundle CLI +
-MCP under a single global install. See GH#38.
+Defaults: admin UI at `http://localhost:3022/`, MCP at `/mcp`, watcher live-indexing every change under `workspace_roots`. Port comes from `daemon.port`. There is no `--port` flag; change the value and `loctx restart`.
 
-## CLI subcommands
+First boot downloads the embedding model (~90 MB) into the Hugging Face cache. Every boot after that runs offline.
+
+`loctx --help` (or `loctx <subcommand> --help`) lists every command. `loctx doctor` checks health.
+
+### Open-files limit (macOS)
+
+The watcher uses [chokidar 3 + fsevents](https://github.com/paulmillr/chokidar): one stream per project root. macOS still ships a 256 file-watch budget per process, which fills fast on a multi-project workspace.
 
 ```bash
-loctx start [--no-watch] [--no-web] [--replace]
-    Run the integrated daemon: watcher + Next.js admin UI + /mcp on one port.
-    Port and hostname come from `daemon.port` / `daemon.hostname` in config.
-    Refuses to start when another daemon holds the data-dir lock; pass
-    --replace (or use `loctx restart`) to take over.
-
-loctx stop [--timeout 8000]
-    Stop the running daemon for the configured data dir (SIGTERM, SIGKILL fallback).
-
-loctx restart [--no-watch] [--no-web]
-    Stop any running daemon for this data dir, then start a new one.
-
-loctx index [path]
-    One-shot index of a single project, or every discovered project when path is omitted.
-
-loctx search <query> [--scope auto|project|subtree|all] [--limit N] [--language L]
-    Search the local index from the terminal.
-
-loctx watch [--path <project>]
-    Headless watcher mode — reindex on every file change, no web/MCP. Logs events to stdout.
-
-loctx config show
-    Print the effective merged config with per-leaf source (default/global/project/env).
-
-loctx config init [--project] [--force]
-    Write a commented template to the global file (or to ./.loctx.yaml with --project).
-
-loctx status
-    Show resolved config, daemon state (PID, port, started-at), storage paths, and discovered projects.
-
-loctx-mcp                  # separate binary
-    MCP stdio server for agents that spawn the server as a child process.
+sudo launchctl limit maxfiles 10240 unlimited
 ```
 
-## Admin UI
+Log out and back in. `loctx doctor` flags this. `loctx start --no-watch` is the workaround if you cannot raise it.
 
-Once `loctx start` is running, visit `http://localhost:3000`:
+## MCP clients
 
-- **`/`** — workspace status: config source, storage paths, embedding identity, discovered projects.
-- **`/projects`** — per-project file counts, error counts, and last-indexed timestamp.
-- **`/search`** — interactive search: query, scope, language, limit. Results render server-side.
-- **`/mcp`** — MCP HTTP endpoint (Streamable HTTP transport). Not browser-friendly; agents only.
-- **`/api/events`** — SSE stream of watcher events. The header dot turns green when connected;
-  open admin pages auto-refresh on each change.
-
-## Connecting MCP clients
-
-For a complete walkthrough of every supported client, the verification
-sequence, and troubleshooting, see [docs/MCP.md](docs/MCP.md). The
-short form follows.
-
-### stdio (binary spawned as child process)
-
-Configure your agent to launch `loctx-mcp` as the MCP server. Example for
-Claude Code's MCP config:
+[docs/MCP.md](docs/MCP.md) walks each supported client. Snippets:
 
 ```json
-{
-  "mcpServers": {
-    "loctx": {
-      "command": "npx",
-      "args": ["loctx-mcp"]
-    }
-  }
-}
+// stdio
+{ "mcpServers": { "loctx": { "command": "npx", "args": ["loctx-mcp"] } } }
+
+// HTTP (loctx start running)
+{ "mcpServers": { "loctx": { "url": "http://localhost:3022/mcp" } } }
 ```
 
-### HTTP (integrated daemon)
-
-If `loctx start` is running, point your client at the HTTP endpoint:
-
-```json
-{
-  "mcpServers": {
-    "loctx": {
-      "url": "http://localhost:3000/mcp"
-    }
-  }
-}
-```
-
-Both transports expose the same three tools: `search_workspace`,
-`workspace_status`, `refresh_workspace`.
+Both transports expose four tools: `search_workspace`, `workspace_status`, `find_usages`, `refresh_workspace`.
 
 ## Configuration
 
-Layered, with later layers overriding earlier ones at the leaf level
-(precedence low → high):
-
-1. Built-in defaults
-2. **Global** — `$XDG_CONFIG_HOME/loctx/config.yaml`
-3. **Project** — `.loctx.yaml` discovered by walking up from `cwd` (opt-in
-   by file existence; useful for pinning a model or daemon port per repo)
-4. Environment — `LOCTX_DATA_DIR`, `LOCTX_CONFIG_DIR`,
-   `LOCTX_EMBEDDING_PROVIDER`
-
-There is no flag-level override layer. Per-invocation flags (`--scope`,
-`--limit`, `--no-watch`, `--replace`, …) are operational, not config-mirrors.
+Layered, low to high: built-in defaults, `$XDG_CONFIG_HOME/loctx/config.yaml`, project-level `.loctx.yaml` (walked up from `cwd`), env vars (`LOCTX_DATA_DIR`, `LOCTX_CONFIG_DIR`, `LOCTX_EMBEDDING_PROVIDER`).
 
 ```yaml
 workspace_roots:
@@ -195,74 +77,19 @@ watcher:
   debounce_ms: 500
 
 daemon:
-  port: 3000
+  port: 3022
   hostname: localhost
+
+reconciliation:
+  run_on_start: true
+  interval_seconds: 600
 ```
 
-Inspect or scaffold:
+`loctx config show` prints the effective merged config with the source of each leaf. Storage paths resolve via [`env-paths`](https://github.com/sindresorhus/env-paths); see [docs/PRIVACY.md](docs/PRIVACY.md) for the table and uninstall procedure.
 
-```bash
-loctx config show              # effective merged config + source per leaf
-loctx config init              # write a commented template to the global file
-loctx config init --project    # ...or to ./.loctx.yaml in the current dir
-```
+## Contributing
 
-Filtering rules live in `packages/core/src/data/filtering.yaml` (bundled
-defaults). User overrides go in `~/.loctx/config_overrides/*.{yaml,yml}` —
-alphabetical merge order, scalars replace, lists extend, `remove_<key>`
-subtracts from the baseline.
-
-Storage:
-
-- `$XDG_DATA_HOME/loctx/state.sqlite3` — file/chunk metadata (better-sqlite3)
-- `$XDG_DATA_HOME/loctx/vectors/` — LanceDB vector index (one Lance table per embedding identity)
-
-## Development
-
-```bash
-npm run typecheck     # tsc --strict across every package
-npm test              # vitest, every package
-npm run lint          # biome check
-npm run verify        # lint + typecheck + test
-
-npm run dev:cli -- start         # tsx-driven daemon for development
-npm run dev:web                  # Next.js dev server alone (admin UI without watcher/MCP)
-npm run dev:mcp                  # stdio MCP binary
-```
-
-## Layout
-
-```
-loctx/
-  package.json                       # workspace root (npm workspaces)
-  tsconfig.base.json                 # shared compiler options
-  biome.json                         # workspace-wide lint + format
-
-  packages/
-    core/                            # @loctx/core
-      src/
-        _validate.ts, config.ts, container.ts, discovery.ts, ...
-        chunking/, embeddings/, indexing/, retrieval/, storage/
-        watcher/{service.ts,bus.ts}  # filesystem watcher + event bus
-        data/filtering.yaml
-        sql/state.sql
-      tests/
-
-  apps/
-    cli/                             # @loctx/cli  → bin: loctx
-    mcp/                             # @loctx/mcp  → bin: loctx-mcp
-    web/                             # @loctx/web  → next dev / next build
-      app/
-        layout.tsx                   # nav + live-refresh dot
-        page.tsx                     # /  status
-        projects/page.tsx            # /projects
-        search/page.tsx              # /search
-        mcp/route.ts                 # /mcp Streamable HTTP transport
-        api/events/route.ts          # /api/events SSE stream
-      components/live-refresh.tsx
-      lib/admin-context.ts
-```
-
+[CONTRIBUTING.md](CONTRIBUTING.md). Bugs and features go to [Issues](https://github.com/alex4u2nv/loctx/issues). Security goes through [SECURITY.md](SECURITY.md), not public issues.
 
 ## License
 
