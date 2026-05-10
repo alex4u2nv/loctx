@@ -148,6 +148,30 @@ describe("loctx CLI: hermetic full-flow scenario", () => {
     expect(noForce.status).not.toBe(0);
     expect(noForce.stderr).toContain("refusing without --force");
   });
+
+  it("first-run: config init writes template, config show reads it back", () => {
+    const init = runCli(["config", "init"]);
+    expect(init.status).toBe(0);
+    expect(init.stderr).toContain("wrote");
+
+    const show = runCli(["config", "show"]);
+    expect(show.status).toBe(0);
+    expect(show.stdout).toContain("loctx config (effective)");
+    // The template sets workspace_roots to ~/Workspaces; the env-isolated
+    // cfg dir resolves the leaf source as 'global', not 'default'.
+    expect(show.stdout).toMatch(/workspace_roots:/);
+  });
+
+  it("model-swap warns about reindex requirement (#99)", () => {
+    // The 'model use' command writes the new model to config and emits
+    // a warning telling the user the next start will trip
+    // CollectionIdentityMismatch unless they reset + reindex. The
+    // warning copy is the contract this regression test pins.
+    const swap = runCli(["model", "use", "Xenova/bge-small-en-v1.5"]);
+    expect(swap.status).toBe(0);
+    const all = `${swap.stderr}${swap.stdout}`;
+    expect(all).toMatch(/reset.*index|CollectionIdentityMismatch|reindex/i);
+  });
 });
 
 describe.skipIf(process.env["LOCTX_E2E_NETWORK"] !== "1")(
