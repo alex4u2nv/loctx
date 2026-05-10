@@ -1,69 +1,72 @@
 /**
  * Filesystem watcher: keeps the local index in sync with on-disk changes.
  *
- * Uses chokidar to watch a project's root, debounces per-file events, and
- * dispatches add/change/unlink to the ProjectIndexer. The watcher is the
- * non-CLI half of "fs monitor + indexer" — it shares the same indexer
- * instance the CLI uses, so writes go through the same code path.
+ * Uses @parcel/watcher (native FSEvents on macOS, inotify on Linux,
+ * ReadDirectoryChangesW on Windows). One subscription per project root,
+ * regardless of subdirectory count, so the watcher does not exhaust the
+ * kernel's file-watch budget on multi-project workspaces.
  *
- * Concurrency: chokidar fires events in order; we debounce per absolute path
- * so rapid editor saves coalesce. The indexer is async, so we serialize
- * dispatches behind a per-path queue to avoid two concurrent indexFile calls
- * for the same file.
+ * Concurrency: parcel emits events in batches; we debounce per absolute
+ * path so rapid editor saves coalesce. The indexer is async, so we
+ * serialize dispatches behind a per-path inflight set to avoid two
+ * concurrent indexFile calls for the same file.
  */
 
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { ProjectIndexer } from "../indexing/index.js";
 import type { Project } from "../models.js";
 import { watcherBus } from "./bus.js";
 
-/**
- * Per-project ignore-rule files (#89). Watched in a side channel so a
- * change triggers a filter re-evaluation rather than treating the file
- * itself as content. `.git/info/exclude` lives inside `.git`, which is
- * excluded from the main watcher's chokidar config — it gets a
- * dedicated narrow watcher.
- */
-const RULE_FILES = [".loctxignore", ".gitignore", ".git/info/exclude"] as const;
+/** Per-project ignore-rule files (#89). */
+const RULE_FILES = [".loctxignore", ".gitignore"] as const;
+/** Inside `.git/`; needs a separate narrow subscription because the
+ * main subscription excludes `.git/` for noise reasons. */
+const GIT_INFO_DIR = ".git/info";
+const GIT_EXCLUDE_FILE = "exclude";
 
 type WatchEvent = "add" | "change" | "unlink";
 
-type ChokidarEvent =
-  | "add"
-  | "addDir"
-  | "change"
-  | "unlink"
-  | "unlinkDir"
-  | "ready"
-  | "raw"
-  | "error"
-  | "all";
-
-interface ChokidarWatcher {
-  on(event: "add" | "change" | "unlink", handler: (path: string) => void): this;
-  on(event: "error", handler: (err: unknown) => void): this;
-  on(event: "ready", handler: () => void): this;
-  on(event: ChokidarEvent, handler: (...args: unknown[]) => void): this;
-  close(): Promise<void>;
+/** parcel/watcher event shape. */
+type ParcelEventType = "create" | "update" | "delete";
+interface ParcelEvent {
+  readonly type: ParcelEventType;
+  readonly path: string;
 }
 
-interface ChokidarModule {
-  watch(paths: string | readonly string[], options: Record<string, unknown>): ChokidarWatcher;
+interface ParcelSubscription {
+  unsubscribe(): Promise<void>;
 }
+
+interface ParcelModule {
+  subscribe(
+    dir: string,
+    callback: (err: Error | null, events: ParcelEvent[]) => void,
+    opts?: { ignore?: string[]; backend?: string },
+  ): Promise<ParcelSubscription>;
+}
+
+/** Map parcel event types to our internal verbs. */
+const EVENT_MAP: Record<ParcelEventType, WatchEvent> = {
+  create: "add",
+  update: "change",
+  delete: "unlink",
+};
 
 export interface WatcherServiceOptions {
-  /** Per-path event debounce window in milliseconds. */
   readonly debounceMs?: number;
-  /** Glob patterns that should be excluded from watching. */
+  /** Glob/path patterns excluded from watching. Passed to parcel's `ignore`. */
   readonly ignored?: ReadonlyArray<string>;
-  /** Called with each (event, relPath) — useful for logging in tests / CLI. */
   readonly onEvent?: (event: WatchEvent, relPath: string) => void;
-  /** Called when an indexer call throws — defaults to console.error. */
   readonly onError?: (event: WatchEvent, relPath: string, error: Error) => void;
 }
 
 const DEFAULT_DEBOUNCE_MS = 300;
 
+/**
+ * @parcel/watcher's `ignore` accepts glob patterns or absolute paths.
+ * We feed it directory names; the matcher handles them as path components.
+ */
 const DEFAULT_IGNORED = [
   "**/.git/**",
   "**/node_modules/**",
@@ -72,15 +75,13 @@ const DEFAULT_IGNORED = [
   "**/dist/**",
   "**/build/**",
   "**/.next/**",
+  "**/target/**",
+  "**/vendor/**",
 ];
 
-/**
- * Watch a single project. Each `WatcherService` instance owns one chokidar
- * watcher and forwards filtered events to the supplied indexer.
- */
 export class WatcherService {
-  private watcher: ChokidarWatcher | null = null;
-  private rulesWatcher: ChokidarWatcher | null = null;
+  private mainSub: ParcelSubscription | null = null;
+  private gitInfoSub: ParcelSubscription | null = null;
   private rulesPending: NodeJS.Timeout | null = null;
   private readonly debounceMs: number;
   private readonly ignored: ReadonlyArray<string>;
@@ -105,40 +106,45 @@ export class WatcherService {
   }
 
   async start(): Promise<void> {
-    if (this.watcher !== null) return;
-    // Lazy import: chokidar pulls in fsevents on macOS; keep core import light.
-    const moduleName = "chokidar";
-    const mod = (await import(moduleName)) as unknown as ChokidarModule;
-    const watcher = mod.watch(this.project.root, {
-      ignored: [...this.ignored],
-      ignoreInitial: true,
-      persistent: true,
-      awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
-    });
-    watcher.on("add", (path) => this.schedule("add", path));
-    watcher.on("change", (path) => this.schedule("change", path));
-    watcher.on("unlink", (path) => this.schedule("unlink", path));
-    watcher.on("error", (err) => {
-      console.error(`[watcher] error: ${(err as Error)?.message ?? err}`);
-    });
-    this.watcher = watcher;
+    if (this.mainSub !== null) return;
+    // Lazy import: keep core module load light.
+    const moduleName = "@parcel/watcher";
+    const mod = (await import(moduleName)) as unknown as ParcelModule;
 
-    // Side channel for ignore-rule files (#89). chokidar accepts a list
-    // of explicit paths; missing files are tolerated and add events fire
-    // when they're created later. Same debounce window as content events.
-    const rulePaths = RULE_FILES.map((p) => join(this.project.root, p));
-    const rulesWatcher = mod.watch(rulePaths, {
-      persistent: true,
-      ignoreInitial: true,
-      awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
-    });
-    rulesWatcher.on("add", () => this.scheduleRulesReeval());
-    rulesWatcher.on("change", () => this.scheduleRulesReeval());
-    rulesWatcher.on("unlink", () => this.scheduleRulesReeval());
-    rulesWatcher.on("error", (err) => {
-      console.error(`[watcher rules] error: ${(err as Error)?.message ?? err}`);
-    });
-    this.rulesWatcher = rulesWatcher;
+    // Main subscription: project root, ignoring build/dep dirs and
+    // `.git/`. Rule files at the root (.loctxignore, .gitignore) come
+    // through here and are routed in the handler.
+    this.mainSub = await mod.subscribe(
+      this.project.root,
+      (err, events) => {
+        if (err !== null) {
+          console.error(`[watcher] error: ${err.message}`);
+          return;
+        }
+        for (const ev of events) this.routeEvent(ev);
+      },
+      { ignore: [...this.ignored] },
+    );
+
+    // Side channel for `.git/info/exclude` (#89). The main subscription
+    // ignores `.git/`, so we attach a narrow subscription to `.git/info/`
+    // and filter for the `exclude` filename. Skip silently when the
+    // directory does not exist (project has no git, or git versions
+    // without info/exclude).
+    const gitInfoPath = join(this.project.root, GIT_INFO_DIR);
+    if (existsSync(gitInfoPath)) {
+      this.gitInfoSub = await mod.subscribe(gitInfoPath, (err, events) => {
+        if (err !== null) {
+          console.error(`[watcher rules] error: ${err.message}`);
+          return;
+        }
+        for (const ev of events) {
+          if (ev.path.endsWith(`/${GIT_EXCLUDE_FILE}`)) {
+            this.scheduleRulesReeval();
+          }
+        }
+      });
+    }
   }
 
   async stop(): Promise<void> {
@@ -148,14 +154,34 @@ export class WatcherService {
       clearTimeout(this.rulesPending);
       this.rulesPending = null;
     }
-    if (this.watcher !== null) {
-      await this.watcher.close();
-      this.watcher = null;
+    if (this.mainSub !== null) {
+      await this.mainSub.unsubscribe();
+      this.mainSub = null;
     }
-    if (this.rulesWatcher !== null) {
-      await this.rulesWatcher.close();
-      this.rulesWatcher = null;
+    if (this.gitInfoSub !== null) {
+      await this.gitInfoSub.unsubscribe();
+      this.gitInfoSub = null;
     }
+  }
+
+  /**
+   * Direct events: rule files reload the filter; everything else
+   * follows the normal index/delete path.
+   */
+  private routeEvent(ev: ParcelEvent): void {
+    const rel = this.relPath(ev.path);
+    if (RULE_FILES.includes(rel as (typeof RULE_FILES)[number])) {
+      this.scheduleRulesReeval();
+      return;
+    }
+    this.schedule(EVENT_MAP[ev.type], ev.path);
+  }
+
+  private relPath(absPath: string): string {
+    if (absPath.startsWith(`${this.project.root}/`)) {
+      return absPath.slice(this.project.root.length + 1);
+    }
+    return absPath;
   }
 
   private scheduleRulesReeval(): void {
@@ -201,14 +227,11 @@ export class WatcherService {
 
   private async dispatch(event: WatchEvent, absPath: string): Promise<void> {
     if (this.inflight.has(absPath)) {
-      // Reschedule once the in-flight call clears.
       this.schedule(event, absPath);
       return;
     }
     this.inflight.add(absPath);
-    const relPath = absPath.startsWith(this.project.root)
-      ? absPath.slice(this.project.root.length + 1)
-      : absPath;
+    const relPath = this.relPath(absPath);
     this.onEvent(event, relPath);
     try {
       if (event === "unlink") {
