@@ -22,25 +22,47 @@ export async function GET(): Promise<Response> {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      // `cancel()` doesn't always fire promptly when a client disconnects —
+      // a TCP reset or browser navigation can leave the heartbeat interval
+      // firing against an already-closed controller, which throws
+      // ERR_INVALID_STATE and (because it's inside setInterval) bubbles
+      // up as an uncaughtException that takes the whole daemon down.
+      // Guard every enqueue, and tear down on the first failure.
+      let closed = false;
+
+      const safeEnqueue = (chunk: Uint8Array): boolean => {
+        if (closed) return false;
+        try {
+          controller.enqueue(chunk);
+          return true;
+        } catch {
+          cleanup();
+          return false;
+        }
+      };
+
       const send = (event: WatcherEvent) => {
-        const data = JSON.stringify(event);
-        controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+        safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       };
 
       const heartbeat = setInterval(() => {
-        controller.enqueue(encoder.encode(": ping\n\n"));
+        safeEnqueue(encoder.encode(": ping\n\n"));
       }, 15_000);
 
       const unsubscribe = watcherBus.subscribe(send);
 
-      // Send a comment so the connection becomes "open" immediately.
-      controller.enqueue(encoder.encode(": connected\n\n"));
-
-      // Stash cleanup on the controller so cancel() can find it.
-      (controller as unknown as { _cleanup: () => void })._cleanup = () => {
+      const cleanup = () => {
+        if (closed) return;
+        closed = true;
         clearInterval(heartbeat);
         unsubscribe();
       };
+
+      // Send a comment so the connection becomes "open" immediately.
+      safeEnqueue(encoder.encode(": connected\n\n"));
+
+      // Stash cleanup on the controller so cancel() can find it.
+      (controller as unknown as { _cleanup: () => void })._cleanup = cleanup;
     },
     cancel(controller) {
       const cleanup = (controller as unknown as { _cleanup?: () => void })._cleanup;
