@@ -111,11 +111,28 @@ export function maybeRespawnWithRaisedNofile(target = RECOMMENDED_NOFILE): void 
   if (current === null) return;
   if (current >= target) return;
 
+  // Probe the hard limit first. If it's already < target, raising in a
+  // subshell will silently fail (only root can raise hard), so we'd
+  // respawn into a child that still has the low soft limit and we'd
+  // skip on the env marker — a confusing no-op. Tell the user instead.
+  const hard = readHardNofile();
+  if (hard !== null && hard !== Number.POSITIVE_INFINITY && hard < target) {
+    console.error(
+      `[loctx start] hard open-files limit is ${hard} (< ${target}); cannot raise without root.`,
+    );
+    console.error(
+      `[loctx start] run \`sudo launchctl limit maxfiles ${target} unlimited\` (macOS) or set hard limit in /etc/security/limits.conf (Linux), then retry.`,
+    );
+    return;
+  }
+
   // Re-invoke ourselves through `/bin/sh -c "ulimit -n <T> && exec node <cli> ..."`.
   // argv[0] is the node binary; argv[1..] is the script + user args.
   const argv = [process.execPath, ...process.argv.slice(1)];
   const quoted = argv.map(shellQuote).join(" ");
-  const cmd = `ulimit -n ${target} 2>/dev/null; exec ${quoted}`;
+  // No 2>/dev/null on the ulimit — if the raise fails, surface it so
+  // we don't silently respawn into a process that's still too tight.
+  const cmd = `ulimit -n ${target} && exec ${quoted}`;
   console.error(
     `[loctx start] open-files limit is ${current}; respawning under shell with ulimit -n ${target}`,
   );
@@ -128,6 +145,22 @@ export function maybeRespawnWithRaisedNofile(target = RECOMMENDED_NOFILE): void 
   } catch {
     // Shell unavailable or spawn failed; let the caller continue and
     // surface the regular warning instead.
+  }
+}
+
+/** Hard RLIMIT_NOFILE via shell (Node 25 has no getrlimit either). */
+function readHardNofile(): number | null {
+  if (process.platform === "win32") return null;
+  try {
+    const out = execFileSync("/bin/sh", ["-c", "ulimit -Hn"], {
+      encoding: "utf-8",
+      timeout: 1000,
+    }).trim();
+    if (out === "unlimited") return Number.POSITIVE_INFINITY;
+    const parsed = Number.parseInt(out, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  } catch {
+    return null;
   }
 }
 
