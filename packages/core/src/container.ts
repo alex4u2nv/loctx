@@ -11,6 +11,7 @@
  * deterministic from a `Config` snapshot.
  */
 
+import { EnrichmentQueue } from "./analyzers/index.js";
 import type { Config } from "./config.js";
 import { DEFAULT_PROJECT_MARKERS, type MarkerSpec, WorkspaceDiscovery } from "./discovery.js";
 import {
@@ -35,6 +36,7 @@ export interface Runtime {
   readonly indexer: ProjectIndexer;
   readonly reconciler: Reconciler;
   readonly searcher: WorkspaceSearcher;
+  readonly enrichments: EnrichmentQueue;
   /**
    * Release every resource the runtime owns. Awaitable so callers can
    * sequence shutdown (watcher → web → runtime). The embedding provider's
@@ -70,6 +72,10 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
   const indexer = new ProjectIndexer(state, vectors, embeddings, filterFor);
   const reconciler = new Reconciler(state, indexer);
   const searcher = new WorkspaceSearcher(vectors, embeddings, discovery, state, config.retrieval);
+  const enrichments = new EnrichmentQueue({
+    concurrency: config.analyzers.concurrency,
+    perTaskTimeoutMs: config.analyzers.perTaskTimeoutMs,
+  });
 
   return Object.freeze({
     config,
@@ -81,6 +87,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
     indexer,
     reconciler,
     searcher,
+    enrichments,
     close: async () => {
       await embeddings.dispose?.();
       state.close();
