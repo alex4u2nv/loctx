@@ -147,6 +147,23 @@ export interface SearchResultEnrichments {
    * overlaps this chunk's line range. Null otherwise.
    */
   readonly lizard: LizardEnrichmentMetric | null;
+  /**
+   * Rule-pack findings (Semgrep, ast-grep) (#64) whose line range
+   * overlaps this chunk's. Sorted by severity (error > warning > info)
+   * then by line. Empty when no analyzer ran or nothing matched.
+   */
+  readonly findings: ReadonlyArray<RulePackFindingEnrichment>;
+}
+
+export interface RulePackFindingEnrichment {
+  /** Analyzer name (`semgrep` | `ast-grep`). */
+  readonly analyzer: string;
+  readonly ruleId: string;
+  readonly severity: "error" | "warning" | "info";
+  readonly message: string;
+  readonly category: string;
+  readonly lineFrom: number;
+  readonly lineTo: number;
 }
 
 export interface LizardEnrichmentMetric {
@@ -282,6 +299,7 @@ export class WorkspaceSearcher {
   private attachEnrichments(results: ReadonlyArray<SearchResult>): SearchResult[] {
     if (results.length === 0) return [...results];
     const lizardCache = new Map<string, LizardEnrichmentMetric[] | null>();
+    const findingsCache = new Map<string, RulePackFindingEnrichment[] | null>();
 
     return results.map((r) => {
       if (r.projectRoot === null) return r;
@@ -292,8 +310,19 @@ export class WorkspaceSearcher {
         lizardCache.set(cacheKey, lizardFns);
       }
       const lizard = lizardFns === null ? null : pickOverlapping(lizardFns, r.startLine, r.endLine);
-      if (lizard === null) return r;
-      return Object.freeze({ ...r, enrichments: Object.freeze({ lizard }) });
+
+      let allFindings = findingsCache.get(cacheKey);
+      if (allFindings === undefined) {
+        allFindings = readRulePackFindings(this.state, r.projectId, r.relPath);
+        findingsCache.set(cacheKey, allFindings);
+      }
+      const findings =
+        allFindings === null
+          ? Object.freeze<RulePackFindingEnrichment[]>([])
+          : Object.freeze(filterFindingsForRange(allFindings, r.startLine, r.endLine));
+
+      if (lizard === null && findings.length === 0) return r;
+      return Object.freeze({ ...r, enrichments: Object.freeze({ lizard, findings }) });
     });
   }
 
@@ -730,7 +759,73 @@ function assembleResult(
 }
 
 function emptyEnrichments(): SearchResultEnrichments {
-  return Object.freeze({ lizard: null });
+  return Object.freeze({ lizard: null, findings: Object.freeze<RulePackFindingEnrichment[]>([]) });
+}
+
+const SEVERITY_ORDER: Readonly<Record<RulePackFindingEnrichment["severity"], number>> =
+  Object.freeze({ error: 0, warning: 1, info: 2 });
+
+/**
+ * Read every rule-pack analyzer's persisted findings for a file and
+ * fold them into a single array tagged with the analyzer name. Returns
+ * null when no analyzer ran on the file.
+ */
+function readRulePackFindings(
+  state: StateStore,
+  projectId: string,
+  relPath: string,
+): RulePackFindingEnrichment[] | null {
+  const file = state.getFile(projectId as ProjectId, relPath);
+  if (file === null) return null;
+  const out: RulePackFindingEnrichment[] = [];
+  let any = false;
+  for (const analyzer of ["semgrep", "ast-grep"]) {
+    const row = state.getFileEnrichment(file.fileId, analyzer);
+    if (row === null) continue;
+    any = true;
+    if (row.status !== "complete" || row.payloadJson === undefined) continue;
+    try {
+      const parsed = JSON.parse(row.payloadJson) as {
+        findings?: ReadonlyArray<{
+          ruleId: string;
+          severity: RulePackFindingEnrichment["severity"];
+          message: string;
+          category: string;
+          lineFrom: number;
+          lineTo: number;
+        }>;
+      };
+      for (const f of parsed.findings ?? []) {
+        out.push({
+          analyzer,
+          ruleId: f.ruleId,
+          severity: f.severity,
+          message: f.message,
+          category: f.category,
+          lineFrom: f.lineFrom,
+          lineTo: f.lineTo,
+        });
+      }
+    } catch {
+      // Malformed payload row: skip but don't kill the whole list —
+      // the other analyzer may still have valid findings.
+    }
+  }
+  return any ? out : null;
+}
+
+function filterFindingsForRange(
+  findings: ReadonlyArray<RulePackFindingEnrichment>,
+  startLine: number,
+  endLine: number,
+): RulePackFindingEnrichment[] {
+  const overlapping = findings.filter((f) => f.lineFrom <= endLine && f.lineTo >= startLine);
+  overlapping.sort((a, b) => {
+    const sev = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
+    if (sev !== 0) return sev;
+    return a.lineFrom - b.lineFrom;
+  });
+  return overlapping;
 }
 
 function parseSymbols(raw: unknown): ReadonlyArray<string> {

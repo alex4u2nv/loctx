@@ -59,6 +59,18 @@ beforeAll(async () => {
       perTaskTimeoutMs: 60_000,
       lizard: Object.freeze({ enabled: false, command: "lizard" }),
       duplicates: Object.freeze({ enabled: false, windowSize: 50, minUniqueTokens: 15 }),
+      semgrep: Object.freeze({
+        enabled: false,
+        command: "semgrep",
+        ruleDirs: Object.freeze<string[]>([]),
+        maxFindingsPerFile: 50,
+      }),
+      astGrep: Object.freeze({
+        enabled: false,
+        command: "ast-grep",
+        ruleDirs: Object.freeze<string[]>([]),
+        maxFindingsPerFile: 50,
+      }),
     }),
     source: null,
     projectSource: null,
