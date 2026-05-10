@@ -11,7 +11,7 @@
  * deterministic from a `Config` snapshot.
  */
 
-import { EnrichmentQueue } from "./analyzers/index.js";
+import { EnrichmentQueue, LIZARD_VERSION, runLizard } from "./analyzers/index.js";
 import type { Config } from "./config.js";
 import { DEFAULT_PROJECT_MARKERS, type MarkerSpec, WorkspaceDiscovery } from "./discovery.js";
 import {
@@ -69,13 +69,47 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
   const filterFor = (project: Project): ProjectFilter =>
     new ProjectFilter(project, rules, combinedGitignore(project.root));
 
-  const indexer = new ProjectIndexer(state, vectors, embeddings, filterFor);
-  const reconciler = new Reconciler(state, indexer);
-  const searcher = new WorkspaceSearcher(vectors, embeddings, discovery, state, config.retrieval);
+  // Background analyzer queue + persistence sink. Each completion writes
+  // to file_enrichments so reconciliation / status / search can read it.
   const enrichments = new EnrichmentQueue({
     concurrency: config.analyzers.concurrency,
     perTaskTimeoutMs: config.analyzers.perTaskTimeoutMs,
+    onResult: (r) => {
+      const meta = r.task as ReturnType<typeof analyzerTaskMeta>;
+      state.upsertFileEnrichment({
+        fileId: meta.fileId,
+        analyzer: meta.analyzer,
+        analyzerVersion: meta.analyzerVersion,
+        contentSha: meta.contentSha,
+        status: r.status === "complete" ? "complete" : "failed",
+        ...(r.payload !== undefined ? { payloadJson: JSON.stringify(r.payload) } : {}),
+        ...(r.error !== undefined ? { error: r.error } : {}),
+        enqueuedAt: r.enqueuedAt,
+        completedAt: r.completedAt,
+      });
+    },
   });
+
+  const indexer = new ProjectIndexer(state, vectors, embeddings, filterFor, {
+    afterFileIndexed: ({ project, fileId, absPath, contentSha }) => {
+      if (!config.analyzers.backgroundEnabled) return;
+      if (config.analyzers.lizard.enabled) {
+        const command = config.analyzers.lizard.command;
+        enrichments.enqueue(
+          analyzerTaskMeta({
+            fileId,
+            project,
+            analyzer: "lizard",
+            analyzerVersion: LIZARD_VERSION,
+            contentSha,
+            run: () => runLizard(command, absPath),
+          }),
+        );
+      }
+    },
+  });
+  const reconciler = new Reconciler(state, indexer);
+  const searcher = new WorkspaceSearcher(vectors, embeddings, discovery, state, config.retrieval);
 
   return Object.freeze({
     config,
@@ -93,6 +127,31 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
       state.close();
     },
   });
+}
+
+/**
+ * Build an EnrichmentTask whose id encodes (analyzer, fileId) so the
+ * queue dedupes per-file-per-analyzer correctly. Carries fileId on the
+ * object literal so the result sink can write back to file_enrichments
+ * without needing to parse the id.
+ */
+function analyzerTaskMeta(input: {
+  fileId: import("./models.js").FileId;
+  project: Project;
+  analyzer: string;
+  analyzerVersion: number;
+  contentSha: string;
+  run: () => Promise<unknown>;
+}) {
+  return {
+    id: `${input.analyzer}:${input.fileId}`,
+    analyzer: input.analyzer,
+    analyzerVersion: input.analyzerVersion,
+    contentSha: input.contentSha,
+    fileId: input.fileId,
+    project: input.project,
+    run: input.run,
+  };
 }
 
 function createEmbeddings(config: Config): EmbeddingProvider {

@@ -1,6 +1,7 @@
 export {
   type ChunkInsert,
   type ChunkState,
+  type FileEnrichmentRow,
   type FileState,
   type LexicalMatch,
   type LexicalQuery,

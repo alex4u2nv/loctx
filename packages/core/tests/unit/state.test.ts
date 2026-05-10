@@ -593,4 +593,43 @@ describe("StateStore", () => {
     const foo = store.findSymbol(project.id, "foo");
     expect(foo.defs).toHaveLength(1);
   });
+
+  it("upsertFileEnrichment + getFileEnrichment round-trip (#62)", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const fs = fileState(project);
+    store.upsertFile(fs);
+
+    store.upsertFileEnrichment({
+      fileId: fs.fileId,
+      analyzer: "lizard",
+      analyzerVersion: 1,
+      contentSha: fs.contentSha,
+      status: "complete",
+      payloadJson: JSON.stringify({ functions: [{ name: "foo", ccn: 3 }] }),
+      enqueuedAt: "2026-05-10T00:00:00.000Z",
+      completedAt: "2026-05-10T00:00:01.000Z",
+    });
+
+    const got = store.getFileEnrichment(fs.fileId, "lizard");
+    expect(got?.status).toBe("complete");
+    expect(got?.analyzerVersion).toBe(1);
+    expect(JSON.parse(got?.payloadJson ?? "{}").functions[0].name).toBe("foo");
+
+    // Upsert again with new payload — should overwrite.
+    store.upsertFileEnrichment({
+      fileId: fs.fileId,
+      analyzer: "lizard",
+      analyzerVersion: 2,
+      contentSha: "newsha",
+      status: "failed",
+      error: "lizard returned non-zero",
+    });
+    const updated = store.getFileEnrichment(fs.fileId, "lizard");
+    expect(updated?.status).toBe("failed");
+    expect(updated?.analyzerVersion).toBe(2);
+    expect(updated?.error).toBe("lizard returned non-zero");
+    expect(updated?.payloadJson).toBeUndefined();
+  });
 });
