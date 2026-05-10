@@ -23,6 +23,12 @@ export interface CodeChunk {
    * Indexed callers serialize to chunks.metadata_json.
    */
   readonly analyzer?: import("../models.js").AnalyzerMetadata;
+  /**
+   * Optional symbol cross-reference rows (#96): the chunk's own definition
+   * plus every callee/import inside it. Lines are absolute (1-based) so the
+   * find_usages MCP tool can return jump targets without further math.
+   */
+  readonly symbolRefs?: ReadonlyArray<import("./analyzer.js").SymbolRefExtract>;
 }
 
 export interface Chunker {

@@ -122,3 +122,67 @@ describe("AST extraction via chunker (#59)", () => {
     expect(chunks[0]?.analyzer).toBeUndefined();
   });
 });
+
+describe("Symbol cross-reference extraction (#96)", () => {
+  it("records def + every callee from a TS function (export_statement wrapper)", () => {
+    const ts = [
+      "import { verifyJwt } from './jwt';",
+      "",
+      "export async function authenticateUser(token: string) {",
+      "  const claims = await verifyJwt(token);",
+      "  return claims;",
+      "}",
+      "",
+    ].join("\n");
+    const chunks = chunkFile("src/auth.ts", ts);
+    // The chunker emits one chunk for the export_statement wrapping the
+    // async function. extractSymbolRefs unwraps it for the def.
+    const fn = chunks.find((c) => c.symbolRefs !== undefined);
+    expect(fn?.symbolRefs).toBeDefined();
+    const refs = fn?.symbolRefs ?? [];
+    const def = refs.find((r) => r.kind === "def");
+    expect(def?.symbol).toBe("authenticateUser");
+    const callees = refs.filter((r) => r.kind === "call").map((r) => r.symbol);
+    expect(callees).toContain("verifyJwt");
+  });
+
+  it("records imports inside a chunk as kind=import", () => {
+    // Top-level imports aren't part of any chunkable node, so they don't
+    // land in symbol_refs. Imports DECLARED INSIDE a function (legal in
+    // Python) do — they live inside the function chunk's subtree.
+    const py = [
+      "def load_config(path):",
+      "    import tomllib",
+      "    return tomllib.loads(open(path).read())",
+      "",
+    ].join("\n");
+    const chunks = chunkFile("tools/cfg.py", py);
+    const fn = chunks.find((c) => c.kind === "function");
+    const imports = (fn?.symbolRefs ?? []).filter((r) => r.kind === "import").map((r) => r.symbol);
+    expect(imports.length).toBeGreaterThan(0);
+  });
+
+  it("excludes parameters and local variables (call_match noise)", () => {
+    const ts = [
+      "function f(name: string) {",
+      "  const localVar = 1;",
+      "  return localVar;",
+      "}",
+    ].join("\n");
+    const chunks = chunkFile("src/f.ts", ts);
+    const fn = chunks.find((c) => c.kind === "function");
+    const refs = fn?.symbolRefs ?? [];
+    const symbols = refs.map((r) => r.symbol);
+    // The def is recorded; bare identifier references aren't.
+    expect(symbols).toContain("f");
+    expect(symbols).not.toContain("name");
+    expect(symbols).not.toContain("localVar");
+  });
+
+  it("returns empty for languages without a profile", () => {
+    // Markdown-as-code path: chunkFile dispatches to the markdown chunker
+    // which doesn't produce symbolRefs at all.
+    const chunks = chunkFile("notes.md", "# heading");
+    expect(chunks[0]?.symbolRefs).toBeUndefined();
+  });
+});

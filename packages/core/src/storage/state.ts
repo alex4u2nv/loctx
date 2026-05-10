@@ -11,9 +11,13 @@ import {
   type FileId,
   type Project,
   type ProjectId,
+  type SymbolRef,
+  type SymbolRefKind,
   analyzerMetadataFromJson,
   analyzerMetadataToJson,
   identityToString,
+  chunkId as toChunkId,
+  fileId as toFileId,
   projectId as toProjectId,
 } from "../models.js";
 import { loadQueries } from "../sql/loader.js";
@@ -67,6 +71,16 @@ export interface ChunkInsert extends ChunkState {
   readonly analyzer?: AnalyzerMetadata;
   /** Primary symbol the chunk defines, indexed for symbol lookup. */
   readonly symbolDef?: string;
+  /**
+   * Optional symbol references inside this chunk (#96). Each row gets
+   * persisted to `symbol_refs` for the find_usages MCP tool. The
+   * indexer fans `chunkId/fileId/projectId` onto each entry.
+   */
+  readonly symbolRefs?: ReadonlyArray<{
+    readonly symbol: string;
+    readonly kind: SymbolRefKind;
+    readonly line: number;
+  }>;
 }
 
 /** Input for {@link StateStore.searchLexical}. */
@@ -77,6 +91,17 @@ export interface LexicalQuery {
   readonly projectId?: string;
   /** Restrict to documents whose `rel_path` starts with this prefix (e.g. `src/auth/`). */
   readonly relPathPrefix?: string;
+}
+
+/**
+ * A row of {@link StateStore.findSymbol} output. Joins symbol_refs with
+ * files + chunks so the MCP `find_usages` response is one call away
+ * from a jump target (rel_path + line + surrounding chunk range).
+ */
+export interface SymbolRefHit extends SymbolRef {
+  readonly relPath: string;
+  readonly chunkStartLine: number;
+  readonly chunkEndLine: number;
 }
 
 /** A BM25-ranked match returned by {@link StateStore.searchLexical}. */
@@ -202,6 +227,7 @@ export class StateStore {
     const tx = this.db.transaction(() => {
       this.write("delete_chunks_fts_for_project", [id]);
       this.write("delete_chunks_for_project", [id]);
+      this.write("delete_symbol_refs_for_project", [id]);
       this.write("delete_files_for_project", [id]);
       this.write("delete_project", [id]);
     });
@@ -245,6 +271,7 @@ export class StateStore {
     const tx = this.db.transaction(() => {
       this.write("delete_chunks_fts_for_file", [file.fileId]);
       this.write("delete_chunks_for_file", [file.fileId]);
+      this.write("delete_symbol_refs_for_file", [file.fileId]);
       this.write("delete_file", [projectId, relPath]);
     });
     tx();
@@ -261,9 +288,11 @@ export class StateStore {
     const chunkArr = [...chunks];
     const insertChunk = this.prepare("insert_chunk");
     const insertFts = this.prepare("insert_chunk_fts");
+    const insertSymbolRef = this.prepare("insert_symbol_ref");
     const tx = this.db.transaction(() => {
       this.write("delete_chunks_fts_for_file", [fileId]);
       this.write("delete_chunks_for_file", [fileId]);
+      this.write("delete_symbol_refs_for_file", [fileId]);
       for (const c of chunkArr) {
         const symbolsJoined = c.symbols.length > 0 ? c.symbols.join(",") : null;
         // metadata_json + symbol_def written inline. The chunker (#59)
@@ -284,6 +313,11 @@ export class StateStore {
         );
         // FTS5 has no nullable distinction; pass empty strings rather than NULL.
         insertFts.run(c.chunkId, c.fileId, c.projectId, c.relPath, c.document, symbolsJoined ?? "");
+        if (c.symbolRefs !== undefined) {
+          for (const ref of c.symbolRefs) {
+            insertSymbolRef.run(ref.symbol, c.projectId, c.fileId, c.chunkId, ref.line, ref.kind);
+          }
+        }
       }
     });
     tx();
@@ -318,6 +352,34 @@ export class StateStore {
     return this.readAll<LexicalRow>("search_lexical_all", [query.query, limit]).map(
       lexicalMatchFromRow,
     );
+  }
+
+  // ---- symbol cross-references (#96) ---------------------------------
+
+  /**
+   * Look up a symbol's definitions and references inside a single project.
+   * Definitions are kind=`def`; everything else (call/import/reference)
+   * lands in `refs`. Both arrays come back sorted by file/line so
+   * consumers can render them top-to-bottom without re-sorting. Empty
+   * arrays when nothing matches — never throws on "not found".
+   *
+   * `relPath` and the chunk's surrounding line range come back joined
+   * from `files` + `chunks` so the find_usages MCP tool can emit jump
+   * targets without an extra round-trip.
+   */
+  findSymbol(
+    projectId: ProjectId,
+    symbol: string,
+  ): { defs: ReadonlyArray<SymbolRefHit>; refs: ReadonlyArray<SymbolRefHit> } {
+    const rows = this.readAll<SymbolRefRow>("find_symbol_in_project", [projectId, symbol]);
+    const defs: SymbolRefHit[] = [];
+    const refs: SymbolRefHit[] = [];
+    for (const row of rows) {
+      const hit = symbolRefHitFromRow(row);
+      if (hit.kind === "def") defs.push(hit);
+      else refs.push(hit);
+    }
+    return { defs: Object.freeze(defs), refs: Object.freeze(refs) };
   }
 
   // ---- analyzer metadata ----------------------------------------------
@@ -400,6 +462,32 @@ interface LexicalRow {
   end_line: number;
   kind: string;
   rank: number;
+}
+
+interface SymbolRefRow {
+  symbol: string;
+  project_id: string;
+  file_id: string;
+  chunk_id: string;
+  line: number;
+  kind: string;
+  rel_path: string;
+  chunk_start: number;
+  chunk_end: number;
+}
+
+function symbolRefHitFromRow(row: SymbolRefRow): SymbolRefHit {
+  return Object.freeze({
+    symbol: row.symbol,
+    projectId: toProjectId(row.project_id),
+    fileId: toFileId(row.file_id),
+    chunkId: toChunkId(row.chunk_id),
+    line: row.line,
+    kind: row.kind as SymbolRefKind,
+    relPath: row.rel_path,
+    chunkStartLine: row.chunk_start,
+    chunkEndLine: row.chunk_end,
+  });
 }
 
 function lexicalMatchFromRow(row: LexicalRow): LexicalMatch {

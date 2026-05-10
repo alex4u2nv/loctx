@@ -4,6 +4,7 @@ export {
   type FileState,
   type LexicalMatch,
   type LexicalQuery,
+  type SymbolRefHit,
   CollectionIdentityMismatch,
   SCHEMA_VERSION,
   StateStore,

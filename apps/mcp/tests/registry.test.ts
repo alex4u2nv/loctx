@@ -80,9 +80,14 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
 // ---- tool catalog ---------------------------------------------------
 
 describe("TOOL_DEFINITIONS", () => {
-  it("exposes the three loctx tools", () => {
+  it("exposes the four loctx tools", () => {
     const names = TOOL_DEFINITIONS.map((t) => t.name);
-    expect(names).toEqual(["search_workspace", "workspace_status", "refresh_workspace"]);
+    expect(names).toEqual([
+      "search_workspace",
+      "workspace_status",
+      "find_usages",
+      "refresh_workspace",
+    ]);
   });
 
   it("every tool has an inputSchema with type=object", () => {
@@ -180,5 +185,100 @@ describe("tools.refresh", () => {
     const runtime = stubRuntime();
     const out = await tools.refresh(runtime, { path: "/elsewhere/x" });
     expect(out.summaries).toEqual([]);
+  });
+});
+
+// ---- find_usages (#96) ---------------------------------------------
+
+describe("tools.findUsages", () => {
+  function runtimeWithSymbol(
+    perProject: Record<
+      string,
+      {
+        defs: ReadonlyArray<{ relPath: string; line: number }>;
+        refs: ReadonlyArray<{ relPath: string; line: number }>;
+      }
+    >,
+  ): Runtime {
+    return stubRuntime({
+      state: {
+        findSymbol: (id: string) => {
+          const data = perProject[id] ?? { defs: [], refs: [] };
+          return {
+            defs: data.defs.map((d) => ({
+              symbol: "anything",
+              projectId: id,
+              fileId: "f",
+              chunkId: "c",
+              line: d.line,
+              kind: "def" as const,
+              relPath: d.relPath,
+              chunkStartLine: d.line,
+              chunkEndLine: d.line + 4,
+            })),
+            refs: data.refs.map((r) => ({
+              symbol: "anything",
+              projectId: id,
+              fileId: "f",
+              chunkId: "c",
+              line: r.line,
+              kind: "call" as const,
+              relPath: r.relPath,
+              chunkStartLine: r.line,
+              chunkEndLine: r.line + 4,
+            })),
+          };
+        },
+        listFiles: () => [],
+        listProjects: () => [],
+      } as unknown as Runtime["state"],
+    });
+  }
+
+  it("requires the symbol argument", async () => {
+    const runtime = stubRuntime();
+    await expect(tools.findUsages(runtime, {})).rejects.toBeInstanceOf(ToolError);
+  });
+
+  it("returns per-project defs + refs across every project that knows the symbol", async () => {
+    const runtime = runtimeWithSymbol({
+      "proj-a": { defs: [{ relPath: "src/auth.ts", line: 1 }], refs: [] },
+      "proj-b": { defs: [], refs: [{ relPath: "src/login.ts", line: 12 }] },
+    });
+    const out = await tools.findUsages(runtime, { symbol: "authenticateUser" });
+    expect(out.symbol).toBe("authenticateUser");
+    expect(out.projects).toHaveLength(2);
+    const a = out.projects.find((p) => p.projectId === "proj-a");
+    const b = out.projects.find((p) => p.projectId === "proj-b");
+    expect(a?.defs[0]?.relPath).toBe("src/auth.ts");
+    expect(b?.refs[0]?.line).toBe(12);
+  });
+
+  it("scopes to one project when path is given", async () => {
+    const runtime = runtimeWithSymbol({
+      "proj-a": { defs: [{ relPath: "src/x.ts", line: 1 }], refs: [] },
+      "proj-b": { defs: [{ relPath: "src/y.ts", line: 1 }], refs: [] },
+    });
+    const out = await tools.findUsages(runtime, {
+      symbol: "foo",
+      path: "/ws/alpha/src",
+    });
+    expect(out.projects.map((p) => p.projectId)).toEqual(["proj-a"]);
+  });
+
+  it("rejects a path that resolves outside every indexed project", async () => {
+    const runtime = runtimeWithSymbol({});
+    await expect(
+      tools.findUsages(runtime, { symbol: "foo", path: "/elsewhere" }),
+    ).rejects.toBeInstanceOf(ToolError);
+  });
+
+  it("omits projects with no defs and no refs", async () => {
+    const runtime = runtimeWithSymbol({
+      "proj-a": { defs: [{ relPath: "src/a.ts", line: 1 }], refs: [] },
+      "proj-b": { defs: [], refs: [] },
+    });
+    const out = await tools.findUsages(runtime, { symbol: "foo" });
+    expect(out.projects.map((p) => p.projectId)).toEqual(["proj-a"]);
   });
 });
