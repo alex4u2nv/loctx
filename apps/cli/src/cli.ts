@@ -185,6 +185,12 @@ program
           if (result.coverageReason !== null) {
             console.log(`    # coverage: ${result.coverageReason}`);
           }
+          if (result.enrichments.lizard !== null) {
+            const l = result.enrichments.lizard;
+            console.log(
+              `    # complexity: fn=${l.functionName} ccn=${l.ccn} nloc=${l.nloc} tokens=${l.tokens} params=${l.parameters}`,
+            );
+          }
           console.log(indent(clip(result.snippet)));
           console.log();
         }

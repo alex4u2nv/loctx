@@ -56,6 +56,11 @@ function fakeState(matches: ReadonlyArray<LexicalMatch> = [], capture?: StateCap
     // unit suite isn't testing analyzer ranking; return empty so the
     // existing assertions stay focused on RRF + scope behavior.
     getAnalyzersByChunkIds: () => new Map(),
+    // Enrichment surfacing (lizard, etc.) reads file_enrichments via
+    // getFile + getFileEnrichment. Stub them to nothing so the suite
+    // doesn't have to opt in to those tables for every test.
+    getFile: () => null,
+    getFileEnrichment: () => null,
   } as unknown as StateStore;
 }
 
@@ -327,6 +332,8 @@ describe("WorkspaceSearcher hybrid retrieval (RRF)", () => {
         throw new Error("FTS5 syntax error");
       }),
       getAnalyzersByChunkIds: () => new Map(),
+      getFile: () => null,
+      getFileEnrichment: () => null,
     } as unknown as StateStore;
     const searcher = new WorkspaceSearcher(
       fakeVectors([
@@ -378,6 +385,8 @@ describe("WorkspaceSearcher analyzer-driven match reasons (#60)", () => {
         for (const id of ids) m.set(id, byChunk[id] ?? null);
         return m;
       },
+      getFile: () => null,
+      getFileEnrichment: () => null,
     } as unknown as StateStore;
   }
 
@@ -523,6 +532,8 @@ describe("WorkspaceSearcher coverage expansion (#72)", () => {
       findSymbol: opts.findSymbolBy
         ? (id: string, sym: string) => opts.findSymbolBy?.(id, sym) ?? { defs: [], refs: [] }
         : () => ({ defs: [], refs: [] }),
+      getFile: () => null,
+      getFileEnrichment: () => null,
     } as unknown as StateStore;
   }
 

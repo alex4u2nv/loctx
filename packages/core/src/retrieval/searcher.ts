@@ -132,6 +132,34 @@ export interface SearchResult {
    * ranked list. Always present as a key for stable agent payloads.
    */
   readonly coverageReason: string | null;
+  /**
+   * Background-analyzer findings attached to this result, when present
+   * and overlapping the chunk's line range. Each analyzer's payload
+   * shape is its own contract.
+   */
+  readonly enrichments: SearchResultEnrichments;
+}
+
+export interface SearchResultEnrichments {
+  /**
+   * Per-function complexity from the lizard analyzer (#62). Set when
+   * the analyzer ran successfully on the file and the function
+   * overlaps this chunk's line range. Null otherwise.
+   */
+  readonly lizard: LizardEnrichmentMetric | null;
+}
+
+export interface LizardEnrichmentMetric {
+  readonly functionName: string;
+  /** Cyclomatic complexity. */
+  readonly ccn: number;
+  /** Non-comment lines of code. */
+  readonly nloc: number;
+  readonly tokens: number;
+  readonly parameters: number;
+  /** Function line range from lizard's report (may differ slightly from chunk). */
+  readonly lineFrom: number;
+  readonly lineTo: number;
 }
 
 export interface SearchResponse {
@@ -220,9 +248,15 @@ export class WorkspaceSearcher {
 
     // Coverage expansion (#72). Skipped unless the caller asked.
     // Capped at 2x the requested limit so payloads stay bounded.
-    const finalResults = request.coverage
+    const expandedResults = request.coverage
       ? await this.expandCoverage(results, projectsById, limit * 2)
       : results;
+
+    // Background-analyzer surfacing (#62 #65). Walk every result, fetch
+    // the file's enrichment payloads, attach the slice that overlaps
+    // this chunk's line range. Skipped silently when nothing's
+    // persisted — analyzers are opt-in.
+    const finalResults = this.attachEnrichments(expandedResults);
 
     return Object.freeze({
       resolvedScope: scope,
@@ -238,6 +272,31 @@ export class WorkspaceSearcher {
    * tagged with `coverageReason`. Existing chunks are deduped. Cap
    * keeps the response payload small.
    */
+  /**
+   * Walk results, look up persisted analyzer payloads from
+   * `file_enrichments`, attach the slice that overlaps each chunk's
+   * line range. Per-(project,relPath) lookups are cached across the
+   * batch so a top-K with multiple chunks from the same file pays
+   * one StateStore read per analyzer.
+   */
+  private attachEnrichments(results: ReadonlyArray<SearchResult>): SearchResult[] {
+    if (results.length === 0) return [...results];
+    const lizardCache = new Map<string, LizardEnrichmentMetric[] | null>();
+
+    return results.map((r) => {
+      if (r.projectRoot === null) return r;
+      const cacheKey = `${r.projectId}:${r.relPath}`;
+      let lizardFns = lizardCache.get(cacheKey);
+      if (lizardFns === undefined) {
+        lizardFns = readLizardFunctions(this.state, r.projectId, r.relPath);
+        lizardCache.set(cacheKey, lizardFns);
+      }
+      const lizard = lizardFns === null ? null : pickOverlapping(lizardFns, r.startLine, r.endLine);
+      if (lizard === null) return r;
+      return Object.freeze({ ...r, enrichments: Object.freeze({ lizard }) });
+    });
+  }
+
   private async expandCoverage(
     originals: ReadonlyArray<SearchResult>,
     projectsById: ReadonlyMap<string, Project>,
@@ -287,6 +346,7 @@ export class WorkspaceSearcher {
               analyzer: null,
               matchReasons: Object.freeze<MatchReason[]>([]),
               coverageReason: reason,
+              enrichments: emptyEnrichments(),
             }),
           );
           seen.add(key);
@@ -662,7 +722,15 @@ function assembleResult(
     analyzer,
     matchReasons: fused.matchReasons,
     coverageReason: null,
+    // Enrichments populated in a second pass after assembleResult
+    // returns; this keeps the per-result builder pure and lets the
+    // searcher batch the StateStore reads.
+    enrichments: emptyEnrichments(),
   });
+}
+
+function emptyEnrichments(): SearchResultEnrichments {
+  return Object.freeze({ lizard: null });
 }
 
 function parseSymbols(raw: unknown): ReadonlyArray<string> {
@@ -673,4 +741,68 @@ function parseSymbols(raw: unknown): ReadonlyArray<string> {
 /** Stable identity for coverage-dedupe: project + file + chunk-start. */
 function coverageKey(r: SearchResult): string {
   return `${r.projectId}:${r.relPath}:${r.startLine}`;
+}
+
+/**
+ * Pull lizard's per-function metrics for a file out of file_enrichments.
+ * Returns null when no enrichment exists or the payload is unparseable;
+ * empty array means lizard ran but found no functions.
+ */
+function readLizardFunctions(
+  state: StateStore,
+  projectId: string,
+  relPath: string,
+): LizardEnrichmentMetric[] | null {
+  const file = state.getFile(projectId as ProjectId, relPath);
+  if (file === null) return null;
+  const row = state.getFileEnrichment(file.fileId, "lizard");
+  if (row === null || row.status !== "complete" || row.payloadJson === undefined) return null;
+  try {
+    const parsed = JSON.parse(row.payloadJson) as {
+      functions?: ReadonlyArray<{
+        name: string;
+        nloc: number;
+        ccn: number;
+        tokens: number;
+        parameters: number;
+        lineFrom: number;
+        lineTo: number;
+      }>;
+    };
+    return (parsed.functions ?? []).map((f) => ({
+      functionName: f.name,
+      ccn: f.ccn,
+      nloc: f.nloc,
+      tokens: f.tokens,
+      parameters: f.parameters,
+      lineFrom: f.lineFrom,
+      lineTo: f.lineTo,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Among lizard's per-function metrics, pick the one whose line range
+ * overlaps the chunk's. When several overlap (chunk spans multiple
+ * functions), prefer the one with the largest overlap.
+ */
+function pickOverlapping(
+  fns: ReadonlyArray<LizardEnrichmentMetric>,
+  startLine: number,
+  endLine: number,
+): LizardEnrichmentMetric | null {
+  let best: LizardEnrichmentMetric | null = null;
+  let bestOverlap = 0;
+  for (const f of fns) {
+    const lo = Math.max(f.lineFrom, startLine);
+    const hi = Math.min(f.lineTo, endLine);
+    const overlap = hi - lo + 1;
+    if (overlap > bestOverlap) {
+      best = f;
+      bestOverlap = overlap;
+    }
+  }
+  return best;
 }
