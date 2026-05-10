@@ -24,7 +24,9 @@ import {
   acquireDaemonLock,
   buildRuntime,
   checkNofile,
+  maybeRespawnWithRaisedNofile,
   nofileBumpHint,
+  raiseNofile,
   stopActiveDaemon,
 } from "@loctx/core";
 
@@ -55,6 +57,13 @@ type NextFactory = (config: {
 const ROOT_RELATIVE_WEB_DIR = "../../web";
 
 export async function start(config: Config, options: StartOptions): Promise<void> {
+  // Open-files limit: Node 25 doesn't expose process.setrlimit, so the
+  // only way to raise our own RLIMIT_NOFILE is to re-exec under a shell
+  // that can `ulimit -n` first. Skip when the watcher is disabled —
+  // nothing else loctx does is fd-hungry. If respawn happens this call
+  // never returns; we exit with the child's status.
+  if (options.enableWatch) maybeRespawnWithRaisedNofile();
+
   // Single-instance lock keyed on the data dir. Two daemons sharing the same
   // SQLite + LanceDB would race on writes; the lock keeps one alive at a time
   // regardless of how the second was launched (workspace, npm link, -g).
@@ -190,6 +199,17 @@ function startReconciliation(
 // ---- preflight ---------------------------------------------------------
 
 function warnIfNofileLow(projectCount: number): void {
+  // First, try to raise the soft limit ourselves — process-local, no
+  // root needed up to the existing hard limit. macOS hard limit is
+  // typically 10240+, so this resolves the EMFILE flood for most users
+  // with no manual ulimit change required.
+  const raised = raiseNofile();
+  if (raised !== null && raised.newSoft > raised.previousSoft) {
+    console.error(
+      `[loctx start] raised RLIMIT_NOFILE soft limit ${raised.previousSoft} → ${raised.newSoft} (hard=${raised.hard})`,
+    );
+  }
+
   const status = checkNofile();
   if (status === null || status.ok) return;
   console.error(
@@ -198,6 +218,11 @@ function warnIfNofileLow(projectCount: number): void {
   console.error(
     `[loctx start] chokidar opens ~1-2 fds per watched dir; with ${projectCount} project(s) this will likely flood with EMFILE.`,
   );
+  if (raised !== null && !raised.satisfied) {
+    console.error(
+      `[loctx start] hard limit (${raised.hard}) blocks raising further; bump it at the OS level:`,
+    );
+  }
   console.error(
     nofileBumpHint()
       .split("\n")
