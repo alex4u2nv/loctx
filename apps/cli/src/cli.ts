@@ -8,11 +8,13 @@ import {
   type Config,
   ConfigError,
   DaemonLockHeldError,
+  RECOMMENDED_NOFILE,
   SearcherError,
   StateStore,
   WatcherService,
   WorkspaceDiscovery,
   buildRuntime,
+  checkNofile,
   defaultConfigFile,
   inventoryProjects,
   loadConfig,
@@ -841,6 +843,24 @@ async function runDoctorChecks(config: Config): Promise<DoctorCheck[]> {
     status: "ok",
     detail: `mode=${config.retrieval.mode} rrfK=${config.retrieval.rrfK}`,
   });
+
+  // File-descriptor budget. chokidar opens ~1-2 fds per watched dir;
+  // a low default (256 on macOS, 1024 on most Linux) crashes the watcher
+  // on multi-project setups with EMFILE floods.
+  const nofile = checkNofile();
+  if (nofile === null) {
+    checks.push({ name: "ulimit:nofile", status: "ok", detail: "n/a on this platform" });
+  } else if (nofile.current === Number.POSITIVE_INFINITY) {
+    checks.push({ name: "ulimit:nofile", status: "ok", detail: "unlimited" });
+  } else {
+    checks.push({
+      name: "ulimit:nofile",
+      status: nofile.ok ? "ok" : "warn",
+      detail: nofile.ok
+        ? `${nofile.current} (>= ${nofile.recommended})`
+        : `${nofile.current} (< ${RECOMMENDED_NOFILE} recommended) — bump with 'ulimit -n 10240'`,
+    });
+  }
 
   return checks;
 }

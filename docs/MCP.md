@@ -245,6 +245,21 @@ loctx init
 2. The daemon is running on a different port — check `loctx config
    show`'s `daemon` block, or the running PID with `loctx status`.
 
+### `EMFILE: too many open files, watch`
+
+The chokidar watcher opens 1–2 file descriptors per directory. With
+several mid-sized projects, the OS default limit (256 on macOS, often
+1024 on Linux) is exhausted and the watcher floods stderr.
+
+```bash
+ulimit -n 10240                       # for the current shell
+echo 'ulimit -n 10240' >> ~/.zshrc    # permanent (or ~/.bashrc)
+loctx restart
+```
+
+`loctx doctor` shows the current limit; `loctx start --no-watch` is a
+workaround when bumping the limit isn't possible.
+
 ### Permission denied / port in use
 
 Default port `3022` is unprivileged but may be in use. Override in
