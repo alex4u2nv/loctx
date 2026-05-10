@@ -116,6 +116,7 @@ export const tools = {
       ...(v.getStr(data, "language") !== undefined
         ? { language: v.getStr(data, "language") as string }
         : {}),
+      ...(v.getBool(data, "coverage") === true ? { coverage: true } : {}),
     });
   },
 
@@ -245,6 +246,12 @@ export const TOOL_DEFINITIONS = [
         language: {
           type: "string",
           description: "Filter results to a single language (python, typescript, go, ...).",
+        },
+        coverage: {
+          type: "boolean",
+          default: false,
+          description:
+            "Concept/refactor coverage mode. After the normal ranked list, expand each top hit by following symbol cross-references (callers, importers) and append them with a `coverageReason` explaining why each was included. Use for 'what else touches X' questions before a refactor.",
         },
       },
     },

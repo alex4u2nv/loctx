@@ -468,3 +468,158 @@ describe("WorkspaceSearcher analyzer-driven match reasons (#60)", () => {
     expect(c2?.analyzer).toBeNull();
   });
 });
+
+describe("WorkspaceSearcher coverage expansion (#72)", () => {
+  const proj = fakeProject("p1", "demo", "/tmp/demo");
+
+  function meta(partial: Partial<AnalyzerMetadata>): AnalyzerMetadata {
+    return Object.freeze({
+      imports: Object.freeze<string[]>([]),
+      exports: Object.freeze<string[]>([]),
+      calls: Object.freeze<string[]>([]),
+      maxNestingDepth: 0,
+      maxLoopDepth: 0,
+      paramCount: 0,
+      hasAsync: false,
+      hasRecursionHint: false,
+      riskyCalls: Object.freeze<string[]>([]),
+      analysisSource: "tree-sitter",
+      analysisVersion: 1,
+      ...partial,
+    });
+  }
+
+  function makeState(opts: {
+    analyzersByChunk: Record<string, AnalyzerMetadata>;
+    findSymbolBy?: (
+      id: string,
+      sym: string,
+    ) => {
+      defs: Array<{
+        relPath: string;
+        chunkStartLine: number;
+        chunkEndLine: number;
+        chunkId: string;
+        kind: string;
+        projectId: string;
+      }>;
+      refs: Array<{
+        relPath: string;
+        chunkStartLine: number;
+        chunkEndLine: number;
+        chunkId: string;
+        kind: string;
+        projectId: string;
+      }>;
+    };
+  }): StateStore {
+    return {
+      searchLexical: () => [],
+      getAnalyzersByChunkIds: (ids: ReadonlyArray<string>) => {
+        const m = new Map<string, AnalyzerMetadata | null>();
+        for (const id of ids) m.set(id, opts.analyzersByChunk[id] ?? null);
+        return m;
+      },
+      findSymbol: opts.findSymbolBy
+        ? (id: string, sym: string) => opts.findSymbolBy?.(id, sym) ?? { defs: [], refs: [] }
+        : () => ({ defs: [], refs: [] }),
+    } as unknown as StateStore;
+  }
+
+  it("expands top hits with caller-of: results when coverage=true", async () => {
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([
+        {
+          chunkId: "auth",
+          score: 0.9,
+          document: "export function authenticate() {}",
+          metadata: { ...baseMeta, project_id: "p1", rel_path: "src/auth.ts" },
+        },
+      ]),
+      fakeEmbeddings(),
+      fakeDiscovery([proj]),
+      makeState({
+        analyzersByChunk: { auth: meta({ exports: ["authenticate"] }) },
+        findSymbolBy: (_pid, sym) => ({
+          defs: [],
+          refs:
+            sym === "authenticate"
+              ? [
+                  {
+                    relPath: "src/login.ts",
+                    chunkStartLine: 12,
+                    chunkEndLine: 18,
+                    chunkId: "login_chunk",
+                    kind: "call",
+                    projectId: "p1",
+                  },
+                ]
+              : [],
+        }),
+      }),
+    );
+
+    const baseline = await searcher.search({ query: "authenticate" });
+    expect(baseline.results.every((r) => r.coverageReason === null)).toBe(true);
+
+    const expanded = await searcher.search({ query: "authenticate", coverage: true });
+    const coverageHits = expanded.results.filter((r) => r.coverageReason !== null);
+    expect(coverageHits.length).toBe(1);
+    expect(coverageHits[0]?.relPath).toBe("src/login.ts");
+    expect(coverageHits[0]?.coverageReason).toBe("caller-of:authenticate");
+  });
+
+  it("dedupes coverage hits against the original ranked list", async () => {
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([
+        {
+          chunkId: "auth",
+          score: 0.9,
+          document: "export function authenticate() {}",
+          metadata: { ...baseMeta, project_id: "p1", rel_path: "src/auth.ts", start_line: 1 },
+        },
+      ]),
+      fakeEmbeddings(),
+      fakeDiscovery([proj]),
+      makeState({
+        analyzersByChunk: { auth: meta({ exports: ["authenticate"] }) },
+        findSymbolBy: () => ({
+          defs: [],
+          refs: [
+            {
+              // Same chunk identity as the original result.
+              relPath: "src/auth.ts",
+              chunkStartLine: 1,
+              chunkEndLine: 5,
+              chunkId: "auth",
+              kind: "call",
+              projectId: "p1",
+            },
+          ],
+        }),
+      }),
+    );
+
+    const r = await searcher.search({ query: "authenticate", coverage: true });
+    const coverageHits = r.results.filter((x) => x.coverageReason !== null);
+    expect(coverageHits).toEqual([]);
+  });
+
+  it("no-ops when the top hit has no exported symbols", async () => {
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([
+        {
+          chunkId: "x",
+          score: 0.9,
+          document: "x",
+          metadata: { ...baseMeta, project_id: "p1", rel_path: "src/x.ts" },
+        },
+      ]),
+      fakeEmbeddings(),
+      fakeDiscovery([proj]),
+      makeState({ analyzersByChunk: { x: meta({}) } }),
+    );
+    const r = await searcher.search({ query: "x", coverage: true });
+    expect(r.results.every((x) => x.coverageReason === null)).toBe(true);
+  });
+});
