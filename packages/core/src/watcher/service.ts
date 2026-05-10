@@ -12,10 +12,19 @@
  * for the same file.
  */
 
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { ProjectIndexer } from "../indexing/index.js";
 import type { Project } from "../models.js";
 import { watcherBus } from "./bus.js";
+
+/**
+ * Per-project ignore-rule files (#89). Watched in a side channel so a
+ * change triggers a filter re-evaluation rather than treating the file
+ * itself as content. `.git/info/exclude` lives inside `.git`, which is
+ * excluded from the main watcher's chokidar config — it gets a
+ * dedicated narrow watcher.
+ */
+const RULE_FILES = [".loctxignore", ".gitignore", ".git/info/exclude"] as const;
 
 type WatchEvent = "add" | "change" | "unlink";
 
@@ -71,6 +80,8 @@ const DEFAULT_IGNORED = [
  */
 export class WatcherService {
   private watcher: ChokidarWatcher | null = null;
+  private rulesWatcher: ChokidarWatcher | null = null;
+  private rulesPending: NodeJS.Timeout | null = null;
   private readonly debounceMs: number;
   private readonly ignored: ReadonlyArray<string>;
   private readonly onEvent: (event: WatchEvent, relPath: string) => void;
@@ -111,14 +122,69 @@ export class WatcherService {
       console.error(`[watcher] error: ${(err as Error)?.message ?? err}`);
     });
     this.watcher = watcher;
+
+    // Side channel for ignore-rule files (#89). chokidar accepts a list
+    // of explicit paths; missing files are tolerated and add events fire
+    // when they're created later. Same debounce window as content events.
+    const rulePaths = RULE_FILES.map((p) => join(this.project.root, p));
+    const rulesWatcher = mod.watch(rulePaths, {
+      persistent: true,
+      ignoreInitial: true,
+      awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
+    });
+    rulesWatcher.on("add", () => this.scheduleRulesReeval());
+    rulesWatcher.on("change", () => this.scheduleRulesReeval());
+    rulesWatcher.on("unlink", () => this.scheduleRulesReeval());
+    rulesWatcher.on("error", (err) => {
+      console.error(`[watcher rules] error: ${(err as Error)?.message ?? err}`);
+    });
+    this.rulesWatcher = rulesWatcher;
   }
 
   async stop(): Promise<void> {
     for (const timeout of this.pending.values()) clearTimeout(timeout);
     this.pending.clear();
+    if (this.rulesPending !== null) {
+      clearTimeout(this.rulesPending);
+      this.rulesPending = null;
+    }
     if (this.watcher !== null) {
       await this.watcher.close();
       this.watcher = null;
+    }
+    if (this.rulesWatcher !== null) {
+      await this.rulesWatcher.close();
+      this.rulesWatcher = null;
+    }
+  }
+
+  private scheduleRulesReeval(): void {
+    if (this.rulesPending !== null) clearTimeout(this.rulesPending);
+    this.rulesPending = setTimeout(() => {
+      this.rulesPending = null;
+      void this.dispatchRulesReeval();
+    }, this.debounceMs);
+  }
+
+  private async dispatchRulesReeval(): Promise<void> {
+    try {
+      const summary = await this.indexer.reevaluateFilter(this.project);
+      if (summary.pruned > 0) {
+        console.error(
+          `[watcher] ignore rules changed for ${this.project.name}; pruned ${summary.pruned} file(s) from the index`,
+        );
+        for (const relPath of summary.prunedRelPaths) {
+          watcherBus.publish({
+            projectId: this.project.id,
+            projectName: this.project.name,
+            relPath,
+            kind: "unlink",
+            at: Date.now(),
+          });
+        }
+      }
+    } catch (err) {
+      this.onError("change", ".loctxignore", err as Error);
     }
   }
 
