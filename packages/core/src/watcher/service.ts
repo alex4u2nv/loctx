@@ -14,12 +14,18 @@
 
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { RULE_FILENAMES } from "../gitignore.js";
 import type { ProjectIndexer } from "../indexing/index.js";
 import type { Project } from "../models.js";
 import { watcherBus } from "./bus.js";
 
-/** Per-project ignore-rule files (#89). */
-const RULE_FILES = [".loctxignore", ".gitignore"] as const;
+/**
+ * Filenames that mean "ignore semantics may have changed; reevaluate the
+ * filter". Mirrors what gitignore.ts honors so a nested .gitignore tweak
+ * (or a .cursorignore drop-in) triggers reindex without a daemon
+ * restart. Match by basename so any depth qualifies.
+ */
+const RULE_FILES_BY_BASENAME = new Set<string>(RULE_FILENAMES);
 /** Inside `.git/`; needs a separate narrow subscription because the
  * main subscription excludes `.git/` for noise reasons. */
 const GIT_INFO_DIR = ".git/info";
@@ -187,12 +193,15 @@ export class WatcherService {
   }
 
   /**
-   * Direct events: rule files reload the filter; everything else
-   * follows the normal index/delete path.
+   * Direct events: rule files (root or nested) reload the filter;
+   * everything else follows the normal index/delete path. We match by
+   * basename so a `subdir/.gitignore` touch reloads just like a root
+   * `.gitignore` touch.
    */
   private routeEvent(ev: ParcelEvent): void {
     const rel = this.relPath(ev.path);
-    if (RULE_FILES.includes(rel as (typeof RULE_FILES)[number])) {
+    const basename = rel.includes("/") ? (rel.slice(rel.lastIndexOf("/") + 1) ?? rel) : rel;
+    if (RULE_FILES_BY_BASENAME.has(basename)) {
       this.scheduleRulesReeval();
       return;
     }
