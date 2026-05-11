@@ -7,3 +7,6 @@ dist/
 
 # Dev env
 .npmrc.local
+
+# Test artifacts
+test-results/.playwright*

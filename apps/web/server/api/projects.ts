@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import {
   type Config,
   type Project,
@@ -61,12 +62,32 @@ export function mountProjects(
         rootExists: o.rootExists,
       }));
 
-      const payload: ProjectsPayload = { active, orphaned };
+      const payload: ProjectsPayload = {
+        active,
+        orphaned,
+        commonRoot: longestCommonPrefix(active.map((a) => a.root)),
+        homeDir: homedir(),
+      };
       return c.json(payload);
     } finally {
       state.close();
     }
   });
+}
+
+/**
+ * Longest directory-segment prefix shared by every path. Returns "" when
+ * there are 0/1 paths (no aggregation makes sense) or when the only
+ * common segment would be "/" (would falsely strip everything).
+ */
+function longestCommonPrefix(paths: ReadonlyArray<string>): string {
+  if (paths.length < 2) return "";
+  const split = paths.map((p) => p.split("/"));
+  const minLen = Math.min(...split.map((s) => s.length));
+  let i = 0;
+  while (i < minLen && split.every((s) => s[i] === split[0]?.[i])) i += 1;
+  if (i <= 1) return "";
+  return split[0]!.slice(0, i).join("/");
 }
 
 /** Per-project chunk count via one SQL aggregate. */
