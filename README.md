@@ -87,6 +87,17 @@ reconciliation:
 
 `loctx config show` prints the effective merged config with the source of each leaf. Storage paths resolve via [`env-paths`](https://github.com/sindresorhus/env-paths); see [docs/PRIVACY.md](docs/PRIVACY.md) for the table and uninstall procedure.
 
+## Security model
+
+loctx runs as **a local, single-user, no-auth daemon** by default. The HTTP server (admin UI + MCP `/mcp`) binds to `127.0.0.1` and a Host + Origin guard rejects cross-origin requests so a malicious webpage can't trigger destructive operations or read indexed source via DNS rebinding. Outbound network access is denied by default and opens only for explicit `loctx model download` invocations.
+
+Two caveats to flag explicitly:
+
+- **MCP results are untrusted input to your AI agent.** `search_workspace`, `find_usages`, and `find_duplicates` faithfully return whatever was in your codebase — including hostile comments, README text, or string literals that try to redirect the agent. If you index a repository you don't trust, treat its content the same way you'd treat any other untrusted text source for an LLM. loctx doesn't (and can't reliably) sanitise this for you.
+- **External analyzer commands come from the global config only.** `analyzers.{lizard,semgrep,astGrep}.command` is honored from `$XDG_CONFIG_HOME/loctx/config.yaml` but ignored if a project-level `.loctx.yaml` tries to override it. This prevents `cd hostile-repo && loctx index` from swapping `lizard` to an attacker-supplied binary.
+
+Vulnerability reports go through [SECURITY.md](SECURITY.md), not public issues.
+
 ## Contributing
 
 [CONTRIBUTING.md](CONTRIBUTING.md). Bugs and features go to [Issues](https://github.com/alex4u2nv/loctx/issues). Security goes through [SECURITY.md](SECURITY.md), not public issues.

@@ -20,6 +20,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { mountApi } from "./api/index.js";
 import { mountMcp } from "./mcp.js";
+import { localDaemonGuard } from "./security.js";
 
 export interface CreateWebAppOptions {
   /** Frozen config snapshot. The same instance the daemon was started with. */
@@ -46,6 +47,17 @@ export interface CreateWebAppOptions {
 
 export function createWebApp(opts: CreateWebAppOptions): Hono {
   const app = new Hono();
+
+  // Local-daemon hardening — Host + Origin gate. MUST be registered
+  // before mountApi/mountMcp so it runs before any state-changing
+  // handler. Public bundle assets are exempt inside the middleware.
+  app.use(
+    "*",
+    localDaemonGuard({
+      hostname: opts.config.daemon.hostname,
+      port: opts.config.daemon.port,
+    }),
+  );
 
   // Lazy runtime: prebuilt one wins; otherwise build on first need and
   // memoise. `buildRuntime` is heavy (embedding model load) so /status,

@@ -182,6 +182,47 @@ test.describe("loctx admin UI", () => {
     expect(r.status()).toBe(409);
   });
 
+  test("rejects API requests with a mismatched Host header (DNS-rebinding guard)", async ({
+    request,
+  }) => {
+    const r = await request.get("/api/status", {
+      headers: { Host: "evil.example.com" },
+    });
+    expect(r.status()).toBe(403);
+  });
+
+  test("rejects API requests with a cross-origin Origin (CSRF guard)", async ({ request }) => {
+    const r = await request.post("/api/reset/index", {
+      data: {},
+      headers: {
+        Origin: "https://evil.example.com",
+        "Content-Type": "application/json",
+      },
+    });
+    expect(r.status()).toBe(403);
+  });
+
+  test("rejects /mcp with a hostile Origin", async ({ request }) => {
+    const r = await request.post("/mcp", {
+      data: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "csrf", version: "1" },
+        },
+      },
+      headers: {
+        Origin: "https://evil.example.com",
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+    });
+    expect(r.status()).toBe(403);
+  });
+
   test("MCP endpoint at /mcp responds (smoke check via fetch)", async ({ request }) => {
     const response = await request.post("/mcp", {
       data: {

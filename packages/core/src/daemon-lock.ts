@@ -12,6 +12,7 @@
  * the file is reclaimed automatically.
  */
 
+import { execFileSync } from "node:child_process";
 import {
   closeSync,
   fsyncSync,
@@ -21,6 +22,7 @@ import {
   rmSync,
   writeSync,
 } from "node:fs";
+import { platform } from "node:os";
 import { join } from "node:path";
 
 const LOCK_FILENAME = "loctx.pid";
@@ -101,6 +103,18 @@ export function readActiveDaemon(dataDir: string): DaemonInfo | null {
  * before exit). Returns the info of the terminated daemon, or null if
  * nothing was running.
  */
+export class LockFileTamperedError extends Error {
+  constructor(
+    readonly pid: number,
+    readonly command: string,
+  ) {
+    super(
+      `refusing to signal PID ${pid}: command line "${command}" doesn't look like a loctx daemon — the lock file may have been tampered with`,
+    );
+    this.name = "LockFileTamperedError";
+  }
+}
+
 export async function stopActiveDaemon(
   dataDir: string,
   options: { readonly timeoutMs?: number; readonly pollMs?: number } = {},
@@ -110,6 +124,17 @@ export async function stopActiveDaemon(
   if (info === null || !isProcessAlive(info.pid)) {
     rmSync(path, { force: true });
     return null;
+  }
+
+  // Integrity gate: verify the lockfile's PID still points at something
+  // that looks like a loctx process before signaling it. A hostile
+  // local actor with write access to the data dir could otherwise
+  // redirect `loctx stop` to kill any user-owned PID (browser, editor,
+  // ssh-agent). On platforms where the verification fails for benign
+  // reasons (missing `ps`) we skip the check rather than break stop.
+  const verification = verifyLoctxProcess(info.pid);
+  if (verification.outcome === "not-loctx") {
+    throw new LockFileTamperedError(info.pid, verification.command);
   }
 
   process.kill(info.pid, "SIGTERM");
@@ -132,6 +157,43 @@ export async function stopActiveDaemon(
   }
   rmSync(path, { force: true });
   return info;
+}
+
+type ProcessVerification =
+  | { outcome: "loctx"; command: string }
+  | { outcome: "not-loctx"; command: string }
+  | { outcome: "unknown"; reason: string };
+
+/**
+ * Check whether `pid` looks like a running loctx process. POSIX-only
+ * (uses `ps -p`); on Windows or platforms without `ps` we return
+ * `unknown` and callers proceed as before — the integrity gate is a
+ * best-effort defence, not a hard guarantee.
+ */
+function verifyLoctxProcess(pid: number): ProcessVerification {
+  if (platform() === "win32") {
+    return { outcome: "unknown", reason: "ps not available on win32" };
+  }
+  try {
+    const cmd = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf-8",
+      timeout: 2000,
+    }).trim();
+    if (cmd === "") return { outcome: "unknown", reason: "ps returned no command" };
+    if (looksLikeLoctxCommand(cmd)) return { outcome: "loctx", command: cmd };
+    return { outcome: "not-loctx", command: cmd };
+  } catch (err) {
+    return { outcome: "unknown", reason: (err as Error).message };
+  }
+}
+
+function looksLikeLoctxCommand(cmd: string): boolean {
+  // Daemon command lines we expect:
+  //   `node .../apps/cli/dist/cli.js start ...`     (workspace run)
+  //   `node .../node_modules/.bin/loctx start ...`  (installed)
+  //   `loctx start ...`                              (PATH-resolved bin)
+  //   `node .../dist/cli.js start ...`              (linked)
+  return /\bloctx\b/.test(cmd) || /\/dist\/cli\.js/.test(cmd);
 }
 
 // ---- helpers -----------------------------------------------------------

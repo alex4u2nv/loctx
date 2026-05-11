@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DaemonLockHeldError,
+  LockFileTamperedError,
   acquireDaemonLock,
   daemonLockPath,
   readActiveDaemon,
@@ -132,5 +133,24 @@ describe("stopActiveDaemon", () => {
 
   it("returns null when no lock file is present", async () => {
     expect(await stopActiveDaemon(tmp)).toBeNull();
+  });
+
+  it("refuses to signal a live PID whose command line isn't a loctx process", async () => {
+    // Point the lockfile at our own test-runner PID — its command line
+    // is `node /…/vitest-worker.js` (or similar), which does not match
+    // the loctx pattern. The integrity gate should refuse to signal.
+    writeFileSync(
+      daemonLockPath(tmp),
+      JSON.stringify({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        version: "tampered",
+        dataDir: tmp,
+      }),
+    );
+    await expect(stopActiveDaemon(tmp)).rejects.toBeInstanceOf(LockFileTamperedError);
+    // Lockfile is intentionally NOT cleaned up — the user should see
+    // the file and investigate. (Stale-PID path still cleans up; this
+    // is the live-but-suspect path.)
   });
 });

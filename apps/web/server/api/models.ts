@@ -77,6 +77,9 @@ export function mountModels(app: Hono, config: Config): void {
       return c.json({ error: (err as Error).message }, 500);
     } finally {
       await provider.dispose?.();
+      // Restore the deny-all default — never leave outbound open past
+      // the explicit user-triggered download.
+      setAllowedOutboundReasons([]);
     }
   });
 }

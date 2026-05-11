@@ -32,7 +32,12 @@ import {
 
 const DEFAULT_DEBOUNCE_MS = 500;
 const DEFAULT_DAEMON_PORT = 3000;
-const DEFAULT_DAEMON_HOSTNAME = "localhost";
+// `127.0.0.1` rather than `localhost` so the daemon binds to a literal
+// loopback IP. Browsers refuse to rebind a literal IP via DNS, which
+// shuts down the DNS-rebinding attack against the localhost daemon.
+// Users can override to `localhost` or `0.0.0.0` in config if they
+// understand the trade-off.
+const DEFAULT_DAEMON_HOSTNAME = "127.0.0.1";
 const PROJECT_CONFIG_FILENAME = ".loctx.yaml";
 
 export interface EmbeddingConfig {
@@ -548,7 +553,7 @@ function mergeAnalyzers(
         BOOL,
         DEFAULT_ANALYZERS.lizard.enabled,
       ),
-      command: lizardPick(
+      command: lizardPick.globalOnly(
         "analyzers.lizard.command",
         "command",
         STR,
@@ -582,7 +587,7 @@ function mergeAnalyzers(
         BOOL,
         DEFAULT_ANALYZERS.semgrep.enabled,
       ),
-      command: semgrepPick(
+      command: semgrepPick.globalOnly(
         "analyzers.semgrep.command",
         "command",
         STR,
@@ -607,7 +612,7 @@ function mergeAnalyzers(
         BOOL,
         DEFAULT_ANALYZERS.astGrep.enabled,
       ),
-      command: astGrepPick(
+      command: astGrepPick.globalOnly(
         "analyzers.astGrep.command",
         "command",
         STR,
@@ -635,14 +640,26 @@ function mergeAnalyzers(
  * a generic picker that resolves a single leaf against any `Spec<T>`. Walks
  * project → global → fallback and stamps the source map as it goes.
  */
+/**
+ * The picker function with an attached `.globalOnly` variant. Use the
+ * variant for security-sensitive leaves (executable paths, network
+ * overrides) so a malicious project-level YAML can't hijack them.
+ */
+type PickFn = <T>(trackKey: string, yamlKey: string, spec: Spec<T>, fallback: T) => T;
+interface Picker extends PickFn {
+  /** Like the picker, but ignores the project layer with a warning. */
+  globalOnly: PickFn;
+}
+
 function makePicker(
   proj: Record<string, unknown> | null,
   glo: Record<string, unknown> | null,
   sources: Record<string, ConfigSource>,
-) {
+): Picker {
   const projectV = new Validator(ConfigError, "<project>");
   const globalV = new Validator(ConfigError, "<global>");
-  return <T>(trackKey: string, yamlKey: string, spec: Spec<T>, fallback: T): T => {
+
+  const pick: PickFn = <T>(trackKey: string, yamlKey: string, spec: Spec<T>, fallback: T): T => {
     const projVal = proj === null ? undefined : projectV.get(proj, yamlKey, spec);
     if (projVal !== undefined) {
       sources[trackKey] = "project";
@@ -656,6 +673,34 @@ function makePicker(
     sources[trackKey] = "default";
     return fallback;
   };
+
+  const globalOnly: PickFn = <T>(
+    trackKey: string,
+    yamlKey: string,
+    spec: Spec<T>,
+    fallback: T,
+  ): T => {
+    if (proj !== null && projectV.get(proj, yamlKey, spec) !== undefined) {
+      // The project YAML tried to override a security-sensitive leaf
+      // (e.g. an external-binary command). loctx walks up from cwd to
+      // find project YAML, so a hostile checkout could otherwise swap
+      // `lizard` to `rm -rf ~`. Refuse silently-on-stderr.
+      console.error(
+        `[loctx config] ignoring project-level override of ${trackKey} — that leaf is restricted to the global config to prevent malicious project YAMLs from swapping security-sensitive values`,
+      );
+    }
+    const gloVal = glo === null ? undefined : globalV.get(glo, yamlKey, spec);
+    if (gloVal !== undefined) {
+      sources[trackKey] = "global";
+      return gloVal;
+    }
+    sources[trackKey] = "default";
+    return fallback;
+  };
+
+  const picker = pick as Picker;
+  picker.globalOnly = globalOnly;
+  return picker;
 }
 
 function sectionRecord(
