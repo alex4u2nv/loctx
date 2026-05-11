@@ -18,8 +18,8 @@
  * Hermetic: uses FakeEmbeddingProvider so no network or model
  * download happens.
  *
- * Pre-requisite: `npm run build` has produced apps/cli/dist/cli.js
- * and apps/web/.next.
+ * Pre-requisite: `npm run build` has produced apps/cli/dist/cli.js,
+ * apps/web/dist/client (Vite SPA), and apps/web/dist/server (Hono).
  */
 
 import { spawnSync } from "node:child_process";

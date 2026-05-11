@@ -7,6 +7,7 @@ export * from "./config.js";
 export * from "./container.js";
 export * from "./daemon-lock.js";
 export * from "./discovery.js";
+export * from "./doctor.js";
 export * from "./filtering.js";
 export * from "./gitignore.js";
 export * from "./log.js";

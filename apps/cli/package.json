@@ -33,8 +33,10 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@hono/node-server": "^1.13.0",
     "@inquirer/prompts": "^8.4.2",
     "@loctx/core": "^0.1.0",
+    "@loctx/web": "*",
     "commander": "^12.1.0"
   }
 }

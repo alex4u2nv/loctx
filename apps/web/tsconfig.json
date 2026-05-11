@@ -7,14 +7,13 @@
     "moduleResolution": "Bundler",
     "verbatimModuleSyntax": false,
     "noEmit": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "allowJs": true,
-    "plugins": [{ "name": "next" }],
+    "jsx": "react-jsx",
     "paths": {
-      "@/*": ["./*"]
-    }
+      "@/*": ["./client/*"],
+      "@shared/*": ["./shared/*"]
+    },
+    "types": ["vite/client"]
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": ["client/**/*.ts", "client/**/*.tsx", "shared/**/*.ts"],
+  "exclude": ["node_modules", "dist", "server"]
 }
