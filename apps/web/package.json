@@ -1,31 +1,45 @@
 {
   "name": "@loctx/web",
   "version": "0.1.0",
-  "description": "Next.js admin / management UI for loctx.",
+  "description": "Admin / management UI for loctx (Vite SPA + Hono).",
   "type": "module",
   "private": true,
   "engines": {
     "node": ">=22"
   },
+  "exports": {
+    "./server": {
+      "types": "./dist/server/server/index.d.ts",
+      "default": "./dist/server/server/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "next build",
-    "dev": "next dev",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "next start",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build",
+    "build:server": "tsc -p tsconfig.server.json",
+    "dev": "vite",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
+    "@hono/node-server": "^1.13.0",
     "@loctx/core": "*",
     "@loctx/mcp": "*",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "next": "^15.0.0",
+    "hono": "^4.6.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
     "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0"
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.0"
   }
 }

@@ -1,12 +1,13 @@
-"use client";
+/**
+ * Watcher SSE indicator. Pings /api/events for connection state and
+ * exposes a "live" badge in the nav.
+ */
 
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 type ConnectionState = "connecting" | "open" | "closed";
 
-export function LiveRefresh() {
-  const router = useRouter();
+export function LiveRefresh({ onEvent }: { onEvent?: () => void }) {
   const [state, setState] = useState<ConnectionState>("connecting");
   const [lastAt, setLastAt] = useState<number | null>(null);
 
@@ -21,10 +22,10 @@ export function LiveRefresh() {
       } catch {
         /* ignore malformed events */
       }
-      router.refresh();
+      onEvent?.();
     };
     return () => source.close();
-  }, [router]);
+  }, [onEvent]);
 
   const dotClass =
     state === "open" ? "dot-ok" : state === "closed" ? "dot-bad" : "dot-warn";

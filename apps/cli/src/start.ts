@@ -3,15 +3,14 @@
  *
  * Launches in one process:
  *   1. Build the runtime (StateStore, VectorStore, embeddings, indexer).
- *   2. Start a chokidar watcher per discovered project (unless --no-watch).
- *   3. Boot Next.js programmatically and serve the admin UI + the /mcp
- *      route on the same port (unless --no-web).
+ *   2. Start a watcher per discovered project (unless --no-watch).
+ *   3. Mount the Vite-built SPA + Hono API + /mcp on `daemon.port`
+ *      (unless --no-web).
  *
- * Graceful shutdown: SIGINT / SIGTERM stops watchers, closes the HTTP
- * server, then closes the StateStore.
+ * Graceful shutdown: SIGINT / SIGTERM closes the HTTP server, then the
+ * StateStore.
  */
 
-import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -36,19 +35,6 @@ export interface StartOptions {
   readonly replace: boolean; // if true, terminate any existing daemon first
   readonly webDir?: string;
 }
-
-interface NextLikeApp {
-  prepare(): Promise<void>;
-  getRequestHandler(): (req: unknown, res: unknown) => Promise<void>;
-  close?(): Promise<void>;
-}
-
-type NextFactory = (config: {
-  dev: boolean;
-  dir: string;
-  hostname?: string;
-  port?: number;
-}) => NextLikeApp;
 
 // From `apps/cli/dist/start.js` to `apps/web`:
 //   apps/cli/dist  +  ../../web  =  apps/web
@@ -88,7 +74,7 @@ export async function start(config: Config, options: StartOptions): Promise<void
   // shutdown.
   const reconciliationStop = startReconciliation(runtime, projects, config);
   const httpStop = options.enableWeb
-    ? await startWeb(config, options)
+    ? await startWeb(config, options, runtime)
     : async () => {
         /* no-op */
       };
@@ -229,35 +215,46 @@ async function startWatchers(
 
 // ---- web ---------------------------------------------------------------
 
-async function startWeb(config: Config, options: StartOptions): Promise<() => Promise<void>> {
+async function startWeb(
+  config: Config,
+  options: StartOptions,
+  runtime: Runtime,
+): Promise<() => Promise<void>> {
   const webDir = options.webDir ?? resolveWebDir();
+  const staticDir = resolve(webDir, "dist", "client");
   const { port, hostname } = config.daemon;
 
-  // Lazy: pulls in next + react. Not needed when --no-web.
-  const moduleName = "next";
-  const next = (await import(moduleName)) as { default: NextFactory } | NextFactory;
-  const factory = "default" in next ? next.default : next;
+  // Lazy: pulls in hono + the SPA bundle path. Not needed when --no-web.
+  // Runtime-only import — keeping the types local avoids a compile-time
+  // dep on @loctx/web (workspace builds in alphabetical order: cli before
+  // web, so its `dist/` may not exist when tsc resolves cli).
+  const serverModule = "@loctx/web/server";
+  type WebServerModule = {
+    createWebApp(opts: {
+      readonly config: Config;
+      readonly runtime?: Runtime;
+      readonly staticDir?: string;
+    }): { fetch: (req: Request) => Promise<Response> };
+  };
+  type HonoNodeServerModule = {
+    serve(opts: {
+      fetch: (req: Request) => Promise<Response>;
+      port?: number;
+      hostname?: string;
+    }): { close(cb: (err?: Error) => void): void };
+  };
+  const { createWebApp } = (await import(serverModule)) as WebServerModule;
+  const { serve } = (await import("@hono/node-server")) as HonoNodeServerModule;
 
-  const app = factory({ dev: false, dir: webDir, hostname, port });
-  await app.prepare();
-  const handler = app.getRequestHandler();
+  const app = createWebApp({ config, runtime, staticDir });
+  const handle = app.fetch;
 
-  const server = createServer((req, res) => {
-    Promise.resolve(handler(req, res)).catch((err: unknown) => {
-      console.error(`[loctx start] request handler error: ${(err as Error).message}`);
-    });
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, hostname, resolve);
-  });
+  const server = serve({ fetch: handle, port, hostname });
 
   return async () => {
-    await new Promise<void>((resolve, reject) => {
-      server.close((err) => (err ? reject(err) : resolve()));
+    await new Promise<void>((resolveClose, reject) => {
+      server.close((err) => (err ? reject(err) : resolveClose()));
     });
-    if (typeof app.close === "function") await app.close();
   };
 }
 
@@ -265,9 +262,8 @@ async function startWeb(config: Config, options: StartOptions): Promise<() => Pr
 
 function resolveWebDir(): string {
   // Resolve apps/web from the CLI's installed location. This file at runtime
-  // sits in apps/cli/dist; from there `../web` is wrong, but `../../web` is
-  // also wrong because we want the workspace root's apps/web. Walk up until
-  // we find apps/web/package.json with name @loctx/web.
+  // sits in apps/cli/dist; from there `../../web` walks up to the workspace
+  // root's apps/web.
   const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, ROOT_RELATIVE_WEB_DIR);
 }
