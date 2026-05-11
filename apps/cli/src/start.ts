@@ -225,9 +225,26 @@ async function startWeb(
   const { port, hostname } = config.daemon;
 
   // Lazy: pulls in hono + the SPA bundle path. Not needed when --no-web.
+  // Runtime-only import — keeping the types local avoids a compile-time
+  // dep on @loctx/web (workspace builds in alphabetical order: cli before
+  // web, so its `dist/` may not exist when tsc resolves cli).
   const serverModule = "@loctx/web/server";
-  const { createWebApp } = (await import(serverModule)) as typeof import("@loctx/web/server");
-  const { serve } = (await import("@hono/node-server")) as typeof import("@hono/node-server");
+  type WebServerModule = {
+    createWebApp(opts: {
+      readonly config: Config;
+      readonly runtime?: Runtime;
+      readonly staticDir?: string;
+    }): { fetch: (req: Request) => Promise<Response> };
+  };
+  type HonoNodeServerModule = {
+    serve(opts: {
+      fetch: (req: Request) => Promise<Response>;
+      port?: number;
+      hostname?: string;
+    }): { close(cb: (err?: Error) => void): void };
+  };
+  const { createWebApp } = (await import(serverModule)) as WebServerModule;
+  const { serve } = (await import("@hono/node-server")) as HonoNodeServerModule;
 
   const app = createWebApp({ config, runtime, staticDir });
   const handle = app.fetch;
