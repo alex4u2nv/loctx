@@ -16,12 +16,17 @@ test.describe("loctx admin UI", () => {
     await expect(page.getByText("demo").first()).toBeVisible();
   });
 
-  test("projects page lists the fixture project as active", async ({ page }) => {
+  test("projects page lists the fixture project as active with compact stats", async ({
+    page,
+  }) => {
     await page.goto("/projects");
     await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
     const activeRow = page.getByRole("row").filter({ hasText: "demo" });
     await expect(activeRow.first()).toBeVisible();
-    await expect(page.getByText(/files indexed/)).toBeVisible();
+    // The combined-stats column says "N files".
+    await expect(activeRow.first().getByText(/\d+ files/)).toBeVisible();
+    // Activity column renders relative time.
+    await expect(activeRow.first().getByText(/indexed/)).toBeVisible();
   });
 
   test("search returns the indexed auth chunk", async ({ page }) => {
@@ -72,25 +77,36 @@ test.describe("loctx admin UI", () => {
     await expect(page.getByText("src/auth.ts").first()).toBeVisible();
   });
 
-  test("admin page exposes operational controls and the project row", async ({ page }) => {
+  test("admin page exposes daemon-wide controls only and links to projects", async ({ page }) => {
     await page.goto("/admin");
     await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
-    // Top-level controls.
-    await expect(page.getByRole("button", { name: /^index all$/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /refresh \(reconcile\)/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /reset index \(all data\)/ })).toBeVisible();
+    // Workspace-wide controls.
+    await expect(page.getByRole("button", { name: /index all projects/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /refresh \(reconcile drift\)/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /reset index/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^restart$/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^stop$/ })).toBeVisible();
-    // Per-project row from the fixture.
-    await expect(page.getByRole("row").filter({ hasText: "demo" }).first()).toBeVisible();
+    // Per-project actions moved to /projects — admin should NOT show
+    // a row for each fixture project.
+    await expect(page.getByRole("row").filter({ hasText: "demo" })).toHaveCount(0);
+    // The intro paragraph links to /projects so users know where the
+    // per-project controls went. (There are multiple "projects" links —
+    // nav + this one — so check there are at least 2 and that the
+    // subtitle mentions where to go.)
+    await expect(page.getByRole("link", { name: "projects" }).first()).toBeVisible();
+    await expect(page.getByText(/Per-project actions/)).toBeVisible();
   });
 
-  test("admin: index all triggers /api/index and logs the result", async ({ page }) => {
+  test("admin: index all triggers /api/index and reports success", async ({ page }) => {
     await page.goto("/admin");
-    await page.getByRole("button", { name: /^index all$/ }).click();
-    // Output panel shows the call and a JSON-stringified result.
-    await expect(page.getByText(/index \(all\)/)).toBeVisible();
-    await expect(page.getByText(/"summaries"/)).toBeVisible();
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes("/api/index") && r.request().method() === "POST",
+      ),
+      page.getByRole("button", { name: /index all projects/ }).click(),
+    ]);
+    expect(response.status()).toBe(200);
+    await expect(page.getByText(/index all: ok/)).toBeVisible();
   });
 
   test("nav exposes every route", async ({ page }) => {
@@ -115,6 +131,55 @@ test.describe("loctx admin UI", () => {
     await page.goto("/admin");
     await page.reload();
     await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
+  });
+
+  test("projects page surfaces watcher state and per-project actions", async ({ page }) => {
+    await page.goto("/projects");
+    // Fixture runs --no-watch so the watcher cell shows "—" and only the
+    // recrawl + purge buttons appear (pause/resume are hidden when no
+    // watcher is registered for the row).
+    const row = page.getByRole("row").filter({ hasText: "demo" }).first();
+    await expect(row).toBeVisible();
+    await expect(row.getByRole("button", { name: "recrawl" })).toBeVisible();
+    await expect(row.getByRole("button", { name: "purge" })).toBeVisible();
+    await expect(row.getByRole("button", { name: "pause" })).toHaveCount(0);
+  });
+
+  test("projects page renders a path under each project name", async ({ page }) => {
+    // Single-project fixture: no commonRoot aggregation, but the path
+    // sub-line should still render (either the absolute /tmp/.. form
+    // or a ~/-abbreviated form).
+    await page.goto("/projects");
+    const row = page.getByRole("row").filter({ hasText: "demo" }).first();
+    await expect(row).toBeVisible();
+    await expect(row.getByText(/loctx-pw-fixture\/demo/)).toBeVisible();
+  });
+
+  test("projects page recrawl button hits /api/index", async ({ page }) => {
+    await page.goto("/projects");
+    const row = page.getByRole("row").filter({ hasText: "demo" }).first();
+    const [response] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/api/index") && r.request().method() === "POST"),
+      row.getByRole("button", { name: "recrawl" }).click(),
+    ]);
+    expect(response.status()).toBe(200);
+    // Reload + the surface message becomes visible.
+    await expect(page.getByText(/recrawl demo: ok/)).toBeVisible();
+  });
+
+  test("watchers endpoint reports an empty list under --no-watch", async ({ request }) => {
+    const r = await request.get("/api/watchers");
+    expect(r.status()).toBe(200);
+    const body = (await r.json()) as { enabled: boolean; entries: unknown[] };
+    expect(body.enabled).toBe(false);
+    expect(body.entries).toEqual([]);
+  });
+
+  test("watch pause endpoint refuses when the daemon was started with --no-watch", async ({
+    request,
+  }) => {
+    const r = await request.post("/api/watch/pause", { data: { projectId: "anything" } });
+    expect(r.status()).toBe(409);
   });
 
   test("MCP endpoint at /mcp responds (smoke check via fetch)", async ({ request }) => {

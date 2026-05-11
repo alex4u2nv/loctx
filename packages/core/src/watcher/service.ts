@@ -14,12 +14,18 @@
 
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { RULE_FILENAMES } from "../gitignore.js";
 import type { ProjectIndexer } from "../indexing/index.js";
 import type { Project } from "../models.js";
 import { watcherBus } from "./bus.js";
 
-/** Per-project ignore-rule files (#89). */
-const RULE_FILES = [".loctxignore", ".gitignore"] as const;
+/**
+ * Filenames that mean "ignore semantics may have changed; reevaluate the
+ * filter". Mirrors what gitignore.ts honors so a nested .gitignore tweak
+ * (or a .cursorignore drop-in) triggers reindex without a daemon
+ * restart. Match by basename so any depth qualifies.
+ */
+const RULE_FILES_BY_BASENAME = new Set<string>(RULE_FILENAMES);
 /** Inside `.git/`; needs a separate narrow subscription because the
  * main subscription excludes `.git/` for noise reasons. */
 const GIT_INFO_DIR = ".git/info";
@@ -83,6 +89,10 @@ export class WatcherService {
   private mainSub: ParcelSubscription | null = null;
   private gitInfoSub: ParcelSubscription | null = null;
   private rulesPending: NodeJS.Timeout | null = null;
+  // Keep the parcel subscription alive when paused — restarting it on
+  // every resume would lose buffered events and re-pay the kernel
+  // setup cost. Pausing only short-circuits dispatch.
+  private paused = false;
   private readonly debounceMs: number;
   private readonly ignored: ReadonlyArray<string>;
   private readonly onEvent: (event: WatchEvent, relPath: string) => void;
@@ -147,6 +157,24 @@ export class WatcherService {
     }
   }
 
+  /**
+   * Suspend dispatch. Already-debounced events drain through their
+   * timers and are dropped at `dispatch()` once paused. Underlying
+   * parcel subscription remains active so resume() picks up the next
+   * incoming event without restart cost.
+   */
+  pause(): void {
+    this.paused = true;
+  }
+
+  resume(): void {
+    this.paused = false;
+  }
+
+  isPaused(): boolean {
+    return this.paused;
+  }
+
   async stop(): Promise<void> {
     for (const timeout of this.pending.values()) clearTimeout(timeout);
     this.pending.clear();
@@ -165,12 +193,15 @@ export class WatcherService {
   }
 
   /**
-   * Direct events: rule files reload the filter; everything else
-   * follows the normal index/delete path.
+   * Direct events: rule files (root or nested) reload the filter;
+   * everything else follows the normal index/delete path. We match by
+   * basename so a `subdir/.gitignore` touch reloads just like a root
+   * `.gitignore` touch.
    */
   private routeEvent(ev: ParcelEvent): void {
     const rel = this.relPath(ev.path);
-    if (RULE_FILES.includes(rel as (typeof RULE_FILES)[number])) {
+    const basename = rel.includes("/") ? (rel.slice(rel.lastIndexOf("/") + 1) ?? rel) : rel;
+    if (RULE_FILES_BY_BASENAME.has(basename)) {
       this.scheduleRulesReeval();
       return;
     }
@@ -226,6 +257,7 @@ export class WatcherService {
   }
 
   private async dispatch(event: WatchEvent, absPath: string): Promise<void> {
+    if (this.paused) return;
     if (this.inflight.has(absPath)) {
       this.schedule(event, absPath);
       return;

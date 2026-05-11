@@ -1,28 +1,35 @@
 /**
  * Gitignore-aware path matching.
  *
- * Layers (any may be absent), applied in this order so per-project rules
- * can override system defaults but the loctx baseline still wins:
+ * What we honor (in matching order; later layers can ADD ignores but
+ * never un-ignore):
  *
- *   1. Git's global excludes (`git config --global core.excludesfile`,
+ *   1. Git's global excludes (`git config --global core.excludesFile`,
  *      falling back to `~/.config/git/ignore`).
- *   2. Per-project `.gitignore` at the project root.
- *   3. Per-project `.git/info/exclude`.
- *   4. Per-project `.loctxignore` — same syntax as `.gitignore`, but
- *      addressed at loctx's indexer specifically. Useful when a path
- *      should be tracked by git but not embedded (e.g. `vendor/`,
- *      generated fixtures, large binary corpora).
+ *   2. Per-project `.git/info/exclude` and the project-root `.gitignore`.
+ *   3. Per-project `.loctxignore` — same syntax, addressed at loctx
+ *      specifically (e.g. tracked-by-git fixtures we don't want indexed).
+ *   4. **Nested** `.gitignore` / `.loctxignore` / `.cursorignore` /
+ *      `.aiderignore` / `.ignore` files in any subdirectory. Patterns in
+ *      a nested file scope to that subdirectory's subtree, exactly as
+ *      `git` itself applies them.
  *
- * These rules are applied as additional ignores on top of the loctx baseline.
- * They can only ADD ignores; they cannot un-ignore a file the loctx baseline
- * marks as a secret, oversized, or binary.
+ * Why .cursorignore / .aiderignore / .ignore: same syntax as gitignore;
+ * `.cursorignore` and `.aiderignore` carry an explicit "don't feed this
+ * to an AI" signal that aligns with loctx's purpose; `.ignore` is the
+ * universal cross-tool form recognised by ripgrep, fd, ag, etc.
+ *
+ * Tool-specific ignores (`.dockerignore`, `.npmignore`, `.eslintignore`,
+ * `.helmignore`) are deliberately NOT honored — they encode publish /
+ * lint / build intent, not "don't index for code search", and pulling
+ * them in would silently drop config files users want indexed.
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import type { Ignore } from "ignore";
 
 // `ignore`@6 ships as CJS — its default export is a callable function whose
@@ -30,14 +37,32 @@ import type { Ignore } from "ignore";
 // "ignore"` resolves to the namespace, not the function. Use createRequire
 // to grab the runtime CJS export directly.
 const require = createRequire(import.meta.url);
-const ignore = require("ignore") as (options?: {
+const ignoreFactory = require("ignore") as (options?: {
   ignoreCase?: boolean;
   allowRelativePaths?: boolean;
 }) => Ignore;
 
 const DEFAULT_FALLBACK = join(homedir(), ".config", "git", "ignore");
 
-export type GitignoreSpec = Ignore;
+/** Filenames we treat as gitignore-syntax sources. */
+export const RULE_FILENAMES = [
+  ".gitignore",
+  ".loctxignore",
+  ".cursorignore",
+  ".aiderignore",
+  ".ignore",
+] as const;
+
+/** Per-project ignore file specific to loctx. */
+export const LOCTXIGNORE_FILENAME = ".loctxignore";
+
+/**
+ * What ProjectFilter consumes. Both the single-Ignore (legacy) and the
+ * layered nested-aware impl satisfy this contract.
+ */
+export interface GitignoreSpec {
+  ignores(relPath: string): boolean;
+}
 
 export function loadGlobalGitignore(): GitignoreSpec | null {
   const paths: string[] = [];
@@ -58,20 +83,127 @@ export function loadProjectGitignore(root: string): GitignoreSpec | null {
 }
 
 /**
- * Per-project ignore file specific to loctx. Same syntax as .gitignore but
- * lets a project tell loctx to skip paths it still wants tracked in git.
+ * Build a layered ignore spec rooted at `root`. The root layer carries
+ * global excludes + .git/info/exclude + every root-level rule file. Each
+ * subdirectory that contains a rule file gets its own layer scoped to
+ * its subtree. Lookup walks every ancestor layer for each query path.
  */
-export const LOCTXIGNORE_FILENAME = ".loctxignore";
-
 export function combinedGitignore(root: string): GitignoreSpec | null {
-  const lines: string[] = [
+  const rootLines: string[] = [
     ...readLines(gitGlobalExcludesFile()),
     ...readLines(DEFAULT_FALLBACK),
-    ...readLines(join(root, ".gitignore")),
     ...readLines(join(root, ".git", "info", "exclude")),
-    ...readLines(join(root, LOCTXIGNORE_FILENAME)),
   ];
-  return lines.length > 0 ? ignore().add(lines) : null;
+  for (const name of RULE_FILENAMES) {
+    rootLines.push(...readLines(join(root, name)));
+  }
+  const rootLayer = rootLines.length > 0 ? ignoreFactory().add(rootLines) : null;
+
+  // Walk for nested rule files. Skip ignored subtrees so we don't waste
+  // cycles in node_modules etc.; the root layer is enough to make that
+  // decision because nested ignores don't apply outside their dir.
+  const nested = findNestedRuleFiles(root, rootLayer);
+  if (rootLayer === null && nested.size === 0) return null;
+
+  return new LayeredGitignore(rootLayer, nested);
+}
+
+// ---- layered impl ------------------------------------------------------
+
+class LayeredGitignore implements GitignoreSpec {
+  constructor(
+    private readonly rootLayer: Ignore | null,
+    /** Map from `<dir-relative-to-root>` to the Ignore for that dir's rule files. */
+    private readonly subLayers: ReadonlyMap<string, Ignore>,
+  ) {}
+
+  ignores(relPath: string): boolean {
+    if (this.rootLayer?.ignores(relPath)) return true;
+    if (this.subLayers.size === 0) return false;
+
+    // Walk every ancestor directory of relPath. If a layer exists at that
+    // ancestor, ask it whether the path-relative-to-ancestor is ignored.
+    const segments = relPath.split("/");
+    for (let depth = 1; depth < segments.length; depth += 1) {
+      const dirRel = segments.slice(0, depth).join("/");
+      const layer = this.subLayers.get(dirRel);
+      if (layer === undefined) continue;
+      const subRel = segments.slice(depth).join("/");
+      if (subRel === "") continue;
+      if (layer.ignores(subRel)) return true;
+    }
+    return false;
+  }
+}
+
+/**
+ * Walk `root` discovering nested rule files. Returns a map of
+ * `<dir-relative-to-root>` (no leading slash, forward-slash separators)
+ * to the merged Ignore instance for that directory.
+ *
+ * Performance: skips subtrees the root layer already ignores; bails on
+ * permission errors. Does not follow symlinks (stat-only).
+ */
+function findNestedRuleFiles(root: string, rootLayer: Ignore | null): Map<string, Ignore> {
+  const out = new Map<string, Ignore>();
+  // Hard-coded skip list for noisy directories so we stay snappy on a
+  // monorepo with thousands of node_modules dirs without depending on
+  // the project's own .gitignore being correct.
+  const ALWAYS_SKIP = new Set([
+    "node_modules",
+    ".git",
+    "dist",
+    "build",
+    ".next",
+    ".venv",
+    "__pycache__",
+    "target",
+    "vendor",
+  ]);
+
+  const walk = (absDir: string, relDir: string): void => {
+    let entries: import("node:fs").Dirent[];
+    try {
+      // `encoding: "utf8"` keeps Dirent.name typed as string instead of
+      // Buffer; without it newer @types/node infer NonSharedBuffer here.
+      entries = readdirSync(absDir, { withFileTypes: true, encoding: "utf8" });
+    } catch {
+      return;
+    }
+
+    // Collect rule files in this directory (skip the root — already merged).
+    if (relDir !== "") {
+      const lines: string[] = [];
+      for (const name of RULE_FILENAMES) {
+        if (entries.some((e) => e.isFile() && e.name === name)) {
+          lines.push(...readLines(join(absDir, name)));
+        }
+      }
+      if (lines.length > 0) {
+        out.set(relDir.split(sep).join("/"), ignoreFactory().add(lines));
+      }
+    }
+
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      if (ALWAYS_SKIP.has(e.name)) continue;
+      const childRel = relDir === "" ? e.name : `${relDir}${sep}${e.name}`;
+      const childRelForward = childRel.split(sep).join("/");
+      // Cheap: ask the root layer; if the dir itself is gitignored, no
+      // point reading its children.
+      if (rootLayer?.ignores(`${childRelForward}/`)) continue;
+      try {
+        const st = statSync(join(absDir, e.name));
+        if (!st.isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      walk(join(absDir, e.name), childRel);
+    }
+  };
+
+  walk(root, "");
+  return out;
 }
 
 // ---- helpers -----------------------------------------------------------
@@ -117,5 +249,5 @@ function specFromFiles(paths: Iterable<string>): GitignoreSpec | null {
       }
     }
   }
-  return lines.length > 0 ? ignore().add(lines) : null;
+  return lines.length > 0 ? ignoreFactory().add(lines) : null;
 }

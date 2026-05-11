@@ -19,6 +19,7 @@ import {
   DaemonLockHeldError,
   type Project,
   type Runtime,
+  WatcherRegistry,
   WatcherService,
   acquireDaemonLock,
   buildRuntime,
@@ -65,7 +66,14 @@ export async function start(config: Config, options: StartOptions): Promise<void
 
   if (options.enableWatch) warnIfNofileLow(projects.length);
 
-  const watchers = options.enableWatch ? await startWatchers(runtime, projects, config) : [];
+  // Only build a registry when the watcher is actually running. The web
+  // server uses `registry === undefined` to short-circuit pause/resume
+  // with a clear 409 instead of a misleading 404.
+  const watcherRegistry = options.enableWatch ? new WatcherRegistry() : undefined;
+  const watchers =
+    options.enableWatch && watcherRegistry !== undefined
+      ? await startWatchers(runtime, projects, config, watcherRegistry)
+      : [];
 
   // Reconciliation (#14): catch up after the daemon was offline. We kick
   // off boot reconciliation in the background so the HTTP / MCP surface
@@ -74,7 +82,7 @@ export async function start(config: Config, options: StartOptions): Promise<void
   // shutdown.
   const reconciliationStop = startReconciliation(runtime, projects, config);
   const httpStop = options.enableWeb
-    ? await startWeb(config, options, runtime)
+    ? await startWeb(config, options, runtime, watcherRegistry)
     : async () => {
         /* no-op */
       };
@@ -198,6 +206,7 @@ async function startWatchers(
   runtime: Runtime,
   projects: ReadonlyArray<Project>,
   config: Config,
+  registry: WatcherRegistry,
 ): Promise<WatcherService[]> {
   return Promise.all(
     projects.map(async (project) => {
@@ -206,8 +215,19 @@ async function startWatchers(
         onEvent: (event, relPath) => {
           console.error(`[loctx watch] ${event}\t${project.name}/${relPath}`);
         },
+        onError: (event, relPath, err) => {
+          console.error(`[watcher] ${event} ${relPath}: ${err.message}`);
+          registry.markFailed(project.id, err.message);
+        },
       });
       await w.start();
+      registry.register({
+        projectId: project.id,
+        projectName: project.name,
+        projectRoot: project.root,
+        watcher: w,
+        startedAt: new Date().toISOString(),
+      });
       return w;
     }),
   );
@@ -219,6 +239,7 @@ async function startWeb(
   config: Config,
   options: StartOptions,
   runtime: Runtime,
+  watcherRegistry: WatcherRegistry | undefined,
 ): Promise<() => Promise<void>> {
   const webDir = options.webDir ?? resolveWebDir();
   const staticDir = resolve(webDir, "dist", "client");
@@ -233,6 +254,7 @@ async function startWeb(
     createWebApp(opts: {
       readonly config: Config;
       readonly runtime?: Runtime;
+      readonly watcherRegistry?: WatcherRegistry;
       readonly staticDir?: string;
     }): { fetch: (req: Request) => Promise<Response> };
   };
@@ -246,7 +268,12 @@ async function startWeb(
   const { createWebApp } = (await import(serverModule)) as WebServerModule;
   const { serve } = (await import("@hono/node-server")) as HonoNodeServerModule;
 
-  const app = createWebApp({ config, runtime, staticDir });
+  const app = createWebApp({
+    config,
+    runtime,
+    staticDir,
+    ...(watcherRegistry !== undefined ? { watcherRegistry } : {}),
+  });
   const handle = app.fetch;
 
   const server = serve({ fetch: handle, port, hostname });

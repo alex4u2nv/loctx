@@ -38,6 +38,31 @@ export interface StatusPayload {
   }>;
 }
 
+export type WatcherState = "active" | "paused" | "failed";
+
+/**
+ * Derived per-project health combining watcher state with index state.
+ *
+ *   - `failed`        watcher errored — needs investigation
+ *   - `paused`        watcher manually paused
+ *   - `never-indexed` files=0 && lastIndexed=null — needs initial recrawl
+ *                     (the watcher only catches *changes*, not initial state)
+ *   - `empty`         files=0 but lastIndexed!=null — filter excluded everything
+ *   - `errors`        files>0 but some failed indexing
+ *   - `active`        watching + has data
+ *   - `ready`         indexed, no watcher (daemon started with --no-watch)
+ *   - `orphaned`      project no longer under workspace_roots
+ */
+export type ProjectHealth =
+  | "failed"
+  | "paused"
+  | "never-indexed"
+  | "empty"
+  | "errors"
+  | "active"
+  | "ready"
+  | "orphaned";
+
 export interface ProjectsRow {
   readonly id: string;
   readonly name: string;
@@ -49,6 +74,17 @@ export interface ProjectsRow {
   readonly errors: number;
   readonly lastIndexed: string | null;
   readonly lastReconciled: string | null;
+  /**
+   * Watcher runtime state. `null` when no watcher is registered
+   * (orphaned projects, or daemon started with --no-watch).
+   */
+  readonly watcher: WatcherState | null;
+  /** Most recent failure reason if `watcher === "failed"`. */
+  readonly watcherFailure: string | null;
+  /** Combined health signal — what the user should care about at a glance. */
+  readonly health: ProjectHealth;
+  /** One-line hint matching `health` (e.g. "click recrawl to populate"). */
+  readonly healthHint: string;
 }
 
 export interface OrphanRow extends ProjectsRow {
@@ -59,6 +95,15 @@ export interface OrphanRow extends ProjectsRow {
 export interface ProjectsPayload {
   readonly active: ReadonlyArray<ProjectsRow>;
   readonly orphaned: ReadonlyArray<OrphanRow>;
+  /**
+   * Longest common directory prefix shared by every active row's `root`,
+   * with no trailing slash. Empty when there's nothing meaningful in
+   * common. The client hides this prefix in row paths and shows it once
+   * as a header so wide workspaces stay scannable.
+   */
+  readonly commonRoot: string;
+  /** OS home directory; client renders `~` in its place when present. */
+  readonly homeDir: string;
 }
 
 export interface SearchRequestBody {
@@ -157,6 +202,18 @@ export interface UsageHit {
   readonly chunkStartLine: number;
   readonly chunkEndLine: number;
   readonly kind: string;
+}
+
+export interface WatchersPayload {
+  readonly enabled: boolean;
+  readonly entries: ReadonlyArray<{
+    readonly projectId: string;
+    readonly projectName: string;
+    readonly projectRoot: string;
+    readonly state: WatcherState;
+    readonly startedAt: string;
+    readonly failureReason: string | null;
+  }>;
 }
 
 export type OpEvent =
