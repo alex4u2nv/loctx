@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { Icon } from "./icon";
 
 type ConnectionState = "connecting" | "open" | "closed";
 
@@ -38,7 +39,7 @@ export function LiveRefresh({ onEvent }: { onEvent?: () => void }) {
 
   return (
     <span title={tooltip} className={`dot ${dotClass}`}>
-      <span className="dot-mark" />
+      <Icon name="live" />
       <span>{state === "open" ? "live" : state}</span>
     </span>
   );
