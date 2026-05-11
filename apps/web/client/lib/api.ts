@@ -13,6 +13,7 @@ import type {
   SearchPayload,
   SearchRequestBody,
   StatusPayload,
+  WatchersPayload,
 } from "@shared/contracts";
 
 async function getJson<T>(url: string): Promise<T> {
@@ -76,4 +77,9 @@ export const api = {
   restart: () =>
     postJson<{ ok: true; stopped: number; message: string }>("/api/restart", {}),
   stop: () => postJson<{ ok: true; stopped: number }>("/api/stop", {}),
+  watchers: () => getJson<WatchersPayload>("/api/watchers"),
+  watchPause: (projectId: string) =>
+    postJson<{ ok: true; paused: string; state: string }>("/api/watch/pause", { projectId }),
+  watchResume: (projectId: string) =>
+    postJson<{ ok: true; resumed: string; state: string }>("/api/watch/resume", { projectId }),
 };

@@ -38,6 +38,8 @@ export interface StatusPayload {
   }>;
 }
 
+export type WatcherState = "active" | "paused" | "failed";
+
 export interface ProjectsRow {
   readonly id: string;
   readonly name: string;
@@ -49,6 +51,13 @@ export interface ProjectsRow {
   readonly errors: number;
   readonly lastIndexed: string | null;
   readonly lastReconciled: string | null;
+  /**
+   * Watcher state for this project. `null` when no watcher is registered
+   * (orphaned projects, or daemon started with --no-watch).
+   */
+  readonly watcher: WatcherState | null;
+  /** Most recent failure reason if `watcher === "failed"`. */
+  readonly watcherFailure: string | null;
 }
 
 export interface OrphanRow extends ProjectsRow {
@@ -157,6 +166,18 @@ export interface UsageHit {
   readonly chunkStartLine: number;
   readonly chunkEndLine: number;
   readonly kind: string;
+}
+
+export interface WatchersPayload {
+  readonly enabled: boolean;
+  readonly entries: ReadonlyArray<{
+    readonly projectId: string;
+    readonly projectName: string;
+    readonly projectRoot: string;
+    readonly state: WatcherState;
+    readonly startedAt: string;
+    readonly failureReason: string | null;
+  }>;
 }
 
 export type OpEvent =

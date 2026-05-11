@@ -4,7 +4,7 @@
  * /api/models/download) which stream NDJSON-style OpEvent lines.
  */
 
-import type { Config, Runtime } from "@loctx/core";
+import type { Config, Runtime, WatcherRegistry } from "@loctx/core";
 import type { Hono } from "hono";
 import { mountConfig } from "./config.js";
 import { mountDoctor } from "./doctor.js";
@@ -15,14 +15,16 @@ import { mountOps } from "./ops.js";
 import { mountProjects } from "./projects.js";
 import { mountSearch } from "./search.js";
 import { mountStatus } from "./status.js";
+import { mountWatchers } from "./watchers.js";
 
 export function mountApi(
   app: Hono,
   config: Config,
   getRuntime: () => Promise<Runtime>,
+  watcherRegistry?: WatcherRegistry,
 ): void {
   mountStatus(app, config);
-  mountProjects(app, config);
+  mountProjects(app, config, watcherRegistry);
   mountSearch(app, getRuntime);
   mountEvents(app);
   mountDoctor(app, config);
@@ -30,4 +32,5 @@ export function mountApi(
   mountModels(app, config);
   mountFindUsages(app, getRuntime);
   mountOps(app, config, getRuntime);
+  mountWatchers(app, watcherRegistry);
 }

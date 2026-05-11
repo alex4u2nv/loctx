@@ -8,11 +8,13 @@ import {
   type Config,
   ConfigError,
   DaemonLockHeldError,
+  NoDaemonError,
   SearcherError,
   StateStore,
   WatcherService,
   WorkspaceDiscovery,
   buildRuntime,
+  daemonClient,
   defaultConfigFile,
   inventoryProjects,
   loadConfig,
@@ -384,6 +386,144 @@ program
       await runtime.close();
     }
   });
+
+// ---- pause / resume / recrawl / purge (daemon-aware project ops) -------
+
+program
+  .command("pause [path]")
+  .description(
+    "Pause the watcher for a project (or every project when PATH is omitted). Requires a running daemon.",
+  )
+  .action(async (path?: string) => {
+    await withDaemonClient(async (client) => {
+      const targets = await resolveProjectIds(client, path);
+      for (const t of targets) {
+        await client.post("/api/watch/pause", { projectId: t.id });
+        console.error(`[loctx pause] ${t.name} (${t.id})`);
+      }
+    });
+  });
+
+program
+  .command("resume [path]")
+  .description(
+    "Resume the watcher for a project (or every project when PATH is omitted). Requires a running daemon.",
+  )
+  .action(async (path?: string) => {
+    await withDaemonClient(async (client) => {
+      const targets = await resolveProjectIds(client, path);
+      for (const t of targets) {
+        await client.post("/api/watch/resume", { projectId: t.id });
+        console.error(`[loctx resume] ${t.name} (${t.id})`);
+      }
+    });
+  });
+
+program
+  .command("recrawl [path]")
+  .description(
+    "Re-index a project (or every project). Hits the running daemon when one is up; otherwise builds a one-shot runtime.",
+  )
+  .action(async (path?: string) => {
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    const lock = readActiveDaemon(config.paths.dataDir);
+    if (lock !== null) {
+      const client = daemonClient(config.paths.dataDir);
+      const r = await client.post<{ summaries: Array<{ name: string; indexed: number }> }>(
+        "/api/index",
+        path !== undefined ? { path: resolve(path) } : {},
+      );
+      for (const s of r.summaries) {
+        console.log(`recrawled ${s.name}: indexed=${s.indexed}`);
+      }
+      return;
+    }
+    // Fallback: same path as `loctx index`.
+    const runtime = await buildRuntime(config);
+    try {
+      const projects = path ? [makeProject(resolve(path))] : runtime.discovery.discoverProjects();
+      for (const project of projects) {
+        console.log(`Recrawling ${project.name} (${project.root}) ...`);
+        const summary = await runtime.indexer.indexProject(project);
+        console.log(
+          `  indexed=${summary.indexed} skipped=${summary.skipped} failed=${summary.failed} (${summary.elapsedSeconds.toFixed(2)}s)`,
+        );
+      }
+    } finally {
+      await runtime.close();
+    }
+  });
+
+program
+  .command("purge <path>")
+  .description(
+    "Delete the index data for a project (LanceDB + SQLite rows). Source files untouched. Hits the running daemon when one is up; otherwise builds a one-shot runtime.",
+  )
+  .option("--force", "Skip confirmation.", false)
+  .action(async (path: string, opts: { force: boolean }) => {
+    if (!opts.force) {
+      console.error(
+        `[loctx purge] refusing without --force.\n  This deletes every chunk + vector row for the project at\n  ${resolve(path)}. Source files are untouched.`,
+      );
+      process.exit(1);
+    }
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    const lock = readActiveDaemon(config.paths.dataDir);
+    if (lock !== null) {
+      const client = daemonClient(config.paths.dataDir);
+      const r = await client.post<{ project: { name: string; root: string } }>(
+        "/api/reset/project",
+        { path: resolve(path) },
+      );
+      console.error(`[loctx purge] cleared ${r.project.name} (${r.project.root}) via daemon.`);
+      return;
+    }
+    // Fallback: same path as `loctx reset project --force`.
+    const project = makeProject(resolve(path));
+    const runtime = await buildRuntime(config);
+    try {
+      await runtime.vectors.deleteProjectChunks(project.id);
+      runtime.state.deleteProject(project.id);
+      console.error(`[loctx purge] cleared ${project.name} (${project.root}).`);
+    } finally {
+      await runtime.close();
+    }
+  });
+
+async function withDaemonClient(
+  fn: (client: ReturnType<typeof daemonClient>) => Promise<void>,
+): Promise<void> {
+  const ctx = getCtx();
+  const config = loadConfigOrFail(ctx);
+  try {
+    const client = daemonClient(config.paths.dataDir);
+    await fn(client);
+  } catch (err) {
+    if (err instanceof NoDaemonError) {
+      console.error("No active daemon. Start one with `loctx start`.");
+      process.exit(1);
+    }
+    throw err;
+  }
+}
+
+async function resolveProjectIds(
+  client: ReturnType<typeof daemonClient>,
+  path: string | undefined,
+): Promise<Array<{ id: string; name: string }>> {
+  if (path !== undefined) {
+    // Compute the deterministic project id locally; cheaper than asking
+    // the daemon to resolve a path.
+    const project = makeProject(resolve(path));
+    return [{ id: project.id, name: project.name }];
+  }
+  const list = await client.get<{ entries: Array<{ projectId: string; projectName: string }> }>(
+    "/api/watchers",
+  );
+  return list.entries.map((e) => ({ id: e.projectId, name: e.projectName }));
+}
 
 // ---- init (interactive first-run wizard) -------------------------------
 

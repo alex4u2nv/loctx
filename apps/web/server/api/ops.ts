@@ -19,7 +19,6 @@ import { resolve } from "node:path";
 import {
   type Config,
   type Runtime,
-  buildRuntime,
   makeProject,
   readActiveDaemon,
   stopActiveDaemon,
@@ -89,22 +88,22 @@ export function mountOps(
   });
 
   app.post("/api/reset/project", async (c) => {
-    if (readActiveDaemon(config.paths.dataDir) !== null) {
-      return c.json({ error: "daemon is running; stop it first" }, 409);
-    }
     const body = (await c.req.json().catch(() => null)) as { path?: string } | null;
     const path = body?.path?.trim() ?? "";
     if (path === "") return c.json({ error: "path required" }, 400);
 
+    // We're inside the daemon — use its open Runtime rather than building
+    // a second one (which would race on SQLite + LanceDB handles). The
+    // CLI's `loctx reset project` retains the file-deletion path for the
+    // no-daemon case.
+    const rt = await getRuntime();
     const project = makeProject(resolve(path));
-    const runtime = await buildRuntime(config);
-    try {
-      await runtime.vectors.deleteProjectChunks(project.id);
-      runtime.state.deleteProject(project.id);
-      return c.json({ ok: true, project: { id: project.id, name: project.name, root: project.root } });
-    } finally {
-      await runtime.close();
-    }
+    await rt.vectors.deleteProjectChunks(project.id);
+    rt.state.deleteProject(project.id);
+    return c.json({
+      ok: true,
+      project: { id: project.id, name: project.name, root: project.root },
+    });
   });
 
   app.post("/api/restart", async (c) => {

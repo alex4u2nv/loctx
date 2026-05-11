@@ -117,6 +117,43 @@ test.describe("loctx admin UI", () => {
     await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
   });
 
+  test("projects page surfaces watcher state and pause/resume controls", async ({ page }) => {
+    await page.goto("/projects");
+    // The fixture daemon runs with --no-watch so the watcher column reads "—".
+    // We still expect the row + the recrawl/purge buttons to render.
+    const row = page.getByRole("row").filter({ hasText: "demo" }).first();
+    await expect(row).toBeVisible();
+    await expect(row.getByRole("button", { name: "recrawl" })).toBeVisible();
+    await expect(row.getByRole("button", { name: "purge" })).toBeVisible();
+  });
+
+  test("projects page recrawl button hits /api/index", async ({ page }) => {
+    await page.goto("/projects");
+    const row = page.getByRole("row").filter({ hasText: "demo" }).first();
+    const [response] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/api/index") && r.request().method() === "POST"),
+      row.getByRole("button", { name: "recrawl" }).click(),
+    ]);
+    expect(response.status()).toBe(200);
+    // Reload + the surface message becomes visible.
+    await expect(page.getByText(/recrawl demo: ok/)).toBeVisible();
+  });
+
+  test("watchers endpoint reports an empty list under --no-watch", async ({ request }) => {
+    const r = await request.get("/api/watchers");
+    expect(r.status()).toBe(200);
+    const body = (await r.json()) as { enabled: boolean; entries: unknown[] };
+    expect(body.enabled).toBe(false);
+    expect(body.entries).toEqual([]);
+  });
+
+  test("watch pause endpoint refuses when the daemon was started with --no-watch", async ({
+    request,
+  }) => {
+    const r = await request.post("/api/watch/pause", { data: { projectId: "anything" } });
+    expect(r.status()).toBe(409);
+  });
+
   test("MCP endpoint at /mcp responds (smoke check via fetch)", async ({ request }) => {
     const response = await request.post("/mcp", {
       data: {
