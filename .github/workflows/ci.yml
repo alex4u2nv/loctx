@@ -11,9 +11,9 @@ permissions:
 
 jobs:
   verify:
-    name: lint + typecheck + test
+    name: lint + typecheck + test + e2e
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -28,15 +28,42 @@ jobs:
 
       - name: Build all workspaces
         # @loctx/mcp + @loctx/web resolve @loctx/core through `dist/index.js`,
-        # so the build must run before the test suite (and before tsc, since
-        # apps/web's tsconfig pulls from .next/types if present).
+        # so the build must run before the test suite. apps/cli/dist/cli.js
+        # and apps/web/dist/{client,server} are also pre-requisites for the
+        # Playwright suite below — its webServer config spawns `loctx start`.
         run: npm run build
 
-      - name: Verify (lint + typecheck + test)
+      - name: Verify (lint + typecheck + unit tests)
         run: npm run verify
         env:
-          # The e2e test in apps/cli swaps to FakeEmbeddingProvider via this
-          # env var, but it sets it on the spawned child too. Keeping it
-          # unset at the top level so lib tests still exercise the default
-          # provider's type contract.
+          # apps/cli's integration test swaps to FakeEmbeddingProvider via
+          # this env var on the spawned child. Keeping it unset at the top
+          # level so library tests still exercise the default provider's
+          # type contract.
           CI: "true"
+
+      - name: Install Playwright browser
+        # Chromium only — the admin UI tests don't need WebKit/Firefox.
+        run: npx playwright install chromium --with-deps
+        working-directory: apps/web
+
+      - name: E2E (Playwright)
+        # Playwright config spawns its own `loctx start` against a fixture
+        # workspace; it tests the full daemon stack — admin UI pages, the
+        # /api/* surface, /mcp HTTP transport, and the host/origin guard.
+        run: npm run test:e2e --workspace @loctx/web
+        env:
+          CI: "true"
+
+      - name: Upload Playwright trace/screenshots on failure
+        # Playwright config uses `trace: retain-on-failure` and
+        # `screenshot: only-on-failure`; artifacts land under
+        # `apps/web/test-results/`. Skip the upload silently when no
+        # tests failed (the directory is missing or empty).
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: apps/web/test-results
+          retention-days: 7
+          if-no-files-found: ignore
