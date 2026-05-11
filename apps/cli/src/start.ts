@@ -254,6 +254,7 @@ async function startWeb(
     createWebApp(opts: {
       readonly config: Config;
       readonly runtime?: Runtime;
+      readonly watcherRegistry?: WatcherRegistry;
       readonly staticDir?: string;
     }): { fetch: (req: Request) => Promise<Response> };
   };
