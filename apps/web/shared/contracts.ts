@@ -68,6 +68,15 @@ export interface OrphanRow extends ProjectsRow {
 export interface ProjectsPayload {
   readonly active: ReadonlyArray<ProjectsRow>;
   readonly orphaned: ReadonlyArray<OrphanRow>;
+  /**
+   * Longest common directory prefix shared by every active row's `root`,
+   * with no trailing slash. Empty when there's nothing meaningful in
+   * common. The client hides this prefix in row paths and shows it once
+   * as a header so wide workspaces stay scannable.
+   */
+  readonly commonRoot: string;
+  /** OS home directory; client renders `~` in its place when present. */
+  readonly homeDir: string;
 }
 
 export interface SearchRequestBody {

@@ -1,47 +1,25 @@
-import type { OrphanRow, ProjectsRow } from "@shared/contracts";
-import { useState } from "react";
+import type { OrphanRow, ProjectsRow, WatcherState } from "@shared/contracts";
 import { api } from "../lib/api";
+import { applyHomeAbbrev, compressPath, relativeTime } from "../lib/format";
 import { useFetch } from "../lib/use-fetch";
+import { useOpRunner } from "../lib/use-op-runner";
+
+type AnyRow = ProjectsRow | OrphanRow;
 
 export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
-  const { data, error, loading, reload } = useFetch(() => api.projects(), [refreshKey]);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const fetched = useFetch(() => api.projects(), [refreshKey]);
+  const ops = useOpRunner(() => fetched.reload());
 
-  const op = async (label: string, fn: () => Promise<unknown>): Promise<void> => {
-    setBusy(label);
-    setMessage(null);
-    try {
-      await fn();
-      setMessage(`${label}: ok`);
-      reload();
-    } catch (e) {
-      setMessage(`${label}: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const handlers = {
-    pause: (id: string, name: string) => op(`pause ${name}`, () => api.watchPause(id)),
-    resume: (id: string, name: string) => op(`resume ${name}`, () => api.watchResume(id)),
-    recrawl: (root: string, name: string) => op(`recrawl ${name}`, () => api.index(root)),
-    purge: (root: string, name: string) => {
-      if (!window.confirm(`Purge index data for ${name}? Source files untouched.`))
-        return Promise.resolve();
-      return op(`purge ${name}`, () => api.resetProject(root));
-    },
-  };
-
-  if (loading && data === null) return <p className="pullquote">Loading…</p>;
-  if (error !== null)
+  if (fetched.loading && fetched.data === null) return <p className="pullquote">Loading…</p>;
+  if (fetched.error !== null)
     return (
       <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-        {error}
+        {fetched.error}
       </p>
     );
-  if (data === null) return <p className="pullquote">No data.</p>;
+  if (fetched.data === null) return <p className="pullquote">No data.</p>;
 
+  const data = fetched.data;
   const totals = data.active.reduce(
     (acc, row) => ({
       files: acc.files + row.files,
@@ -51,15 +29,36 @@ export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
     { files: 0, chunks: 0, errors: 0 },
   );
 
+  const handlers = {
+    pause: (id: string, name: string) =>
+      ops.run(`pause ${name}`, () => api.watchPause(id)).then(() => undefined),
+    resume: (id: string, name: string) =>
+      ops.run(`resume ${name}`, () => api.watchResume(id)).then(() => undefined),
+    recrawl: (root: string, name: string) =>
+      ops.run(`recrawl ${name}`, () => api.index(root)).then(() => undefined),
+    purge: (root: string, name: string): Promise<void> => {
+      if (!window.confirm(`Purge index data for ${name}? Source files untouched.`))
+        return Promise.resolve();
+      return ops.run(`purge ${name}`, () => api.resetProject(root)).then(() => undefined);
+    },
+  };
+
+  const rootHeader = data.commonRoot !== "" ? applyHomeAbbrev(data.commonRoot, data.homeDir) : null;
+
   return (
     <section>
       <span className="eyebrow">Index</span>
       <h1 className="display">Projects</h1>
       <p className="summary">
         {data.active.length} active<span className="sep">·</span>
-        {totals.files} files indexed<span className="sep">·</span>
-        {totals.chunks} chunks<span className="sep">·</span>
-        {totals.errors} errors
+        {totals.files} files<span className="sep">·</span>
+        {totals.chunks} chunks
+        {totals.errors > 0 ? (
+          <>
+            <span className="sep">·</span>
+            <span className="err">{totals.errors} errors</span>
+          </>
+        ) : null}
         {data.orphaned.length > 0 ? (
           <>
             <span className="sep">·</span>
@@ -67,33 +66,42 @@ export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
           </>
         ) : null}
       </p>
-      {message ? (
+      {rootHeader ? (
+        <p className="summary">
+          under <code>{rootHeader}</code>
+        </p>
+      ) : null}
+      {ops.message ? (
         <p className="pullquote" style={{ borderLeftColor: "var(--warn)" }}>
-          {message}
+          {ops.message}
         </p>
       ) : null}
 
       <h2>Active</h2>
       <ProjectsTable
         rows={data.active}
+        homeDir={data.homeDir}
+        commonRoot={data.commonRoot}
         emptyMessage="No projects discovered under current workspace_roots."
         actions={handlers}
-        busy={busy}
+        busy={ops.busy}
       />
 
       {data.orphaned.length > 0 ? (
         <>
           <h2>Orphaned</h2>
           <p className="summary">
-            Indexed previously but no longer maintained. <code>purge</code> removes their data;{" "}
-            <code>workspace_roots</code> can also restore them as active.
+            Indexed previously but no longer maintained. <code>purge</code> removes their data;
+            restoring <code>workspace_roots</code> brings them back as active.
           </p>
           <ProjectsTable
             rows={data.orphaned}
+            homeDir={data.homeDir}
+            commonRoot={data.commonRoot}
             emptyMessage=""
             showReason
             actions={{ purge: handlers.purge }}
-            busy={busy}
+            busy={ops.busy}
           />
         </>
       ) : null}
@@ -110,60 +118,71 @@ interface RowActions {
 
 function ProjectsTable({
   rows,
+  homeDir,
+  commonRoot,
   emptyMessage,
   showReason,
   actions,
   busy,
 }: {
-  rows: ReadonlyArray<ProjectsRow | OrphanRow>;
+  rows: ReadonlyArray<AnyRow>;
+  homeDir: string;
+  commonRoot: string;
   emptyMessage: string;
   showReason?: boolean;
   actions?: RowActions;
   busy?: string | null;
 }) {
-  const baseCols = 10 + (actions !== undefined ? 1 : 0);
+  const cols = ["project", "watcher", "indexed", "activity"];
+  if (showReason) cols.push("reason");
+  if (actions !== undefined) cols.push("actions");
+
   return (
     <table className="data-table">
       <thead>
         <tr>
-          <th>id</th>
-          <th>name</th>
-          <th>root</th>
-          <th>marker</th>
-          <th>watcher</th>
-          <th className="num">files</th>
-          <th className="num">chunks</th>
-          <th className="num">errors</th>
-          <th>last indexed</th>
-          <th>last reconciled</th>
-          {showReason ? <th>reason</th> : null}
-          {actions !== undefined ? <th>actions</th> : null}
+          {cols.map((c) => (
+            <th key={c}>{c}</th>
+          ))}
         </tr>
       </thead>
       <tbody>
         {rows.map((row) => {
           const orphan = "rootExists" in row ? row : null;
+          const displayPath = compressPath(row.root, homeDir, commonRoot);
           return (
             <tr key={row.id}>
-              <td className="dim">{row.id}</td>
-              <td>{row.name}</td>
-              <td className={orphan?.rootExists === false ? "err" : "dim"}>{row.root}</td>
-              <td className="dim">
-                {row.marker !== null
-                  ? `${row.marker}${row.markerKind !== null ? ` (${row.markerKind})` : ""}`
-                  : "—"}
+              <td>
+                <div title={`${row.id} · ${row.root}`}>
+                  <strong>{row.name}</strong>
+                  <span className="dim">
+                    {row.marker !== null ? ` [${row.marker}]` : ""}
+                  </span>
+                </div>
+                <div
+                  className={orphan?.rootExists === false ? "err" : "dim"}
+                  style={{ fontSize: "0.85em" }}
+                >
+                  {displayPath}
+                </div>
               </td>
               <td>
                 <WatcherBadge state={row.watcher} failure={row.watcherFailure} />
               </td>
-              <td className="num">{row.files}</td>
-              <td className="num">{row.chunks}</td>
-              <td className={`num ${row.errors > 0 ? "err" : ""}`}>{row.errors}</td>
-              <td className="dim">
-                {row.lastIndexed ? new Date(row.lastIndexed).toLocaleString() : "—"}
+              <td>
+                <div className="num">{row.files} files</div>
+                <div className="num dim" style={{ fontSize: "0.85em" }}>
+                  {row.chunks} chunks
+                  {row.errors > 0 ? (
+                    <span className="err"> · {row.errors} errors</span>
+                  ) : null}
+                </div>
               </td>
-              <td className="dim">
-                {row.lastReconciled ? new Date(row.lastReconciled).toLocaleString() : "never"}
+              <td className="dim" style={{ fontSize: "0.9em" }}>
+                <div title={row.lastIndexed ?? ""}>indexed {relativeTime(row.lastIndexed)}</div>
+                <div title={row.lastReconciled ?? ""}>
+                  reconciled {relativeTime(row.lastReconciled)}
+                </div>
               </td>
               {showReason && orphan ? (
                 <td className={orphan.rootExists === false ? "err" : "warn"}>{orphan.reason}</td>
@@ -179,7 +198,7 @@ function ProjectsTable({
         {rows.length === 0 && emptyMessage !== "" ? (
           <tr>
             <td
-              colSpan={baseCols + (showReason ? 1 : 0)}
+              colSpan={cols.length}
               style={{ color: "var(--subtle)", textAlign: "center", padding: "var(--space-5)" }}
             >
               {emptyMessage}
@@ -195,16 +214,16 @@ function WatcherBadge({
   state,
   failure,
 }: {
-  state: ProjectsRow["watcher"];
+  state: WatcherState | null;
   failure: string | null;
 }) {
   if (state === null) return <span className="dim">—</span>;
-  const label = state;
-  const className = state === "active" ? "dot dot-ok" : state === "paused" ? "dot dot-warn" : "dot dot-bad";
+  const cls =
+    state === "active" ? "dot dot-ok" : state === "paused" ? "dot dot-warn" : "dot dot-bad";
   return (
-    <span className={className} title={failure ?? undefined}>
+    <span className={cls} title={failure ?? undefined}>
       <span className="dot-mark" />
-      <span>{label}</span>
+      <span>{state}</span>
     </span>
   );
 }
@@ -214,7 +233,7 @@ function RowActionButtons({
   actions,
   busy,
 }: {
-  row: ProjectsRow | OrphanRow;
+  row: AnyRow;
   actions: RowActions;
   busy: string | null;
 }) {
