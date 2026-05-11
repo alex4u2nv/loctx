@@ -1,4 +1,5 @@
 import type { OrphanRow, ProjectsRow, WatcherState } from "@shared/contracts";
+import { Icon, type IconName } from "../components/icon";
 import { api } from "../lib/api";
 import { applyHomeAbbrev, compressPath, relativeTime } from "../lib/format";
 import { useFetch } from "../lib/use-fetch";
@@ -220,9 +221,10 @@ function WatcherBadge({
   if (state === null) return <span className="dim">—</span>;
   const cls =
     state === "active" ? "dot dot-ok" : state === "paused" ? "dot dot-warn" : "dot dot-bad";
+  const iconName: IconName = state === "active" ? "play" : state === "paused" ? "pause" : "warn";
   return (
     <span className={cls} title={failure ?? undefined}>
-      <span className="dot-mark" />
+      <Icon name={iconName} />
       <span>{state}</span>
     </span>
   );
@@ -241,45 +243,55 @@ function RowActionButtons({
   return (
     <span style={{ display: "inline-flex", gap: "0.4rem", flexWrap: "wrap" }}>
       {actions.pause && row.watcher === "active" ? (
-        <button
-          type="button"
-          className="btn"
+        <IconButton
+          icon="pause"
+          label="pause"
           onClick={() => void actions.pause?.(row.id, row.name)}
           disabled={isBusy}
-        >
-          pause
-        </button>
+        />
       ) : null}
       {actions.resume && (row.watcher === "paused" || row.watcher === "failed") ? (
-        <button
-          type="button"
-          className="btn"
+        <IconButton
+          icon="play"
+          label="resume"
           onClick={() => void actions.resume?.(row.id, row.name)}
           disabled={isBusy}
-        >
-          resume
-        </button>
+        />
       ) : null}
       {actions.recrawl ? (
-        <button
-          type="button"
-          className="btn"
+        <IconButton
+          icon="recrawl"
+          label="recrawl"
           onClick={() => void actions.recrawl?.(row.root, row.name)}
           disabled={isBusy}
-        >
-          recrawl
-        </button>
+        />
       ) : null}
       {actions.purge ? (
-        <button
-          type="button"
-          className="btn"
+        <IconButton
+          icon="purge"
+          label="purge"
           onClick={() => void actions.purge?.(row.root, row.name)}
           disabled={isBusy}
-        >
-          purge
-        </button>
+        />
       ) : null}
     </span>
+  );
+}
+
+function IconButton({
+  icon,
+  label,
+  onClick,
+  disabled,
+}: {
+  icon: IconName;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button type="button" className="btn" onClick={onClick} disabled={disabled}>
+      <Icon name={icon} /> {label}
+    </button>
   );
 }

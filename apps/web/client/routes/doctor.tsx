@@ -1,3 +1,4 @@
+import { Icon } from "../components/icon";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
 
@@ -13,7 +14,7 @@ export function DoctorPage() {
       </p>
       <p>
         <button type="button" className="btn btn-primary" onClick={reload} disabled={loading}>
-          {loading ? "Re-running…" : "Re-run checks"}
+          <Icon name="refresh" /> {loading ? "Re-running…" : "Re-run checks"}
         </button>
       </p>
       {error !== null ? (
@@ -39,7 +40,9 @@ export function DoctorPage() {
               {data.checks.map((c) => (
                 <tr key={c.name}>
                   <td>{c.name}</td>
-                  <td className={c.ok ? "" : "warn"}>{c.ok ? "ok" : "warn/err"}</td>
+                  <td className={c.ok ? "" : "warn"}>
+                    <Icon name={c.ok ? "ok" : "warn"} /> {c.ok ? "ok" : "warn/err"}
+                  </td>
                   <td className="dim">{c.detail}</td>
                 </tr>
               ))}

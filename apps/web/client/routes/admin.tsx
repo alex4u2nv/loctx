@@ -4,6 +4,7 @@
  */
 
 import { Link } from "react-router-dom";
+import { Icon } from "../components/icon";
 import { api } from "../lib/api";
 import { useOpRunner } from "../lib/use-op-runner";
 
@@ -55,7 +56,7 @@ export function AdminPage() {
           onClick={() => void indexAll()}
           disabled={ops.busy !== null}
         >
-          index all projects
+          <Icon name="index" /> index all projects
         </button>{" "}
         <button
           type="button"
@@ -63,7 +64,7 @@ export function AdminPage() {
           onClick={() => void refreshAll()}
           disabled={ops.busy !== null}
         >
-          refresh (reconcile drift)
+          <Icon name="refresh" /> refresh (reconcile drift)
         </button>{" "}
         <button
           type="button"
@@ -71,7 +72,7 @@ export function AdminPage() {
           onClick={() => void resetIndex()}
           disabled={ops.busy !== null}
         >
-          reset index (delete all data)
+          <Icon name="reset" /> reset index (delete all data)
         </button>
       </p>
 
@@ -83,7 +84,7 @@ export function AdminPage() {
           onClick={() => void restart()}
           disabled={ops.busy !== null}
         >
-          restart
+          <Icon name="refresh" /> restart
         </button>{" "}
         <button
           type="button"
@@ -91,7 +92,7 @@ export function AdminPage() {
           onClick={() => void stop()}
           disabled={ops.busy !== null}
         >
-          stop
+          <Icon name="stop" /> stop
         </button>
       </p>
     </section>
