@@ -9,7 +9,13 @@ import {
   inventoryProjects,
 } from "@loctx/core";
 import type { Hono } from "hono";
-import type { OrphanRow, ProjectsPayload, ProjectsRow } from "../../shared/contracts.js";
+import type {
+  OrphanRow,
+  ProjectHealth,
+  ProjectsPayload,
+  ProjectsRow,
+  WatcherState,
+} from "../../shared/contracts.js";
 
 export function mountProjects(
   app: Hono,
@@ -28,6 +34,7 @@ export function mountProjects(
         lastReconciled: string | null,
         marker: string | null,
         markerKind: string | null,
+        isOrphaned = false,
       ): ProjectsRow => {
         const files = state.listFiles(project.id);
         const errors = files.filter((f) => f.error !== null).length;
@@ -37,19 +44,30 @@ export function mountProjects(
           .at(-1);
         const watcherEntry =
           watcherRegistry !== undefined ? watcherRegistry.get(project.id as ProjectId) : null;
+        const watcherState = watcherEntry !== null ? watcherEntry.state : null;
+        const filesCount = files.length;
+        const { health, healthHint } = computeHealth({
+          isOrphaned,
+          watcherState,
+          files: filesCount,
+          errors,
+          lastIndexed: lastIndexed ?? null,
+        });
         return {
           id: project.id,
           name: project.name,
           root: project.root,
           marker,
           markerKind,
-          files: files.length,
+          files: filesCount,
           chunks: chunkCounts.get(project.id) ?? 0,
           errors,
           lastIndexed: lastIndexed ?? null,
           lastReconciled,
-          watcher: watcherEntry !== null ? watcherEntry.state : null,
+          watcher: watcherState,
           watcherFailure: watcherEntry !== null ? watcherEntry.failureReason : null,
+          health,
+          healthHint,
         };
       };
 
@@ -57,7 +75,7 @@ export function mountProjects(
         buildRow(a.project, a.lastReconciledAt, a.marker, a.markerKind),
       );
       const orphaned: OrphanRow[] = inventory.orphaned.map((o) => ({
-        ...buildRow(o.project, o.lastReconciledAt, null, null),
+        ...buildRow(o.project, o.lastReconciledAt, null, null, true),
         reason: o.reason,
         rootExists: o.rootExists,
       }));
@@ -73,6 +91,63 @@ export function mountProjects(
       state.close();
     }
   });
+}
+
+/**
+ * Derive a single per-project health signal from the runtime watcher
+ * state plus the index inventory. The order matters: failure /
+ * orphaned states beat "needs initial index"; "errors" beats "active"
+ * so a partially-broken project surfaces.
+ */
+function computeHealth(input: {
+  isOrphaned: boolean;
+  watcherState: WatcherState | null;
+  files: number;
+  errors: number;
+  lastIndexed: string | null;
+}): { health: ProjectHealth; healthHint: string } {
+  if (input.isOrphaned) {
+    return {
+      health: "orphaned",
+      healthHint:
+        "no longer under workspace_roots — purge to remove, or restore the path to make active",
+    };
+  }
+  if (input.watcherState === "failed") {
+    return {
+      health: "failed",
+      healthHint: "watcher failed — check logs, then resume to retry",
+    };
+  }
+  if (input.watcherState === "paused") {
+    return { health: "paused", healthHint: "watcher paused — resume to track changes" };
+  }
+  if (input.files === 0 && input.lastIndexed === null) {
+    return {
+      health: "never-indexed",
+      healthHint:
+        "watcher only catches changes — click recrawl to populate the index from existing files",
+    };
+  }
+  if (input.files === 0) {
+    return {
+      health: "empty",
+      healthHint: "0 files matched the filter — check .loctxignore / .gitignore / language config",
+    };
+  }
+  if (input.errors > 0) {
+    return {
+      health: "errors",
+      healthHint: `${input.errors} file(s) failed to index — recrawl to retry`,
+    };
+  }
+  if (input.watcherState === "active") {
+    return { health: "active", healthHint: "watching + indexed" };
+  }
+  return {
+    health: "ready",
+    healthHint: "indexed (no live watcher; daemon was started with --no-watch)",
+  };
 }
 
 /**
