@@ -83,6 +83,10 @@ export class WatcherService {
   private mainSub: ParcelSubscription | null = null;
   private gitInfoSub: ParcelSubscription | null = null;
   private rulesPending: NodeJS.Timeout | null = null;
+  // Keep the parcel subscription alive when paused — restarting it on
+  // every resume would lose buffered events and re-pay the kernel
+  // setup cost. Pausing only short-circuits dispatch.
+  private paused = false;
   private readonly debounceMs: number;
   private readonly ignored: ReadonlyArray<string>;
   private readonly onEvent: (event: WatchEvent, relPath: string) => void;
@@ -145,6 +149,24 @@ export class WatcherService {
         }
       });
     }
+  }
+
+  /**
+   * Suspend dispatch. Already-debounced events drain through their
+   * timers and are dropped at `dispatch()` once paused. Underlying
+   * parcel subscription remains active so resume() picks up the next
+   * incoming event without restart cost.
+   */
+  pause(): void {
+    this.paused = true;
+  }
+
+  resume(): void {
+    this.paused = false;
+  }
+
+  isPaused(): boolean {
+    return this.paused;
   }
 
   async stop(): Promise<void> {
@@ -226,6 +248,7 @@ export class WatcherService {
   }
 
   private async dispatch(event: WatchEvent, absPath: string): Promise<void> {
+    if (this.paused) return;
     if (this.inflight.has(absPath)) {
       this.schedule(event, absPath);
       return;

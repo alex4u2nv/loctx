@@ -1,14 +1,20 @@
 import {
   type Config,
   type Project,
+  type ProjectId,
   StateStore,
+  type WatcherRegistry,
   WorkspaceDiscovery,
   inventoryProjects,
 } from "@loctx/core";
 import type { Hono } from "hono";
 import type { OrphanRow, ProjectsPayload, ProjectsRow } from "../../shared/contracts.js";
 
-export function mountProjects(app: Hono, config: Config): void {
+export function mountProjects(
+  app: Hono,
+  config: Config,
+  watcherRegistry: WatcherRegistry | undefined,
+): void {
   app.get("/api/projects", (c) => {
     const discovery = new WorkspaceDiscovery(config.workspaceRoots);
     const state = new StateStore(config.paths.stateDb);
@@ -28,6 +34,8 @@ export function mountProjects(app: Hono, config: Config): void {
           .map((f) => f.indexedAt)
           .sort()
           .at(-1);
+        const watcherEntry =
+          watcherRegistry !== undefined ? watcherRegistry.get(project.id as ProjectId) : null;
         return {
           id: project.id,
           name: project.name,
@@ -39,6 +47,8 @@ export function mountProjects(app: Hono, config: Config): void {
           errors,
           lastIndexed: lastIndexed ?? null,
           lastReconciled,
+          watcher: watcherEntry !== null ? watcherEntry.state : null,
+          watcherFailure: watcherEntry !== null ? watcherEntry.failureReason : null,
         };
       };
 

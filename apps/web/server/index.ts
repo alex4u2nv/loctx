@@ -9,7 +9,13 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { type Config, type Runtime, buildRuntime, loadConfig } from "@loctx/core";
+import {
+  type Config,
+  type Runtime,
+  type WatcherRegistry,
+  buildRuntime,
+  loadConfig,
+} from "@loctx/core";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { mountApi } from "./api/index.js";
@@ -24,6 +30,12 @@ export interface CreateWebAppOptions {
    * test harnesses that don't carry a daemon).
    */
   readonly runtime?: Runtime;
+  /**
+   * Watcher registry from the daemon. When omitted, watcher endpoints
+   * report an empty list and refuse pause/resume — the daemon was
+   * started with --no-watch.
+   */
+  readonly watcherRegistry?: WatcherRegistry;
   /**
    * Absolute path to the built SPA directory (`dist/client`). When set, we
    * serve static files and SPA fallback. When omitted, only /api and /mcp
@@ -45,7 +57,7 @@ export function createWebApp(opts: CreateWebAppOptions): Hono {
     return lazyRuntime;
   };
 
-  mountApi(app, opts.config, getRuntime);
+  mountApi(app, opts.config, getRuntime, opts.watcherRegistry);
   mountMcp(app, getRuntime);
 
   if (opts.staticDir !== undefined && existsSync(opts.staticDir)) {
