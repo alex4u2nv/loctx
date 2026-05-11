@@ -61,4 +61,62 @@ describe("combinedGitignore", () => {
     expect(spec?.ignores("scratch.tmp")).toBe(true); // from .loctxignore
     expect(spec?.ignores("README.md")).toBe(false);
   });
+
+  it("honours .cursorignore and .aiderignore at the project root", () => {
+    writeFileSync(join(root, ".cursorignore"), "secrets/\n", "utf-8");
+    writeFileSync(join(root, ".aiderignore"), "private/\n", "utf-8");
+    const spec = combinedGitignore(root);
+    expect(spec?.ignores("secrets/api-key")).toBe(true);
+    expect(spec?.ignores("private/notes.md")).toBe(true);
+    expect(spec?.ignores("src/app.ts")).toBe(false);
+  });
+
+  it("honours .ignore (universal cross-tool form)", () => {
+    writeFileSync(join(root, ".ignore"), "*.bak\n", "utf-8");
+    const spec = combinedGitignore(root);
+    expect(spec?.ignores("notes.bak")).toBe(true);
+  });
+
+  it("honours nested .gitignore scoped to its subdirectory", () => {
+    writeFileSync(join(root, ".gitignore"), "*.log\n", "utf-8");
+    mkdirSync(join(root, "frontend"), { recursive: true });
+    writeFileSync(join(root, "frontend", ".gitignore"), "test-results/\n", "utf-8");
+
+    const spec = combinedGitignore(root);
+    // Root-level pattern still works.
+    expect(spec?.ignores("debug.log")).toBe(true);
+    // Nested rule scoped to frontend/.
+    expect(spec?.ignores("frontend/test-results/run.json")).toBe(true);
+    // Same dir name OUTSIDE frontend must NOT be ignored — that would
+    // be the bug we're fixing (root-level merge would incorrectly
+    // apply nested rules workspace-wide).
+    expect(spec?.ignores("backend/test-results/run.json")).toBe(false);
+    expect(spec?.ignores("test-results/run.json")).toBe(false);
+  });
+
+  it("nested .cursorignore scopes to its subdirectory too", () => {
+    mkdirSync(join(root, "apps", "web"), { recursive: true });
+    writeFileSync(join(root, "apps", "web", ".cursorignore"), "fixtures/\n", "utf-8");
+    const spec = combinedGitignore(root);
+    expect(spec?.ignores("apps/web/fixtures/big.json")).toBe(true);
+    expect(spec?.ignores("apps/api/fixtures/big.json")).toBe(false);
+  });
+
+  it("skips noisy directories (node_modules) when discovering nested rule files", () => {
+    mkdirSync(join(root, "node_modules", "foo"), { recursive: true });
+    // A .gitignore deep inside node_modules should NOT load — we'd
+    // burn cycles indexing thousands of dep dirs otherwise.
+    writeFileSync(
+      join(root, "node_modules", "foo", ".gitignore"),
+      "this-should-not-load\n",
+      "utf-8",
+    );
+    writeFileSync(join(root, ".gitignore"), "*.log\n", "utf-8");
+    const spec = combinedGitignore(root);
+    expect(spec?.ignores("debug.log")).toBe(true);
+    // The pattern from node_modules/foo/.gitignore should not apply
+    // outside node_modules. (Inside node_modules it doesn't matter; the
+    // baseline filter ignores node_modules anyway.)
+    expect(spec?.ignores("src/this-should-not-load")).toBe(false);
+  });
 });
