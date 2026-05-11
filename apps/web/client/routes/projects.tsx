@@ -1,4 +1,4 @@
-import type { OrphanRow, ProjectsRow, WatcherState } from "@shared/contracts";
+import type { OrphanRow, ProjectHealth, ProjectsRow } from "@shared/contracts";
 import { Icon, type IconName } from "../components/icon";
 import { api } from "../lib/api";
 import { applyHomeAbbrev, compressPath, relativeTime } from "../lib/format";
@@ -134,7 +134,7 @@ function ProjectsTable({
   actions?: RowActions;
   busy?: string | null;
 }) {
-  const cols = ["project", "watcher", "indexed", "activity"];
+  const cols = ["project", "status", "indexed", "activity"];
   if (showReason) cols.push("reason");
   if (actions !== undefined) cols.push("actions");
 
@@ -168,7 +168,7 @@ function ProjectsTable({
                 </div>
               </td>
               <td>
-                <WatcherBadge state={row.watcher} failure={row.watcherFailure} />
+                <HealthBadge health={row.health} hint={row.healthHint} />
               </td>
               <td>
                 <div className="num">{row.files} files</div>
@@ -211,24 +211,29 @@ function ProjectsTable({
   );
 }
 
-function WatcherBadge({
-  state,
-  failure,
-}: {
-  state: WatcherState | null;
-  failure: string | null;
-}) {
-  if (state === null) return <span className="dim">—</span>;
-  const cls =
-    state === "active" ? "dot dot-ok" : state === "paused" ? "dot dot-warn" : "dot dot-bad";
-  const iconName: IconName = state === "active" ? "play" : state === "paused" ? "pause" : "warn";
+function HealthBadge({ health, hint }: { health: ProjectHealth; hint: string }) {
+  const meta = HEALTH_META[health];
   return (
-    <span className={cls} title={failure ?? undefined}>
-      <Icon name={iconName} />
-      <span>{state}</span>
+    <span className={`dot ${meta.cls}`} title={hint}>
+      <Icon name={meta.icon} />
+      <span>{meta.label}</span>
     </span>
   );
 }
+
+const HEALTH_META: Record<
+  ProjectHealth,
+  { readonly icon: IconName; readonly cls: string; readonly label: string }
+> = {
+  active: { icon: "play", cls: "dot-ok", label: "active" },
+  ready: { icon: "ok", cls: "dot-ok", label: "ready" },
+  paused: { icon: "pause", cls: "dot-warn", label: "paused" },
+  "never-indexed": { icon: "warn", cls: "dot-warn", label: "never indexed" },
+  empty: { icon: "warn", cls: "dot-warn", label: "no matched files" },
+  errors: { icon: "warn", cls: "dot-warn", label: "errors" },
+  failed: { icon: "err", cls: "dot-bad", label: "failed" },
+  orphaned: { icon: "err", cls: "dot-bad", label: "orphaned" },
+};
 
 function RowActionButtons({
   row,
