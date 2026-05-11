@@ -211,20 +211,32 @@ function ProjectsTable({
   );
 }
 
-function HealthBadge({ health, hint }: { health: ProjectHealth; hint: string }) {
-  const meta = HEALTH_META[health];
+function HealthBadge({
+  health,
+  hint,
+}: {
+  health: ProjectHealth | null | undefined;
+  hint: string | null | undefined;
+}) {
+  // Defensive: a daemon on an older build can return rows without
+  // `health`. Fall back to a neutral badge rather than crashing the
+  // page when the meta lookup misses.
+  const meta = (health !== null && health !== undefined && HEALTH_META[health]) || HEALTH_FALLBACK;
   return (
-    <span className={`dot ${meta.cls}`} title={hint}>
+    <span className={`dot ${meta.cls}`} title={hint ?? undefined}>
       <Icon name={meta.icon} />
       <span>{meta.label}</span>
     </span>
   );
 }
 
-const HEALTH_META: Record<
-  ProjectHealth,
-  { readonly icon: IconName; readonly cls: string; readonly label: string }
-> = {
+interface HealthMeta {
+  readonly icon: IconName;
+  readonly cls: string;
+  readonly label: string;
+}
+
+const HEALTH_META: Record<ProjectHealth, HealthMeta> = {
   active: { icon: "play", cls: "dot-ok", label: "active" },
   ready: { icon: "ok", cls: "dot-ok", label: "ready" },
   paused: { icon: "pause", cls: "dot-warn", label: "paused" },
@@ -234,6 +246,8 @@ const HEALTH_META: Record<
   failed: { icon: "err", cls: "dot-bad", label: "failed" },
   orphaned: { icon: "err", cls: "dot-bad", label: "orphaned" },
 };
+
+const HEALTH_FALLBACK: HealthMeta = { icon: "warn", cls: "dot-warn", label: "unknown" };
 
 function RowActionButtons({
   row,
