@@ -21,7 +21,7 @@ describe("loadConfig precedence chain", () => {
     const config = loadConfig({ configPath, cwd: tmp });
     expect(config.embedding.model).toBe("Xenova/all-MiniLM-L6-v2");
     expect(config.daemon.port).toBe(3000);
-    expect(config.daemon.hostname).toBe("localhost");
+    expect(config.daemon.hostname).toBe("127.0.0.1");
     expect(config.watcher.debounceMs).toBe(500);
     expect(config.source).toBeNull();
     expect(config.projectSource).toBeNull();
@@ -38,7 +38,7 @@ describe("loadConfig precedence chain", () => {
     expect(config.sources["daemon.port"]).toBe("global");
     expect(config.sources["embedding.model"]).toBe("global");
     // Defaults still apply for unset keys.
-    expect(config.daemon.hostname).toBe("localhost");
+    expect(config.daemon.hostname).toBe("127.0.0.1");
     expect(config.sources["daemon.hostname"]).toBe("default");
   });
 
