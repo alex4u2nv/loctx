@@ -74,6 +74,19 @@ export const api = {
       "/api/reset/project",
       { path },
     ),
+  activateProject: (path: string) =>
+    postJson<{
+      ok: true;
+      project: { id: string; name: string; root: string };
+      indexed: number;
+      skipped: number;
+      failed: number;
+    }>("/api/projects/activate", { path }),
+  deactivateProject: (path: string) =>
+    postJson<{ ok: true; project: { id: string; name: string; root: string } }>(
+      "/api/projects/deactivate",
+      { path },
+    ),
   restart: () =>
     postJson<{ ok: true; stopped: number; message: string }>("/api/restart", {}),
   stop: () => postJson<{ ok: true; stopped: number }>("/api/stop", {}),

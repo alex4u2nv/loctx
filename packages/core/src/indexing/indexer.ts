@@ -74,7 +74,11 @@ export class ProjectIndexer {
   // ---- public --------------------------------------------------------
 
   async indexProject(project: Project): Promise<IndexSummary> {
-    this.state.upsertProject(project);
+    // Indexing implies activation: if the caller is invoking indexProject,
+    // the project should appear in the active inventory bucket so future
+    // daemon runs include it. Preserves active=true for projects that were
+    // already active.
+    this.state.upsertProjectWithActive(project, true);
     const filter = this.filterFactory(project);
     const started = performance.now();
 

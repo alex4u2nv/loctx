@@ -22,7 +22,7 @@ import {
 } from "../models.js";
 import { loadQueries } from "../sql/loader.js";
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const QUERIES = loadQueries("../sql/state.sql", import.meta.url);
 
@@ -185,8 +185,9 @@ export class StateStore {
     return stmt;
   }
 
-  private write(name: string, params: ReadonlyArray<unknown> = []): void {
-    this.prepare(name).run(...params);
+  private write(name: string, params: ReadonlyArray<unknown> = []): { changes: number } {
+    const result = this.prepare(name).run(...params);
+    return { changes: typeof result.changes === "number" ? result.changes : 0 };
   }
 
   private readOne<T>(name: string, params: ReadonlyArray<unknown> = []): T | undefined {
@@ -239,6 +240,17 @@ export class StateStore {
       this.db.exec(schemaV5);
     }
 
+    if (current < 6) {
+      const schemaV6 = QUERIES["schema_v6"];
+      if (schemaV6 === undefined) throw new Error("Missing schema_v6 in state.sql");
+      // schema_v6 adds `projects.active`. Same SQLite gotcha as v4:
+      // skip the ALTER when the column already exists (test sandbox
+      // walks user_version backwards between cases).
+      if (!this.columnExists("projects", "active")) {
+        this.db.exec(schemaV6);
+      }
+    }
+
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
@@ -261,12 +273,20 @@ export class StateStore {
   }
 
   /**
-   * Every project ever indexed in this store, ordered by root path.
+   * Every project ever known to this store, ordered by root path.
    * `lastIndexedAt` is null when the project row exists but has not been
    * marked indexed (e.g. discovered then aborted).
+   *
+   * `active` distinguishes user-activated projects from inactive ones
+   * (discovered but never opted in). Pre-v6 rows migrate to active=1;
+   * new rows default to active=0 until `setProjectActive(id, true)`.
    */
   listProjects(): Array<
-    Project & { readonly lastIndexedAt: string | null; readonly lastReconciledAt: string | null }
+    Project & {
+      readonly lastIndexedAt: string | null;
+      readonly lastReconciledAt: string | null;
+      readonly active: boolean;
+    }
   > {
     type Row = {
       id: string;
@@ -274,6 +294,7 @@ export class StateStore {
       root: string;
       last_indexed_at: string | null;
       last_reconciled_at: string | null;
+      active: number;
     };
     return this.readAll<Row>("list_projects").map((r) => ({
       id: toProjectId(r.id),
@@ -281,6 +302,7 @@ export class StateStore {
       root: r.root,
       lastIndexedAt: r.last_indexed_at,
       lastReconciledAt: r.last_reconciled_at,
+      active: r.active !== 0,
     }));
   }
 
@@ -290,6 +312,26 @@ export class StateStore {
 
   markProjectReconciled(id: ProjectId, at: Date = new Date()): void {
     this.write("mark_project_reconciled", [at.toISOString(), id]);
+  }
+
+  /**
+   * Flip the active flag for an existing project row. Returns true when
+   * a row was updated, false when the project id didn't exist (caller
+   * should upsert first if it wants to activate a brand-new project).
+   */
+  setProjectActive(id: ProjectId, active: boolean): boolean {
+    const r = this.write("set_project_active", [active ? 1 : 0, id]);
+    return r.changes > 0;
+  }
+
+  /**
+   * Upsert a project and stamp its active state in one go. Used by
+   * `loctx activate <path>` and the `/api/projects/activate` endpoint
+   * — both want a newly-discovered project to materialise + activate
+   * atomically.
+   */
+  upsertProjectWithActive(project: Project, active: boolean): void {
+    this.write("upsert_project_active", [project.id, project.name, project.root, active ? 1 : 0]);
   }
 
   /**

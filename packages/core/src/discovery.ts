@@ -287,7 +287,7 @@ function isFile(path: string): boolean {
   }
 }
 
-// ---- active vs orphaned categorization ---------------------------------
+// ---- active / inactive / orphaned categorization -----------------------
 
 export interface ActiveProject {
   readonly project: Project;
@@ -296,6 +296,19 @@ export interface ActiveProject {
   /** Marker filename/dirname that identified this directory as a project. */
   readonly marker: string;
   readonly markerKind: MarkerKind;
+}
+
+/**
+ * Discovered under `workspace_roots` but the user hasn't activated it.
+ * Indexer/watcher/reconciler skip these; UI surfaces them with an
+ * "Activate" affordance.
+ */
+export interface InactiveProject {
+  readonly project: Project;
+  readonly marker: string;
+  readonly markerKind: MarkerKind;
+  /** True when a state row already exists with active=0 (vs. never recorded). */
+  readonly known: boolean;
 }
 
 export interface OrphanedProject {
@@ -314,21 +327,23 @@ export interface OrphanedProject {
 
 export interface ProjectInventory {
   readonly active: ReadonlyArray<ActiveProject>;
+  readonly inactive: ReadonlyArray<InactiveProject>;
   readonly orphaned: ReadonlyArray<OrphanedProject>;
 }
 
 /**
- * Split every project the StateStore knows about into "active" (currently
- * discoverable under `workspace_roots`) and "orphaned" (still queryable —
- * the rows live in SQLite + LanceDB — but no longer maintained).
+ * Categorise every project the daemon knows about into three buckets:
  *
- * Orphaned reasons:
- *   - "outside-roots" — workspace_roots changed; the project root sits
- *     outside everything we now scan.
- *   - "missing"        — the recorded root no longer exists on disk.
- *
- * Search and reset commands still operate on orphaned projects; only
- * watching and re-indexing skip them.
+ *   - **active**: discovered under `workspace_roots` AND has a state row
+ *     with `active=1`. These are the ones the indexer / watcher /
+ *     reconciler operate on.
+ *   - **inactive**: discovered AND (no state row OR `active=0`). User
+ *     hasn't opted in yet; they show up in the UI with an "Activate"
+ *     button.
+ *   - **orphaned**: in state but no longer discoverable. Either
+ *     `workspace_roots` shrank ("outside-roots") or the directory was
+ *     deleted on disk ("missing"). Search still hits these; nothing
+ *     else does.
  */
 export function inventoryProjects(
   discovery: WorkspaceDiscovery,
@@ -339,16 +354,28 @@ export function inventoryProjects(
   const discovered = discovery.discoverWithMarkers();
   const discoveredIds = new Set(discovered.map((h) => h.project.id));
 
-  const active: ActiveProject[] = discovered.map((hit) => {
+  const active: ActiveProject[] = [];
+  const inactive: InactiveProject[] = [];
+
+  for (const hit of discovered) {
     const r = recordedById.get(hit.project.id);
-    return {
-      project: hit.project,
-      lastIndexedAt: r?.lastIndexedAt ?? null,
-      lastReconciledAt: r?.lastReconciledAt ?? null,
-      marker: hit.marker,
-      markerKind: hit.markerKind,
-    };
-  });
+    if (r?.active) {
+      active.push({
+        project: hit.project,
+        lastIndexedAt: r.lastIndexedAt,
+        lastReconciledAt: r.lastReconciledAt,
+        marker: hit.marker,
+        markerKind: hit.markerKind,
+      });
+    } else {
+      inactive.push({
+        project: hit.project,
+        marker: hit.marker,
+        markerKind: hit.markerKind,
+        known: r !== undefined,
+      });
+    }
+  }
 
   const orphaned: OrphanedProject[] = recorded
     .filter((r) => !discoveredIds.has(r.id))
@@ -364,7 +391,12 @@ export function inventoryProjects(
     })
     // Stable ordering: orphaned by root path.
     .sort((a, b) => a.project.root.localeCompare(b.project.root));
-  return Object.freeze({ active: Object.freeze(active), orphaned: Object.freeze(orphaned) });
+
+  return Object.freeze({
+    active: Object.freeze(active),
+    inactive: Object.freeze(inactive),
+    orphaned: Object.freeze(orphaned),
+  });
 }
 
 // ---- helpers -----------------------------------------------------------
