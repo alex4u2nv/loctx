@@ -50,7 +50,7 @@ export interface ProjectStatusEntry {
    * "orphaned": data still in SQLite + LanceDB and search hits return; no
    * longer maintained because workspace_roots changed or the root moved.
    */
-  readonly status: "active" | "orphaned";
+  readonly status: "active" | "inactive" | "orphaned";
   /** Only set on orphaned entries. */
   readonly orphanReason?: "outside-roots" | "missing";
   readonly lastIndexedAt: string | null;
@@ -151,6 +151,18 @@ export const tools = {
           lastReconciledAt: a.lastReconciledAt,
           marker: a.marker,
           markerKind: a.markerKind,
+        }),
+      ),
+      ...inventory.inactive.map(
+        (i): ProjectStatusEntry => ({
+          id: i.project.id,
+          name: i.project.name,
+          root: i.project.root,
+          status: "inactive",
+          lastIndexedAt: null,
+          lastReconciledAt: null,
+          marker: i.marker,
+          markerKind: i.markerKind,
         }),
       ),
       ...inventory.orphaned.map(

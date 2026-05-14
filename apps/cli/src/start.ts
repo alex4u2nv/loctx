@@ -24,6 +24,7 @@ import {
   acquireDaemonLock,
   buildRuntime,
   checkNofile,
+  inventoryProjects,
   nofileBumpHint,
   stopActiveDaemon,
 } from "@loctx/core";
@@ -55,16 +56,30 @@ export async function start(config: Config, options: StartOptions): Promise<void
     throw err;
   }
 
-  const projects = runtime.discovery.discoverProjects();
+  const discoveredProjects = runtime.discovery.discoverProjects();
+  // Project activation gate: indexer / watcher / reconciler only operate
+  // on user-activated projects. Discovered-but-inactive projects appear
+  // in the admin UI with an Activate affordance.
+  const inventory = inventoryProjects(runtime.discovery, runtime.state);
+  const activeProjects: Project[] = inventory.active.map((a) => a.project);
 
-  if (projects.length === 0) {
+  if (discoveredProjects.length === 0) {
     console.error(
       "[loctx start] no projects found under configured workspace_roots; " +
         "the watcher and admin UI will run but stay empty until projects are added.",
     );
+  } else if (activeProjects.length === 0) {
+    console.error(
+      `[loctx start] ${discoveredProjects.length} project(s) discovered, none activated. Visit the /projects page or run \`loctx activate <path>\` to opt one in.`,
+    );
+  } else if (activeProjects.length < discoveredProjects.length) {
+    const inactive = discoveredProjects.length - activeProjects.length;
+    console.error(
+      `[loctx start] ${activeProjects.length} active, ${inactive} inactive — see /projects to activate more.`,
+    );
   }
 
-  if (options.enableWatch) warnIfNofileLow(projects.length);
+  if (options.enableWatch) warnIfNofileLow(activeProjects.length);
 
   // Only build a registry when the watcher is actually running. The web
   // server uses `registry === undefined` to short-circuit pause/resume
@@ -72,7 +87,7 @@ export async function start(config: Config, options: StartOptions): Promise<void
   const watcherRegistry = options.enableWatch ? new WatcherRegistry() : undefined;
   const watchers =
     options.enableWatch && watcherRegistry !== undefined
-      ? await startWatchers(runtime, projects, config, watcherRegistry)
+      ? await startWatchers(runtime, activeProjects, config, watcherRegistry)
       : [];
 
   // Reconciliation (#14): catch up after the daemon was offline. We kick
@@ -80,7 +95,7 @@ export async function start(config: Config, options: StartOptions): Promise<void
   // doesn't wait on a long full-corpus walk; the watcher is already
   // catching live events. The periodic timer drifts indefinitely until
   // shutdown.
-  const reconciliationStop = startReconciliation(runtime, projects, config);
+  const reconciliationStop = startReconciliation(runtime, activeProjects, config);
   const httpStop = options.enableWeb
     ? await startWeb(config, options, runtime, watcherRegistry)
     : async () => {
@@ -88,7 +103,7 @@ export async function start(config: Config, options: StartOptions): Promise<void
       };
 
   const banner = [
-    `[loctx start] runtime ready (${projects.length} projects, ${runtime.config.embedding.model})`,
+    `[loctx start] runtime ready (${activeProjects.length} active of ${discoveredProjects.length} discovered, ${runtime.config.embedding.model})`,
     options.enableWeb
       ? `[loctx start] admin UI:    http://${config.daemon.hostname}:${config.daemon.port}/`
       : null,

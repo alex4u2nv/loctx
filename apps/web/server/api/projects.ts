@@ -1,15 +1,19 @@
 import { homedir } from "node:os";
+import { resolve } from "node:path";
 import {
   type Config,
   type Project,
   type ProjectId,
+  type Runtime,
   StateStore,
   type WatcherRegistry,
   WorkspaceDiscovery,
   inventoryProjects,
+  makeProject,
 } from "@loctx/core";
 import type { Hono } from "hono";
 import type {
+  InactiveRow,
   OrphanRow,
   ProjectHealth,
   ProjectsPayload,
@@ -21,6 +25,7 @@ export function mountProjects(
   app: Hono,
   config: Config,
   watcherRegistry: WatcherRegistry | undefined,
+  getRuntime: () => Promise<Runtime>,
 ): void {
   app.get("/api/projects", (c) => {
     const discovery = new WorkspaceDiscovery(config.workspaceRoots);
@@ -74,6 +79,14 @@ export function mountProjects(
       const active = inventory.active.map((a) =>
         buildRow(a.project, a.lastReconciledAt, a.marker, a.markerKind),
       );
+      const inactive: InactiveRow[] = inventory.inactive.map((i) => ({
+        id: i.project.id,
+        name: i.project.name,
+        root: i.project.root,
+        marker: i.marker,
+        markerKind: i.markerKind,
+        known: i.known,
+      }));
       const orphaned: OrphanRow[] = inventory.orphaned.map((o) => ({
         ...buildRow(o.project, o.lastReconciledAt, null, null, true),
         reason: o.reason,
@@ -82,14 +95,48 @@ export function mountProjects(
 
       const payload: ProjectsPayload = {
         active,
+        inactive,
         orphaned,
-        commonRoot: longestCommonPrefix(active.map((a) => a.root)),
+        commonRoot: longestCommonPrefix([
+          ...active.map((a) => a.root),
+          ...inactive.map((i) => i.root),
+        ]),
         homeDir: homedir(),
       };
       return c.json(payload);
     } finally {
       state.close();
     }
+  });
+
+  app.post("/api/projects/activate", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { path?: string } | null;
+    const path = body?.path?.trim() ?? "";
+    if (path === "") return c.json({ error: "path required" }, 400);
+    const project = makeProject(resolve(path));
+    const rt = await getRuntime();
+    rt.state.upsertProjectWithActive(project, true);
+    // Kick off an initial index pass so the user sees data right
+    // away rather than having to follow up with `loctx index`.
+    const summary = await rt.indexer.indexProject(project);
+    return c.json({
+      ok: true,
+      project: { id: project.id, name: project.name, root: project.root },
+      indexed: summary.indexed,
+      skipped: summary.skipped,
+      failed: summary.failed,
+    });
+  });
+
+  app.post("/api/projects/deactivate", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { path?: string } | null;
+    const path = body?.path?.trim() ?? "";
+    if (path === "") return c.json({ error: "path required" }, 400);
+    const project = makeProject(resolve(path));
+    const rt = await getRuntime();
+    const ok = rt.state.setProjectActive(project.id, false);
+    if (!ok) return c.json({ error: "no such project" }, 404);
+    return c.json({ ok: true, project: { id: project.id, name: project.name, root: project.root } });
   });
 }
 

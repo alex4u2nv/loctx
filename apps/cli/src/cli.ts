@@ -9,6 +9,7 @@ import {
   ConfigError,
   DaemonLockHeldError,
   NoDaemonError,
+  type Project,
   SearcherError,
   StateStore,
   WatcherService,
@@ -74,14 +75,35 @@ function getCtx(): CliContext {
 
 program
   .command("index [path]")
-  .description("Index a project (or all configured workspace roots if PATH is omitted).")
+  .description(
+    "Index a project (or every active project if PATH is omitted). " +
+      "An explicit PATH also activates the project — `loctx index <path>` is the " +
+      "one-step opt-in for newly-discovered projects.",
+  )
   .action(async (path?: string) => {
     const ctx = getCtx();
     const config = loadConfigOrFail(ctx);
     const runtime = await buildRuntime(config);
     try {
-      const projects =
-        path !== undefined ? [makeProject(resolve(path))] : runtime.discovery.discoverProjects();
+      let projects: Project[];
+      if (path !== undefined) {
+        // Explicit path: index it, and activate it as a side effect so
+        // future `loctx index` / daemon runs include it automatically.
+        const project = makeProject(resolve(path));
+        runtime.state.upsertProjectWithActive(project, true);
+        projects = [project];
+      } else {
+        // No path: index only currently-active projects. Discovered-but-
+        // inactive ones stay alone until the user opts in.
+        const inv = inventoryProjects(runtime.discovery, runtime.state);
+        projects = inv.active.map((a) => a.project);
+        if (projects.length === 0 && inv.inactive.length > 0) {
+          console.error(
+            `No active projects. ${inv.inactive.length} discovered but inactive — run \`loctx activate <path>\` to opt one in.`,
+          );
+          process.exit(1);
+        }
+      }
       if (projects.length === 0) {
         console.error("No projects found. Pass an explicit PATH or configure workspace_roots.");
         process.exit(1);
@@ -104,6 +126,66 @@ program
       }
     } finally {
       await runtime.close();
+    }
+  });
+
+// ---- activate / deactivate ---------------------------------------------
+
+program
+  .command("activate <path>")
+  .description("Opt a discovered project into indexing + watching. Runs an initial index pass.")
+  .action(async (path: string) => {
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    const lock = readActiveDaemon(config.paths.dataDir);
+    if (lock !== null) {
+      const client = daemonClient(config.paths.dataDir);
+      await client.post("/api/projects/activate", { path: resolve(path) });
+      console.error(`[loctx activate] ${resolve(path)} — activated via daemon`);
+      return;
+    }
+    const runtime = await buildRuntime(config);
+    try {
+      const project = makeProject(resolve(path));
+      runtime.state.upsertProjectWithActive(project, true);
+      console.error(`[loctx activate] ${project.name} (${project.root})`);
+      const summary = await runtime.indexer.indexProject(project);
+      console.error(
+        `[loctx activate] initial index: indexed=${summary.indexed} skipped=${summary.skipped} failed=${summary.failed}`,
+      );
+    } finally {
+      await runtime.close();
+    }
+  });
+
+program
+  .command("deactivate <path>")
+  .description(
+    "Stop indexing + watching a project. Indexed data stays (use `loctx purge` to remove).",
+  )
+  .action(async (path: string) => {
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    const lock = readActiveDaemon(config.paths.dataDir);
+    if (lock !== null) {
+      const client = daemonClient(config.paths.dataDir);
+      await client.post("/api/projects/deactivate", { path: resolve(path) });
+      console.error(`[loctx deactivate] ${resolve(path)} — deactivated via daemon`);
+      return;
+    }
+    const state = new StateStore(config.paths.stateDb);
+    try {
+      const project = makeProject(resolve(path));
+      const ok = state.setProjectActive(project.id, false);
+      if (!ok) {
+        console.error(
+          `[loctx deactivate] no state row for ${project.root} — nothing to deactivate.`,
+        );
+        process.exit(1);
+      }
+      console.error(`[loctx deactivate] ${project.name} (${project.root})`);
+    } finally {
+      state.close();
     }
   });
 

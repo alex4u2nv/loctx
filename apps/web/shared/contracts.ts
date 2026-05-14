@@ -92,8 +92,24 @@ export interface OrphanRow extends ProjectsRow {
   readonly rootExists: boolean;
 }
 
+/**
+ * Discovered under `workspace_roots` but the user hasn't activated it
+ * (or has explicitly deactivated it). UI surfaces these with an
+ * Activate button; indexer / watcher / reconciler skip them.
+ */
+export interface InactiveRow {
+  readonly id: string;
+  readonly name: string;
+  readonly root: string;
+  readonly marker: string | null;
+  readonly markerKind: string | null;
+  /** True when a state row already exists with active=0; false for never-recorded projects. */
+  readonly known: boolean;
+}
+
 export interface ProjectsPayload {
   readonly active: ReadonlyArray<ProjectsRow>;
+  readonly inactive: ReadonlyArray<InactiveRow>;
   readonly orphaned: ReadonlyArray<OrphanRow>;
   /**
    * Longest common directory prefix shared by every active row's `root`,

@@ -124,6 +124,15 @@ CREATE TABLE IF NOT EXISTS file_enrichments (
 CREATE INDEX IF NOT EXISTS idx_file_enrichments_analyzer
     ON file_enrichments(analyzer);
 
+-- :name schema_v6
+-- Project activation. Discovery still walks workspace_roots and finds
+-- every project marker, but the indexer / watcher / reconciler only
+-- operate on rows where active=1. New projects default to inactive;
+-- existing rows migrate to active=1 to preserve behaviour for users
+-- who already had their workspace indexed.
+ALTER TABLE projects ADD COLUMN active INTEGER NOT NULL DEFAULT 0;
+UPDATE projects SET active = 1;
+
 -- :name pragma_enable_foreign_keys
 PRAGMA foreign_keys = ON;
 
@@ -144,7 +153,18 @@ ON CONFLICT(id) DO UPDATE SET
 SELECT id, name, root FROM projects WHERE id = ?;
 
 -- :name list_projects
-SELECT id, name, root, last_indexed_at, last_reconciled_at FROM projects ORDER BY root;
+SELECT id, name, root, last_indexed_at, last_reconciled_at, active FROM projects ORDER BY root;
+
+-- :name set_project_active
+UPDATE projects SET active = ? WHERE id = ?;
+
+-- :name upsert_project_active
+INSERT INTO projects (id, name, root, active)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    name = excluded.name,
+    root = excluded.root,
+    active = excluded.active;
 
 -- :name mark_project_indexed
 UPDATE projects SET last_indexed_at = ? WHERE id = ?;

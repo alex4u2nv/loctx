@@ -26,18 +26,46 @@ function fakeProjectAt(root: string, name = "proj"): Project {
 }
 
 describe("inventoryProjects", () => {
-  it("classifies a project under workspace_roots as active", () => {
+  it("classifies a discovered-but-not-activated project as inactive", () => {
     const root = join(tmp, "alpha");
     fakeProjectAt(root, "alpha");
     const inv = inventoryProjects(new WorkspaceDiscovery([tmp]), state);
-    expect(inv.active.map((a) => a.project.name)).toContain("alpha");
+    expect(inv.active).toHaveLength(0);
+    expect(inv.inactive.map((i) => i.project.name)).toContain("alpha");
+    expect(inv.inactive[0]?.known).toBe(false);
     expect(inv.orphaned).toHaveLength(0);
+  });
+
+  it("classifies an activated project as active", () => {
+    const root = join(tmp, "alpha");
+    fakeProjectAt(root, "alpha");
+    const discovered = makeProject(root);
+    state.upsertProjectWithActive(discovered, true);
+
+    const inv = inventoryProjects(new WorkspaceDiscovery([tmp]), state);
+    expect(inv.active.map((a) => a.project.name)).toContain("alpha");
+    expect(inv.inactive).toHaveLength(0);
+    expect(inv.orphaned).toHaveLength(0);
+  });
+
+  it("classifies a project with active=0 in state as inactive (known)", () => {
+    const root = join(tmp, "alpha");
+    fakeProjectAt(root, "alpha");
+    const discovered = makeProject(root);
+    state.upsertProjectWithActive(discovered, false);
+
+    const inv = inventoryProjects(new WorkspaceDiscovery([tmp]), state);
+    expect(inv.inactive).toHaveLength(1);
+    expect(inv.inactive[0]?.known).toBe(true);
   });
 
   it("classifies a project recorded in state but outside the roots as orphaned", () => {
     const orphanRoot = join(tmp, "stale");
     mkdirSync(orphanRoot, { recursive: true });
-    state.upsertProject({ id: projectId("stale01"), name: "stale", root: orphanRoot });
+    state.upsertProjectWithActive(
+      { id: projectId("stale01"), name: "stale", root: orphanRoot },
+      true,
+    );
 
     // workspace_roots points at a sibling dir that doesn't contain `stale`.
     const sibling = join(tmp, "actively-watched");
@@ -51,7 +79,7 @@ describe("inventoryProjects", () => {
 
   it("flags missing-on-disk roots distinctly", () => {
     const ghost = join(tmp, "ghost-that-does-not-exist");
-    state.upsertProject({ id: projectId("ghost001"), name: "ghost", root: ghost });
+    state.upsertProjectWithActive({ id: projectId("ghost001"), name: "ghost", root: ghost }, true);
     const inv = inventoryProjects(new WorkspaceDiscovery([tmp]), state);
     expect(inv.active).toHaveLength(0);
     expect(inv.orphaned).toHaveLength(1);
@@ -62,9 +90,8 @@ describe("inventoryProjects", () => {
   it("active projects carry forward their lastIndexedAt", () => {
     const root = join(tmp, "alpha");
     fakeProjectAt(root, "alpha");
-    // Insert with the same id discovery will compute (sha1 of canonical root).
     const discovered = makeProject(root);
-    state.upsertProject(discovered);
+    state.upsertProjectWithActive(discovered, true);
     state.markProjectIndexed(discovered.id, new Date("2026-04-01T00:00:00Z"));
 
     const inv = inventoryProjects(new WorkspaceDiscovery([tmp]), state);

@@ -24,7 +24,7 @@ export function mountApi(
   watcherRegistry?: WatcherRegistry,
 ): void {
   mountStatus(app, config);
-  mountProjects(app, config, watcherRegistry);
+  mountProjects(app, config, watcherRegistry, getRuntime);
   mountSearch(app, getRuntime);
   mountEvents(app);
   mountDoctor(app, config);

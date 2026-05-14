@@ -1,4 +1,4 @@
-import type { OrphanRow, ProjectHealth, ProjectsRow } from "@shared/contracts";
+import type { InactiveRow, OrphanRow, ProjectHealth, ProjectsRow } from "@shared/contracts";
 import { Icon, type IconName } from "../components/icon";
 import { api } from "../lib/api";
 import { applyHomeAbbrev, compressPath, relativeTime } from "../lib/format";
@@ -42,6 +42,10 @@ export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
         return Promise.resolve();
       return ops.run(`purge ${name}`, () => api.resetProject(root)).then(() => undefined);
     },
+    activate: (root: string, name: string) =>
+      ops.run(`activate ${name}`, () => api.activateProject(root)).then(() => undefined),
+    deactivate: (root: string, name: string) =>
+      ops.run(`deactivate ${name}`, () => api.deactivateProject(root)).then(() => undefined),
   };
 
   const rootHeader = data.commonRoot !== "" ? applyHomeAbbrev(data.commonRoot, data.homeDir) : null;
@@ -58,6 +62,12 @@ export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
           <>
             <span className="sep">·</span>
             <span className="err">{totals.errors} errors</span>
+          </>
+        ) : null}
+        {data.inactive.length > 0 ? (
+          <>
+            <span className="sep">·</span>
+            {data.inactive.length} inactive
           </>
         ) : null}
         {data.orphaned.length > 0 ? (
@@ -83,10 +93,31 @@ export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
         rows={data.active}
         homeDir={data.homeDir}
         commonRoot={data.commonRoot}
-        emptyMessage="No projects discovered under current workspace_roots."
+        emptyMessage={
+          data.inactive.length > 0
+            ? "No projects activated yet — see Inactive below."
+            : "No projects discovered under current workspace_roots."
+        }
         actions={handlers}
         busy={ops.busy}
       />
+
+      {data.inactive.length > 0 ? (
+        <>
+          <h2>Inactive</h2>
+          <p className="summary">
+            Discovered under <code>workspace_roots</code> but not yet indexed. Activating runs an
+            initial index pass and registers the watcher.
+          </p>
+          <InactiveTable
+            rows={data.inactive}
+            homeDir={data.homeDir}
+            commonRoot={data.commonRoot}
+            onActivate={handlers.activate}
+            busy={ops.busy}
+          />
+        </>
+      ) : null}
 
       {data.orphaned.length > 0 ? (
         <>
@@ -115,6 +146,7 @@ interface RowActions {
   readonly resume?: (id: string, name: string) => Promise<void>;
   readonly recrawl?: (root: string, name: string) => Promise<void>;
   readonly purge?: (root: string, name: string) => Promise<void>;
+  readonly deactivate?: (root: string, name: string) => Promise<void>;
 }
 
 function ProjectsTable({
@@ -293,7 +325,83 @@ function RowActionButtons({
           disabled={isBusy}
         />
       ) : null}
+      {actions.deactivate ? (
+        <IconButton
+          icon="pause"
+          label="deactivate"
+          onClick={() => {
+            if (
+              !window.confirm(
+                `Deactivate ${row.name}? Watcher stops; indexed data stays. Use purge to remove.`,
+              )
+            ) {
+              return;
+            }
+            void actions.deactivate?.(row.root, row.name);
+          }}
+          disabled={isBusy}
+        />
+      ) : null}
     </span>
+  );
+}
+
+function InactiveTable({
+  rows,
+  homeDir,
+  commonRoot,
+  onActivate,
+  busy,
+}: {
+  rows: ReadonlyArray<InactiveRow>;
+  homeDir: string;
+  commonRoot: string;
+  onActivate: (root: string, name: string) => Promise<void>;
+  busy: string | null;
+}) {
+  const isBusy = busy !== null;
+  return (
+    <table className="data-table">
+      <thead>
+        <tr>
+          <th>project</th>
+          <th>marker</th>
+          <th>state</th>
+          <th>actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => {
+          const displayPath = compressPath(row.root, homeDir, commonRoot);
+          return (
+            <tr key={row.id}>
+              <td>
+                <div title={`${row.id} · ${row.root}`}>
+                  <strong>{row.name}</strong>
+                </div>
+                <div className="dim" style={{ fontSize: "0.85em" }}>
+                  {displayPath}
+                </div>
+              </td>
+              <td className="dim">
+                {row.marker !== null
+                  ? `${row.marker}${row.markerKind !== null ? ` (${row.markerKind})` : ""}`
+                  : "—"}
+              </td>
+              <td className="dim">{row.known ? "deactivated" : "never activated"}</td>
+              <td>
+                <IconButton
+                  icon="play"
+                  label="activate"
+                  onClick={() => void onActivate(row.root, row.name)}
+                  disabled={isBusy}
+                />
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 

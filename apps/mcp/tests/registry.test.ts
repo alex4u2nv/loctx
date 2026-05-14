@@ -38,7 +38,12 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
     state: {
       listFiles: (id: string) => (id === "proj-a" ? [{}, {}, {}] : [{}]),
       listProjects: () =>
-        projects.map((p) => ({ ...p, lastIndexedAt: "2026-05-08T00:00:00.000Z" })),
+        projects.map((p) => ({
+          ...p,
+          lastIndexedAt: "2026-05-08T00:00:00.000Z",
+          lastReconciledAt: null,
+          active: true,
+        })),
       findDuplicateGroups: () => [],
     },
     searcher: {
