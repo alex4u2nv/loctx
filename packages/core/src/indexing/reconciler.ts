@@ -46,8 +46,15 @@ export class Reconciler {
   ) {}
 
   /**
-   * Pre-prune deleted files, then run a full indexer pass. Idempotent:
-   * unchanged files cost one stat + sha + sqlite read each.
+   * Pre-prune deleted files, drop anything the current filter now
+   * excludes, then run a full indexer pass. Idempotent: unchanged
+   * files cost one stat + sha + sqlite read each.
+   *
+   * The filter re-eval pass is what makes ignore-rule changes take
+   * effect on already-indexed files. The watcher catches project-level
+   * rule files (`.gitignore`, `.loctxignore`, `.cursorignore`, …) live,
+   * but global excludes (`~/.gitignore_global`) and rule changes made
+   * while the daemon was offline only land here.
    */
   async reconcileProject(project: Project): Promise<ReconciliationSummary> {
     const started = performance.now();
@@ -60,6 +67,11 @@ export class Reconciler {
         pruned += 1;
       }
     }
+
+    // Drop already-indexed files that a (newly-loaded) filter now
+    // rejects. Cheap: one in-memory shouldIndex() per file.
+    const refilter = await this.indexer.reevaluateFilter(project);
+    pruned += refilter.pruned;
 
     const indexSummary = await this.indexer.indexProject(project);
     this.state.markProjectReconciled(project.id);
