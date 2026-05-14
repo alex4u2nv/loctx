@@ -644,7 +644,12 @@ modelCmd
 modelCmd
   .command("download <name>")
   .description("Pre-download a model into the Hugging Face cache. Useful offline prep.")
-  .action(async (name: string) => {
+  .option(
+    "--use",
+    "Also set this model as the active one in embedding.model (global config).",
+    false,
+  )
+  .action(async (name: string, opts: { use: boolean }) => {
     const { findModel, LocalEmbeddingProvider, markModelTrusted, setAllowedOutboundReasons } =
       await import("@loctx/core");
     const info = findModel(name);
@@ -668,6 +673,20 @@ modelCmd
     // can load this model without flipping the in-process allow flag.
     markModelTrusted(config.paths.dataDir, info.name);
     console.error("[loctx model download] done.");
+    if (opts.use) {
+      const previous = config.embedding.model;
+      await writeModelChoice(false, info.name, info.normalize);
+      console.error(`[loctx model download] embedding.model: ${previous} → ${info.name}`);
+      console.error("[loctx model download] the existing index was built for the previous model;");
+      console.error(
+        "                       run 'loctx reset index --force' then 'loctx index' to rebuild it.",
+      );
+    } else if (info.name !== config.embedding.model) {
+      console.error(
+        `[loctx model download] note: active model is still ${config.embedding.model}. ` +
+          `Run 'loctx model use ${info.name}' (or rerun with --use) to switch.`,
+      );
+    }
   });
 
 modelCmd.action(() => {
