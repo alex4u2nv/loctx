@@ -140,6 +140,15 @@ main {
   padding: var(--space-3) var(--space-4);
 }
 
+/* Reserve a right gutter for the floating section nav so page content
+   doesn't sit underneath it. The nav is hidden below 980px, so this
+   only kicks in where it's actually rendered. */
+@media (min-width: 981px) {
+  main {
+    padding-right: 56px;
+  }
+}
+
 .prose {
   max-width: 56rem;
   margin: 0 auto;
