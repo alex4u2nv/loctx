@@ -369,6 +369,24 @@ h3 {
   opacity: 0.92;
 }
 
+/* Transient confirmation: briefly replaces .btn-primary after a
+ * successful user-triggered action so fast operations don't appear
+ * to do nothing. Fades back to the default variant after ~1.6s. */
+.btn-success {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #0a1a0d;
+  font-weight: 600;
+  transition: background 200ms ease, border-color 200ms ease;
+}
+
+.btn-success:hover:not(:disabled) {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #0a1a0d;
+  opacity: 0.92;
+}
+
 .btn-ghost {
   background: transparent;
 }
