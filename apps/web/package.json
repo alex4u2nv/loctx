@@ -33,6 +33,7 @@
     "@loctx/core": "*",
     "@loctx/mcp": "*",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "d3-shape": "^3.2.0",
     "hono": "^4.6.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -40,6 +41,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
+    "@types/d3-shape": "^3.1.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",

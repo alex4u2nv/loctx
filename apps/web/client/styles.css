@@ -547,16 +547,83 @@ h3 {
 
 .hero-body {
   flex: 1;
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  gap: var(--space-4);
-  align-items: center;
+  display: flex;
+  align-items: stretch;
+  min-height: 320px;
 }
 
-@media (max-width: 760px) {
-  .hero-body {
-    grid-template-columns: 1fr;
-  }
+.flow-chart {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.flow-chart-link {
+  stroke-linecap: round;
+  opacity: 0.95;
+}
+
+.flow-chart-node rect {
+  fill: var(--surface-2);
+  stroke: var(--border);
+  stroke-width: 0.5;
+}
+
+.flow-chart-node.source rect {
+  fill: var(--primary);
+  stroke: none;
+  filter: drop-shadow(0 0 12px var(--primary-glow));
+}
+
+.flow-chart-node.active rect {
+  fill: var(--primary);
+  stroke: var(--primary);
+  filter: drop-shadow(0 0 6px var(--primary-glow));
+}
+
+.flow-chart-node.ready rect {
+  fill: var(--primary-dim);
+  stroke: var(--primary-dim);
+}
+
+.flow-chart-node.dim rect {
+  fill: var(--border-strong);
+  stroke: var(--border-strong);
+}
+
+.flow-chart-node.more rect {
+  fill: var(--surface-elevated);
+  stroke: var(--border);
+}
+
+.flow-chart-source-label {
+  fill: rgba(20, 20, 22, 0.92);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.flow-chart-source-value {
+  fill: #131316;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.flow-chart-name {
+  fill: var(--text);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.flow-chart-value {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .flow-stage {
