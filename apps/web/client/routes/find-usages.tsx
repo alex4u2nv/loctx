@@ -81,7 +81,16 @@ function Results({ r }: { r: FindUsagesPayload }) {
 function UsageTable({ hits }: { hits: ReadonlyArray<UsageHit> }) {
   if (hits.length === 0) return <p className="pullquote">none</p>;
   return (
-    <table className="data-table">
+    <table className="data-table usage-table">
+      {/* Fixed column widths so the Definitions and References tables
+          line up — two independent <table>s would otherwise auto-size
+          their columns differently per the content of each. */}
+      <colgroup>
+        <col className="col-project" />
+        <col className="col-file" />
+        <col className="col-kind" />
+        <col className="col-lines" />
+      </colgroup>
       <thead>
         <tr>
           <th>project</th>

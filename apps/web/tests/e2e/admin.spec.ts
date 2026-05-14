@@ -132,6 +132,18 @@ test.describe("loctx admin UI", () => {
     }
   });
 
+  test("dashboard renders the floating section nav with one active dot", async ({ page }) => {
+    // Use a desktop viewport — the nav is hidden below 980px.
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.goto("/");
+    const nav = page.getByRole("navigation", { name: "Page sections" });
+    await expect(nav).toBeVisible();
+    // Six dashboard sections.
+    await expect(nav.locator(".section-nav-item")).toHaveCount(6);
+    // Exactly one is the active (elongated) marker.
+    await expect(nav.locator(".section-nav-item.active")).toHaveCount(1);
+  });
+
   test("SPA hard reload at a deep route still renders the correct page", async ({ page }) => {
     // Hits the SPA fallback in the Hono server: /admin should serve
     // index.html, then react-router takes over and renders AdminPage.

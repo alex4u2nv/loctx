@@ -20,6 +20,7 @@
 import type { StatusPayload } from "@shared/contracts";
 import { useEffect, useState } from "react";
 import { FlowChart, type FlowProject } from "../components/flow-chart";
+import { SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
 
@@ -93,6 +94,16 @@ export function StatusPage({ refreshKey }: { refreshKey: number }) {
         <ActivityTile events={events} />
         <McpTile baseUrl={baseUrl} />
       </div>
+      <SectionNav
+        sections={[
+          { id: "dash-flow", label: "Flow" },
+          { id: "dash-daemon", label: "Daemon" },
+          { id: "dash-coverage", label: "Coverage" },
+          { id: "dash-details", label: "Details" },
+          { id: "dash-activity", label: "Activity" },
+          { id: "dash-mcp", label: "MCP" },
+        ]}
+      />
     </section>
   );
 }
@@ -109,7 +120,7 @@ function IndexFlowHero({
   daemonRunning: boolean;
 }) {
   return (
-    <article className="card hero">
+    <article id="dash-flow" className="card hero">
       <header className="hero-head">
         <div>
           <p className="card-eyebrow">Index</p>
@@ -161,7 +172,7 @@ function IndexFlowHero({
 function DaemonCard({ status, baseUrl }: { status: StatusPayload; baseUrl: string }) {
   const daemon = status.daemon;
   return (
-    <article className="card daemon-card">
+    <article id="dash-daemon" className="card daemon-card">
       <header>
         <p className="card-eyebrow">Daemon</p>
         <h3 className="card-title">{daemon.running ? "Online" : "Offline"}</h3>
@@ -216,7 +227,7 @@ function CoverageGauge({
   const fillLen = (Math.max(0, Math.min(100, percent)) / 100) * arcLength;
 
   return (
-    <article className="card gauge-card">
+    <article id="dash-coverage" className="card gauge-card">
       <header>
         <p className="card-eyebrow">Coverage</p>
         <h3 className="card-title-sm">Index health</h3>
@@ -259,7 +270,7 @@ function DetailsTile({ status }: { status: StatusPayload }) {
       ? "off"
       : `${r.reconciliationIntervalSeconds}s${r.reconciliationRunOnStart ? " + boot" : ""}`;
   return (
-    <article className="card">
+    <article id="dash-details" className="card">
       <p className="card-eyebrow">Details</p>
       <div className="tile-grid">
         <Metric label="Mode" value={r.retrievalMode} />
@@ -282,7 +293,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function ActivityTile({ events }: { events: ReadonlyArray<WatcherEvent> }) {
   return (
-    <article className="card">
+    <article id="dash-activity" className="card">
       <p className="card-eyebrow">Activity</p>
       {events.length === 0 ? (
         <p className="activity-empty">Idle — waiting for file events…</p>
@@ -317,7 +328,7 @@ function McpTile({ baseUrl }: { baseUrl: string }) {
     2,
   );
   return (
-    <article className="card">
+    <article id="dash-mcp" className="card">
       <p className="card-eyebrow">MCP</p>
       <p className="card-title-sm">Client snippets</p>
       <p className="metric-label" style={{ marginTop: 0 }}>

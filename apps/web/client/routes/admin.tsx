@@ -5,6 +5,7 @@
 
 import { Link } from "react-router-dom";
 import { Icon } from "../components/icon";
+import { SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
 import { useOpRunner } from "../lib/use-op-runner";
 
@@ -48,7 +49,7 @@ export function AdminPage() {
         </p>
       ) : null}
 
-      <h2>Index</h2>
+      <h2 id="admin-index">Index</h2>
       <p>
         <button
           type="button"
@@ -76,7 +77,7 @@ export function AdminPage() {
         </button>
       </p>
 
-      <h2>Daemon</h2>
+      <h2 id="admin-daemon">Daemon</h2>
       <p>
         <button
           type="button"
@@ -95,6 +96,12 @@ export function AdminPage() {
           <Icon name="stop" /> stop
         </button>
       </p>
+      <SectionNav
+        sections={[
+          { id: "admin-index", label: "Index" },
+          { id: "admin-daemon", label: "Daemon" },
+        ]}
+      />
     </section>
   );
 }
