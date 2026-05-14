@@ -1,5 +1,6 @@
 import type { InactiveRow, OrphanRow, ProjectHealth, ProjectsRow } from "@shared/contracts";
 import { Icon, type IconName } from "../components/icon";
+import { type NavSection, SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
 import { applyHomeAbbrev, compressPath, relativeTime } from "../lib/format";
 import { useFetch } from "../lib/use-fetch";
@@ -50,6 +51,12 @@ export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
 
   const rootHeader = data.commonRoot !== "" ? applyHomeAbbrev(data.commonRoot, data.homeDir) : null;
 
+  const navSections: NavSection[] = [{ id: "section-active", label: "Active" }];
+  if (data.inactive.length > 0)
+    navSections.push({ id: "section-inactive", label: "Inactive" });
+  if (data.orphaned.length > 0)
+    navSections.push({ id: "section-orphaned", label: "Orphaned" });
+
   return (
     <section>
       <span className="eyebrow">Index</span>
@@ -88,7 +95,7 @@ export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
         </p>
       ) : null}
 
-      <h2>Active</h2>
+      <h2 id="section-active">Active</h2>
       <ProjectsTable
         rows={data.active}
         homeDir={data.homeDir}
@@ -104,7 +111,7 @@ export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
 
       {data.inactive.length > 0 ? (
         <>
-          <h2>Inactive</h2>
+          <h2 id="section-inactive">Inactive</h2>
           <p className="summary">
             Discovered under <code>workspace_roots</code> but not yet indexed. Activating runs an
             initial index pass and registers the watcher.
@@ -121,7 +128,7 @@ export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
 
       {data.orphaned.length > 0 ? (
         <>
-          <h2>Orphaned</h2>
+          <h2 id="section-orphaned">Orphaned</h2>
           <p className="summary">
             Indexed previously but no longer maintained. <code>purge</code> removes their data;
             restoring <code>workspace_roots</code> brings them back as active.
@@ -137,6 +144,7 @@ export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
           />
         </>
       ) : null}
+      <SectionNav sections={navSections} />
     </section>
   );
 }
