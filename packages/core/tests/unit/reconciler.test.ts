@@ -96,6 +96,32 @@ describe("Reconciler (#14)", () => {
     expect(second.skipped).toBeGreaterThanOrEqual(1);
   });
 
+  it("prunes already-indexed files that a new ignore rule now excludes", async () => {
+    // Sim the user's report: file is indexed first, then a matching
+    // pattern is added to .gitignore (or global). Subsequent
+    // reconciliation should drop the now-excluded file without
+    // requiring a manual purge. Uses a fixture pattern that the
+    // host's `~/.gitignore_global` is unlikely to already match.
+    const targetPath = join(projectRoot, "src", "scratch.recyclebait.md");
+    writeFileSync(join(projectRoot, "src", "keep.ts"), "export const x = 1;\n");
+    writeFileSync(targetPath, "junk\n");
+    const project = makeProject();
+    await reconciler.reconcileProject(project);
+    expect(
+      state
+        .listFiles(project.id)
+        .map((f) => f.relPath)
+        .sort(),
+    ).toEqual(["src/keep.ts", "src/scratch.recyclebait.md"]);
+
+    // Add a rule that matches the bait file.
+    writeFileSync(join(projectRoot, ".gitignore"), "*.recyclebait.*\n");
+
+    const summary = await reconciler.reconcileProject(project);
+    expect(summary.pruned).toBe(1);
+    expect(state.listFiles(project.id).map((f) => f.relPath)).toEqual(["src/keep.ts"]);
+  });
+
   it("reconcileAll handles multiple projects and stamps each one", async () => {
     writeFileSync(join(projectRoot, "src", "auth.ts"), "export function authenticate() {}\n");
     const otherRoot = join(tmp, "other");
