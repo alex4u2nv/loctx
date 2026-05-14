@@ -115,18 +115,36 @@ export function createVectorStore(
   state.registerCollection(collectionName, identity);
 
   let table: LanceTable | null = null;
+  let openPromise: Promise<LanceTable> | null = null;
 
-  /** Lazy: opens (or creates) the Lance table on first use. */
-  const ready = async (): Promise<LanceTable> => {
-    if (table !== null) return table;
-    const lancedb = (await import("@lancedb/lancedb")) as unknown as LanceModule;
-    const db = await lancedb.connect(vectorDir);
-    const names = await db.tableNames();
-    table = names.includes(collectionName)
-      ? await db.openTable(collectionName)
-      : await db.createEmptyTable(collectionName, buildSchema(identity.dimension));
-    return table;
+  /**
+   * Lazy: opens (or creates) the Lance table on first use. Concurrent
+   * first-callers share the same Promise — otherwise two of them race
+   * to `createEmptyTable` and Lance throws "Table already exists".
+   */
+  const ready = (): Promise<LanceTable> => {
+    if (table !== null) return Promise.resolve(table);
+    if (openPromise !== null) return openPromise;
+    openPromise = (async () => {
+      const lancedb = (await import("@lancedb/lancedb")) as unknown as LanceModule;
+      const db = await lancedb.connect(vectorDir);
+      const names = await db.tableNames();
+      table = names.includes(collectionName)
+        ? await db.openTable(collectionName)
+        : await db.createEmptyTable(collectionName, buildSchema(identity.dimension));
+      return table;
+    })();
+    return openPromise;
   };
+
+  // LanceDB's merge-insert / delete paths grab a writer lock per call and
+  // give up with "Too many concurrent writers" after a short retry budget
+  // (#142). The integrated daemon issues writes from two streams — the
+  // watcher (debounced indexFile) and the reconciler (periodic indexProject)
+  // — and on a workspace with N projects those streams race. Serialising
+  // every write through this mutex turns the race into a clean queue;
+  // reads stay parallel because they don't take a writer.
+  const writeMutex = new AsyncMutex();
 
   const api: VectorStore = {
     count: async () => (await ready()).countRows(),
@@ -137,21 +155,21 @@ export function createVectorStore(
       const records = chunks.map(toRecord);
       // mergeInsert on chunk_id gives "upsert by id" semantics: a re-indexed
       // chunk replaces its old row; new chunks are appended.
-      await t
-        .mergeInsert("chunk_id")
-        .whenMatchedUpdateAll()
-        .whenNotMatchedInsertAll()
-        .execute(records);
+      await writeMutex.runExclusive(() =>
+        t.mergeInsert("chunk_id").whenMatchedUpdateAll().whenNotMatchedInsertAll().execute(records),
+      );
     },
 
     deleteFileChunks: async (projectId, relPath) => {
       const t = await ready();
-      await t.delete(`project_id = ${quote(projectId)} AND rel_path = ${quote(relPath)}`);
+      await writeMutex.runExclusive(() =>
+        t.delete(`project_id = ${quote(projectId)} AND rel_path = ${quote(relPath)}`),
+      );
     },
 
     deleteProjectChunks: async (projectId) => {
       const t = await ready();
-      await t.delete(`project_id = ${quote(projectId)}`);
+      await writeMutex.runExclusive(() => t.delete(`project_id = ${quote(projectId)}`));
     },
 
     query: async (request) => {
@@ -238,6 +256,26 @@ function quote(s: string): string {
 
 function stringOrNull(v: unknown): string | null {
   return typeof v === "string" ? v : null;
+}
+
+/**
+ * Minimal FIFO mutex. `runExclusive(fn)` queues `fn` after every prior
+ * call's settlement so they run strictly serially. Failures are
+ * isolated — the chain advances on both resolve and reject so a single
+ * write rejection doesn't deadlock everything behind it.
+ */
+class AsyncMutex {
+  private chain: Promise<unknown> = Promise.resolve();
+
+  runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.chain.then(fn);
+    // Continue the chain regardless of outcome.
+    this.chain = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
 }
 
 function numberOrNull(v: unknown): number | null {

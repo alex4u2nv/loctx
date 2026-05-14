@@ -108,6 +108,20 @@ describe("VectorStore (LanceDB)", () => {
     expect(hit?.metadata).toMatchObject({ rel_path: "b.ts" });
   });
 
+  it("serialises concurrent writes through the per-store mutex (#142)", async () => {
+    // Fires 8 overlapping upsert/delete calls. Pre-mutex this would
+    // trigger LanceDB's \"Too many concurrent writers\" error on a busy
+    // multi-project setup; the mutex turns the race into a queue.
+    const store = createVectorStore(join(tmp, "vectors"), identity, state);
+    const ops: Array<Promise<unknown>> = [];
+    for (let i = 0; i < 8; i += 1) {
+      ops.push(store.upsertChunks([chunk(`c${i}`, unitVector(1, 0, 0, 0))]));
+    }
+    ops.push(store.deleteFileChunks(projectId("p1") as ProjectId, "src/a.ts"));
+    // No throw → mutex held the line.
+    await Promise.all(ops);
+  });
+
   it("applies a SQL `where` predicate to filter results", async () => {
     const store = createVectorStore(join(tmp, "vectors"), identity, state);
     await store.upsertChunks([
