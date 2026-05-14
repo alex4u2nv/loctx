@@ -1,9 +1,40 @@
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "../components/icon";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
 
 export function DoctorPage() {
   const { data, error, loading, reload } = useFetch(() => api.doctor(), []);
+  // Brief "✓ Done" confirmation after a user-triggered reload. The
+  // checks finish fast enough that without this the button just
+  // blinks "Re-running…" and snaps back; users can't tell whether
+  // their click landed. We only flash the confirmation when the user
+  // pressed the button (not on the initial mount fetch).
+  const [justCompleted, setJustCompleted] = useState(false);
+  const userTriggered = useRef(false);
+  const wasLoading = useRef(loading);
+  useEffect(() => {
+    if (
+      wasLoading.current &&
+      !loading &&
+      error === null &&
+      data !== null &&
+      userTriggered.current
+    ) {
+      userTriggered.current = false;
+      setJustCompleted(true);
+      const t = setTimeout(() => setJustCompleted(false), 1600);
+      return () => clearTimeout(t);
+    }
+    wasLoading.current = loading;
+    return undefined;
+  }, [loading, error, data]);
+
+  const onRerun = (): void => {
+    userTriggered.current = true;
+    setJustCompleted(false);
+    reload();
+  };
 
   return (
     <section>
@@ -13,8 +44,25 @@ export function DoctorPage() {
         Configuration, storage, daemon, schema, discovery and analyzer health.
       </p>
       <p>
-        <button type="button" className="btn btn-primary" onClick={reload} disabled={loading}>
-          <Icon name="refresh" /> {loading ? "Re-running…" : "Re-run checks"}
+        <button
+          type="button"
+          className={`btn ${justCompleted ? "btn-success" : "btn-primary"}`}
+          onClick={onRerun}
+          disabled={loading}
+        >
+          {loading ? (
+            <>
+              <Icon name="refresh" /> Re-running…
+            </>
+          ) : justCompleted ? (
+            <>
+              <Icon name="ok" /> Done
+            </>
+          ) : (
+            <>
+              <Icon name="refresh" /> Re-run checks
+            </>
+          )}
         </button>
       </p>
       {error !== null ? (
