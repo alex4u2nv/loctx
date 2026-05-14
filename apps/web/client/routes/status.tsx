@@ -164,9 +164,7 @@ function DaemonCard({ status, baseUrl }: { status: StatusPayload; baseUrl: strin
     <article className="card daemon-card">
       <header>
         <p className="card-eyebrow">Daemon</p>
-        <h3 className="card-title" style={{ fontSize: "1.5rem" }}>
-          {daemon.running ? "Online" : "Offline"}
-        </h3>
+        <h3 className="card-title">{daemon.running ? "Online" : "Offline"}</h3>
       </header>
       <dl className="daemon-kv">
         {daemon.running ? (
