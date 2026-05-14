@@ -32,6 +32,18 @@
     "directory": "packages/core"
   },
   "bugs": "https://github.com/alex4u2nv/loctx/issues",
+  "keywords": [
+    "code-search",
+    "embeddings",
+    "vector-search",
+    "lancedb",
+    "tree-sitter",
+    "mcp",
+    "model-context-protocol",
+    "rag",
+    "local-first",
+    "indexing"
+  ],
   "publishConfig": {
     "access": "public"
   },
