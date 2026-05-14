@@ -17,8 +17,9 @@
  * MCP client snippets.
  */
 
-import type { StatusPayload, WatcherState } from "@shared/contracts";
+import type { StatusPayload } from "@shared/contracts";
 import { useEffect, useState } from "react";
+import { FlowChart, type FlowProject } from "../components/flow-chart";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
 
@@ -71,12 +72,18 @@ export function StatusPage({ refreshKey }: { refreshKey: number }) {
   const coveragePct =
     projects.length === 0 ? 0 : Math.round((indexed / projects.length) * 100);
 
+  const flowProjects: FlowProject[] = projects.map((p) => ({
+    id: p.id,
+    name: p.name,
+    chunks: p.chunks,
+    watcher: p.watcher,
+  }));
+
   return (
     <section className="dashboard">
       <IndexFlowHero
         totals={totals}
-        projects={projects.slice(0, 5)}
-        extra={Math.max(0, projects.length - 5)}
+        flowProjects={flowProjects}
         daemonRunning={daemon.running}
       />
       <DaemonCard status={status} baseUrl={baseUrl} />
@@ -94,22 +101,13 @@ export function StatusPage({ refreshKey }: { refreshKey: number }) {
 
 function IndexFlowHero({
   totals,
-  projects,
-  extra,
+  flowProjects,
   daemonRunning,
 }: {
   totals: { files: number; chunks: number };
-  projects: ReadonlyArray<{
-    readonly id: string;
-    readonly name: string;
-    readonly chunks: number;
-    readonly watcher: WatcherState | null;
-  }>;
-  extra: number;
+  flowProjects: ReadonlyArray<FlowProject>;
   daemonRunning: boolean;
 }) {
-  const rowCount = Math.max(projects.length, 1);
-  const rowGap = 100 / (rowCount + 1);
   return (
     <article className="card hero">
       <header className="hero-head">
@@ -128,68 +126,13 @@ function IndexFlowHero({
       </header>
 
       <div className="hero-body">
-        <div className="flow-stage" aria-hidden="true">
-          <div className="flow-source">
-            <div className="flow-source-label">
-              <p className="flow-source-label-eyebrow">Output</p>
-              <p className="flow-source-value">
-                {totals.chunks.toLocaleString()} <small>chunks</small>
-              </p>
-            </div>
-            <div className="flow-source-icon">⚡</div>
-          </div>
-
-          {/* SVG connectors from source → each project pill */}
-          <svg
-            className="flow-svg"
-            viewBox="0 0 100 100"
-            preserveAspectRatio="none"
-            role="presentation"
-          >
-            {projects.map((p, i) => {
-              const y = rowGap * (i + 1);
-              // Cubic Bezier from the source (centered at x=22 due to label)
-              // out to each output row's vertical position.
-              const d = `M 22 50 C 50 50, 60 ${y}, 100 ${y}`;
-              const lineClass =
-                p.watcher === "active" && p.chunks > 0
-                  ? "flow-line active"
-                  : p.chunks > 0
-                    ? "flow-line ready"
-                    : "flow-line";
-              return (
-                <path
-                  // biome-ignore lint/suspicious/noArrayIndexKey: paths reflect array order, not identity
-                  key={`flow-${i}`}
-                  className={lineClass}
-                  d={d}
-                />
-              );
-            })}
-          </svg>
-        </div>
-
-        <div className="flow-outputs">
-          {projects.length === 0 ? (
-            <p className="dim" style={{ fontSize: "0.85rem" }}>
-              No projects discovered. Set <code>workspace_roots</code> in your config.
-            </p>
-          ) : (
-            projects.map((p) => (
-              <OutputRow
-                key={p.id}
-                name={p.name}
-                chunks={p.chunks}
-                watcher={p.watcher}
-              />
-            ))
-          )}
-          {extra > 0 ? (
-            <p className="dim" style={{ fontSize: "0.75rem", margin: 0 }}>
-              + {extra} more
-            </p>
-          ) : null}
-        </div>
+        {flowProjects.length === 0 ? (
+          <p className="dim" style={{ fontSize: "0.9rem", margin: "auto" }}>
+            No projects discovered. Set <code>workspace_roots</code> in your config.
+          </p>
+        ) : (
+          <FlowChart totalChunks={totals.chunks} projects={flowProjects} />
+        )}
       </div>
 
       <footer className="hero-foot">
@@ -202,7 +145,7 @@ function IndexFlowHero({
         </div>
         <div className="hero-stat">
           <span>
-            <span className="hero-stat-value">{projects.length}</span>
+            <span className="hero-stat-value">{flowProjects.length}</span>
             <span className="hero-stat-unit">projects</span>
           </span>
           <span className="hero-stat-label">Discovered</span>
@@ -212,38 +155,6 @@ function IndexFlowHero({
   );
 }
 
-function OutputRow({
-  name,
-  chunks,
-  watcher,
-}: {
-  name: string;
-  chunks: number;
-  watcher: WatcherState | null;
-}) {
-  // Pill states track the data-flow story the hero is trying to tell:
-  //   - active   = watcher running + indexed (the happy path; glows)
-  //   - ready    = indexed but no live watcher (–no-watch); subtle fill
-  //   - paused   = watcher explicitly paused
-  //   - dim      = nothing yet (no chunks, no watcher)
-  const pillClass =
-    watcher === "active" && chunks > 0
-      ? "output-pill active"
-      : watcher === "paused"
-        ? "output-pill paused"
-        : chunks > 0
-          ? "output-pill ready"
-          : "output-pill";
-  return (
-    <div className="output-row">
-      <div>
-        <p className="output-info-label">{name}</p>
-        <p className="output-info-value">{chunks.toLocaleString()} chunks</p>
-      </div>
-      <span className={pillClass} />
-    </div>
-  );
-}
 
 // ---- daemon card -------------------------------------------------------
 
