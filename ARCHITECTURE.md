@@ -66,7 +66,8 @@ loctx/                                  # workspace root (private)
         retrieval/searcher.ts           # WorkspaceSearcher + scope resolution
         storage/state.ts                # better-sqlite3 + named queries
         storage/vectors.ts              # @lancedb/lancedb (embedded, lazy import)
-        watcher/service.ts              # chokidar fs watcher → indexer
+        watcher/service.ts              # @parcel/watcher fs subscription → indexer
+        watcher/registry.ts             # per-project pause/resume registry
       tests/
 
   apps/
@@ -74,11 +75,11 @@ loctx/                                  # workspace root (private)
       src/cli.ts                        # Commander entrypoint
     mcp/                                # @loctx/mcp — bin: loctx-mcp
       src/server.ts                     # @modelcontextprotocol/sdk over stdio
-    web/                                # @loctx/web — Next.js admin UI
-      next.config.mjs                   # transpilePackages + serverExternal
-      app/                              # App Router (server components)
-        layout.tsx
-        page.tsx
+    web/                                # @loctx/web — Vite SPA + Hono server (private)
+      vite.config.ts                    # client bundle
+      client/                           # React SPA (status, projects, search, admin, …)
+      server/                           # Hono API + /mcp + host/origin guard
+      shared/contracts.ts               # wire types shared by client + server
 ```
 
 ## Runtime Components
@@ -184,9 +185,7 @@ can show users which projects were searched.
 
 ### Watcher (M4)
 
-`watcher/` will keep the index fresh during editing — `chokidar`-based file
-events, per-file debounce, delete/rename handling, periodic reconciliation,
-graceful shutdown.
+`watcher/` keeps the index fresh during editing — one [@parcel/watcher](https://github.com/parcel-bundler/watcher) subscription per project root (FSEvents on macOS, inotify on Linux, ReadDirectoryChangesW on Windows), per-file debounce, delete/rename handling, periodic reconciliation with exponential backoff, graceful shutdown. The `WatcherRegistry` exposes per-project pause/resume to the CLI and web UI.
 
 ### MCP Server (M3)
 

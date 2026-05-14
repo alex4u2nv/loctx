@@ -35,6 +35,15 @@
     "directory": "apps/mcp"
   },
   "bugs": "https://github.com/alex4u2nv/loctx/issues",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "stdio",
+    "loctx",
+    "code-search",
+    "ai-agents",
+    "tools"
+  ],
   "publishConfig": {
     "access": "public"
   },

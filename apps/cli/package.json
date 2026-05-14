@@ -26,6 +26,16 @@
     "directory": "apps/cli"
   },
   "bugs": "https://github.com/alex4u2nv/loctx/issues",
+  "keywords": [
+    "loctx",
+    "cli",
+    "code-search",
+    "mcp",
+    "model-context-protocol",
+    "embeddings",
+    "local-first",
+    "indexing"
+  ],
   "publishConfig": {
     "access": "public"
   },

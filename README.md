@@ -6,7 +6,7 @@
 
 Local-first code indexing and search for MCP-capable coding agents.
 
-Three publishable npm packages: `@loctx/core` (indexing engine), `@loctx/cli` (`loctx` binary), `@loctx/mcp` (`loctx-mcp` stdio binary). The integrated daemon (`loctx start`) bundles a Next.js admin UI and the MCP HTTP transport on one port.
+Three publishable npm packages: `@loctx/core` (indexing engine), `@loctx/cli` (`loctx` binary), `@loctx/mcp` (`loctx-mcp` stdio binary). The integrated daemon (`loctx start`) serves a Vite-built React admin UI and the MCP HTTP transport on one port via Hono.
 
 [ARCHITECTURE.md](ARCHITECTURE.md) covers the design. [docs/MCP.md](docs/MCP.md) covers client setup. [docs/PRIVACY.md](docs/PRIVACY.md) covers what stays local. [CONTRIBUTING.md](CONTRIBUTING.md) covers development. [CHANGELOG.md](CHANGELOG.md) covers releases.
 
@@ -20,7 +20,7 @@ npm run build
 npm link --workspace @loctx/cli --workspace @loctx/mcp
 ```
 
-`@loctx/web` stays private. The daemon needs the workspace's `apps/web/.next` build output, so run `loctx start` from a clone (or wait for an umbrella package).
+`@loctx/web` stays private. The daemon needs the workspace's `apps/web/dist/{client,server}` build output, so run `loctx start` from a clone (or wait for an umbrella package).
 
 ## Quick start
 
@@ -38,7 +38,7 @@ First boot downloads the embedding model (~90 MB) into the Hugging Face cache. E
 
 ### Open-files limit (macOS)
 
-The watcher uses [chokidar 3 + fsevents](https://github.com/paulmillr/chokidar): one stream per project root. macOS still ships a 256 file-watch budget per process, which fills fast on a multi-project workspace.
+The watcher uses [@parcel/watcher](https://github.com/parcel-bundler/watcher): one native subscription per project root (FSEvents on macOS, inotify on Linux, ReadDirectoryChangesW on Windows). macOS still ships a 256 file-watch budget per process, which fills fast on a multi-project workspace.
 
 ```bash
 sudo launchctl limit maxfiles 10240 unlimited
@@ -58,7 +58,7 @@ Log out and back in. `loctx doctor` flags this. `loctx start --no-watch` is the 
 { "mcpServers": { "loctx": { "url": "http://localhost:3022/mcp" } } }
 ```
 
-Both transports expose four tools: `search_workspace`, `workspace_status`, `find_usages`, `refresh_workspace`.
+Both transports expose five tools: `search_workspace`, `workspace_status`, `find_usages`, `find_duplicates`, `refresh_workspace`.
 
 ## Configuration
 
@@ -78,7 +78,7 @@ watcher:
 
 daemon:
   port: 3022
-  hostname: localhost
+  hostname: 127.0.0.1
 
 reconciliation:
   run_on_start: true
