@@ -148,6 +148,33 @@ function startReconciliation(
   if (!runOnStart && intervalSeconds <= 0) return () => undefined;
   if (projects.length === 0) return () => undefined;
 
+  // Exponential backoff on repeated failures so we don't hammer LanceDB
+  // (or whatever else is broken) every interval. Caps at 1h; resets to
+  // the configured interval on the first success.
+  const baseMs = intervalSeconds * 1000;
+  const MAX_BACKOFF_MS = 60 * 60 * 1000;
+  let consecutiveFailures = 0;
+  let timer: NodeJS.Timeout | null = null;
+  let stopped = false;
+
+  const nextDelayMs = (): number => {
+    if (consecutiveFailures === 0) return baseMs;
+    return Math.min(baseMs * 2 ** consecutiveFailures, MAX_BACKOFF_MS);
+  };
+
+  const scheduleNext = (): void => {
+    if (stopped || baseMs <= 0) return;
+    const delay = nextDelayMs();
+    if (consecutiveFailures > 0) {
+      const minutes = Math.round(delay / 60_000);
+      console.error(
+        `[loctx reconcile] backing off after ${consecutiveFailures} failure(s); next attempt in ~${minutes}m`,
+      );
+    }
+    timer = setTimeout(() => run("periodic"), delay);
+    timer.unref();
+  };
+
   const run = (label: string): void => {
     runtime.reconciler
       .reconcileAll(projects)
@@ -163,22 +190,30 @@ function startReconciliation(
           `[loctx reconcile] ${label} complete (${summaries.length} project(s), ` +
             `pruned=${tally.pruned}, reindexed=${tally.reindexed})`,
         );
+        consecutiveFailures = 0;
       })
       .catch((err) => {
+        consecutiveFailures += 1;
         console.error(`[loctx reconcile] ${label} failed: ${(err as Error).message}`);
+      })
+      .finally(() => {
+        // Schedule via setTimeout chain rather than setInterval so the
+        // backoff updates take effect on the next tick rather than the
+        // tick after.
+        if (label === "periodic" || label === "startup") scheduleNext();
       });
   };
 
   if (runOnStart) {
     setImmediate(() => run("startup"));
+  } else if (intervalSeconds > 0) {
+    scheduleNext();
   }
 
-  if (intervalSeconds > 0) {
-    const timer = setInterval(() => run("periodic"), intervalSeconds * 1000);
-    timer.unref();
-    return () => clearInterval(timer);
-  }
-  return () => undefined;
+  return () => {
+    stopped = true;
+    if (timer !== null) clearTimeout(timer);
+  };
 }
 
 // ---- preflight ---------------------------------------------------------
