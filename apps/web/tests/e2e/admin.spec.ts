@@ -9,10 +9,17 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("loctx admin UI", () => {
-  test("status page renders with embedding identity + workspace_roots", async ({ page }) => {
+  test("dashboard renders the hero, embedding identity, and the demo project", async ({
+    page,
+  }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "Status" })).toBeVisible();
-    await expect(page.getByText(/huggingface-transformers/)).toBeVisible();
+    // Hero card title (Phoenix-style "INDEX FLOW" headline, rendered
+    // across two lines).
+    await expect(page.getByRole("heading", { name: /Index\s+Flow/ })).toBeVisible();
+    // Embedding model surfaces somewhere — in the daemon card and in
+    // the details tile. Either render satisfies the contract.
+    await expect(page.getByText(/Xenova\/all-MiniLM/).first()).toBeVisible();
+    // Project from the fixture appears in the flow's output column.
     await expect(page.getByText("demo").first()).toBeVisible();
   });
 
@@ -112,7 +119,7 @@ test.describe("loctx admin UI", () => {
   test("nav exposes every route", async ({ page }) => {
     await page.goto("/");
     for (const label of [
-      "status",
+      "dashboard",
       "projects",
       "search",
       "find-usages",
