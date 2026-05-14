@@ -201,6 +201,27 @@ h3 {
   font-size: 0.8125rem;
 }
 
+/* Find-usages: pin column widths so the Definitions and References
+   tables line up (otherwise each <table> auto-sizes independently). */
+.usage-table {
+  table-layout: fixed;
+}
+.usage-table .col-project {
+  width: 22ch;
+}
+.usage-table .col-kind {
+  width: 8ch;
+}
+.usage-table .col-lines {
+  width: 10ch;
+}
+.usage-table td,
+.usage-table th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .data-table thead th {
   text-align: left;
   font-weight: 500;
