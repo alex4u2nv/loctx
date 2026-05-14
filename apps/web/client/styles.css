@@ -1189,6 +1189,168 @@ h3 {
   }
 }
 
+/* Config editor */
+.config-savebar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: var(--space-3) 0;
+  flex-wrap: wrap;
+}
+.config-savebar-info {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.config-pending-count {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--primary);
+  min-width: 1.5ch;
+  text-align: right;
+}
+.config-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 280px;
+}
+.config-target-select {
+  width: auto;
+}
+.config-target-path {
+  font-size: 0.78rem;
+  color: var(--subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.config-save-error {
+  flex-basis: 100%;
+}
+.config-section {
+  margin: var(--space-4) 0;
+}
+.config-section-head {
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.config-section-head .card-title {
+  margin: 0 0 4px;
+}
+.config-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3) var(--space-4);
+}
+@media (max-width: 760px) {
+  .config-fields {
+    grid-template-columns: 1fr;
+  }
+}
+.config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.config-field.pending {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary-soft);
+}
+.config-field-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.config-field-label {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text);
+  font-weight: 500;
+}
+.config-field-help {
+  font-size: 0.78rem;
+  margin: 0;
+}
+.config-field-foot {
+  font-size: 0.78rem;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.config-was {
+  background: var(--surface-2);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
+.config-pill {
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+.config-pill-default {
+  color: var(--subtle);
+}
+.config-pill-global {
+  color: var(--primary);
+  border-color: var(--primary-dim);
+}
+.config-pill-project {
+  color: var(--ok);
+  border-color: rgba(109, 213, 140, 0.4);
+}
+.config-pill-env {
+  color: var(--warn);
+  border-color: rgba(240, 198, 116, 0.4);
+}
+.config-pill-locked {
+  color: var(--warn);
+}
+.config-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.config-array-textarea {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  resize: vertical;
+}
+
 /* MCP snippet tile — compact code block */
 .mcp-snippet {
   font-family: var(--font-mono);

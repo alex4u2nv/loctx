@@ -4,6 +4,8 @@
 
 export * from "./_validate.js";
 export * from "./config.js";
+export * from "./config-schema.js";
+export * from "./config-writer.js";
 export * from "./container.js";
 export * from "./daemon-client.js";
 export * from "./daemon-lock.js";

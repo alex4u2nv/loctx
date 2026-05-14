@@ -61,10 +61,34 @@ test.describe("loctx admin UI", () => {
     await expect(page.getByRole("row").filter({ hasText: "embedding" }).first()).toBeVisible();
   });
 
-  test("config page renders effective config JSON", async ({ page }) => {
+  test("config editor renders schema sections, source pills, and a save target picker", async ({
+    page,
+  }) => {
     await page.goto("/config");
-    await expect(page.getByRole("heading", { name: "Effective config" })).toBeVisible();
-    await expect(page.getByText(/embedding/).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Config editor" })).toBeVisible();
+    // Sectioned form — at least Embedding and Retrieval render.
+    await expect(page.getByRole("heading", { name: "Embedding" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Retrieval" })).toBeVisible();
+    // Save target picker exists with both layer options.
+    const select = page.locator(".config-target-select");
+    await expect(select).toBeVisible();
+    await expect(select.locator("option")).toHaveCount(2);
+    // At least one source pill renders for the embedding model field.
+    await expect(page.locator(".config-pill").first()).toBeVisible();
+  });
+
+  test("config editor: editing a field marks it pending and lets the user reset", async ({
+    page,
+  }) => {
+    await page.goto("/config");
+    const modelInput = page.locator("#f-embedding\\.model");
+    await expect(modelInput).toBeVisible();
+    await modelInput.fill("Xenova/test-model-name");
+    // Pending count goes to 1 + the field card gains the pending border class.
+    await expect(page.locator(".config-pending-count")).toHaveText("1");
+    // Reset link appears + reverts.
+    await page.getByRole("button", { name: "reset" }).first().click();
+    await expect(page.locator(".config-pending-count")).toHaveText("0");
   });
 
   test("models page lists at least one model and shows the active marker", async ({ page }) => {
