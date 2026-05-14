@@ -34,18 +34,34 @@ export function setAllowedOutboundReasons(reasons: Iterable<OutboundReason>): vo
  * Call this immediately before any code path that would issue an HTTP
  * request, so users see a clear error message instead of an opaque
  * library failure.
+ *
+ * `detail` lets callers name the specific resource they're trying to
+ * fetch (e.g. the model name). Surface it in the error so users don't
+ * end up running `loctx model download <name>` for the wrong `<name>` —
+ * see #140.
  */
-export function requireOutboundAllowed(reason: OutboundReason): void {
+export function requireOutboundAllowed(reason: OutboundReason, detail?: string): void {
   if (!allowedReasons.has(reason)) {
-    throw new NetworkBlockedError(
-      `Outbound network access for "${reason}" is blocked by loctx's local-first default. Run \`loctx model download <name>\` to fetch an embedding model, then re-run this command.`,
-    );
+    throw new NetworkBlockedError(reason, detail);
   }
 }
 
 export class NetworkBlockedError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(
+    readonly reason: OutboundReason,
+    readonly detail?: string,
+  ) {
+    super(NetworkBlockedError.composeMessage(reason, detail));
     this.name = "NetworkBlockedError";
+  }
+
+  private static composeMessage(reason: OutboundReason, detail: string | undefined): string {
+    if (reason === "model-download") {
+      const target = detail ?? "<name>";
+      const named = detail !== undefined ? ` for ${target}` : "";
+      return `Outbound network access${named} is blocked by loctx's local-first default. Run \`loctx model download ${target}\` to fetch it, or \`loctx model use <other-name>\` to switch to a model that's already downloaded.`;
+    }
+    const suffix = detail !== undefined ? ` (${detail})` : "";
+    return `Outbound network access for "${reason}" is blocked by loctx's local-first default.${suffix}`;
   }
 }

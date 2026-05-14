@@ -81,7 +81,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     //   2. Otherwise require an in-process allow flag (set by
     //      `loctx model download` itself + the init wizard).
     const trusted = this.dataDir !== null && isModelTrusted(this.dataDir, this.modelName);
-    if (!trusted) requireOutboundAllowed("model-download");
+    if (!trusted) requireOutboundAllowed("model-download", this.modelName);
     const pipe = await this.getPipeline();
     const probe = await pipe("loctx-init-probe", {
       pooling: "mean",

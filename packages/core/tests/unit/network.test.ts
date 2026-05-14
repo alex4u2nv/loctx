@@ -26,13 +26,27 @@ describe("network outbound guard", () => {
     expect(() => requireOutboundAllowed("model-download")).toThrow(NetworkBlockedError);
   });
 
-  it("error message names the reason and points at the recovery command", () => {
+  it("error message points at the recovery command", () => {
+    expect.assertions(2);
     try {
       requireOutboundAllowed("model-download");
     } catch (err) {
       expect(err).toBeInstanceOf(NetworkBlockedError);
-      expect((err as Error).message).toContain("model-download");
       expect((err as Error).message).toContain("loctx model download");
+    }
+  });
+
+  it("error message names the specific model when detail is provided (#140)", () => {
+    expect.assertions(3);
+    try {
+      requireOutboundAllowed("model-download", "Xenova/bge-small-en-v1.5");
+    } catch (err) {
+      expect(err).toBeInstanceOf(NetworkBlockedError);
+      const msg = (err as Error).message;
+      // Must contain the specific model name so users don't end up
+      // running `model download` for the wrong one (the #139 paper cut).
+      expect(msg).toContain("Xenova/bge-small-en-v1.5");
+      expect(msg).toContain("loctx model download Xenova/bge-small-en-v1.5");
     }
   });
 });
