@@ -22,7 +22,7 @@ export function App() {
         <span className="nav-brand">loctx</span>
         <nav className="nav-links">
           <NavLink to="/" end>
-            status
+            dashboard
           </NavLink>
           <NavLink to="/projects">projects</NavLink>
           <NavLink to="/search">search</NavLink>

@@ -1,141 +1,469 @@
-import { Fragment } from "react";
+/**
+ * Dashboard — Phoenix-influenced operational overview.
+ *
+ * The home page used to be a `Status` data dump (key/value pairs +
+ * project table). It's now a layout with three primary slots:
+ *
+ *   - INDEX FLOW (hero, left): source → output visualization. The
+ *     source is the indexed-chunk total; outputs are the discovered
+ *     projects, each rendered as a pill that glows when its watcher
+ *     is healthy. Hero foot shows uptime + average load.
+ *   - DAEMON (top right): condensed running/stopped status, version,
+ *     and the MCP endpoint snippet.
+ *   - COVERAGE (bottom right): half-circle gauge of (indexed files /
+ *     discovered files).
+ *
+ * Bottom row: DETAILS metric tiles, watcher ACTIVITY (live SSE),
+ * MCP client snippets.
+ */
+
+import type { StatusPayload, WatcherState } from "@shared/contracts";
+import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
 
+interface WatcherEvent {
+  readonly at: number;
+  readonly projectName: string;
+  readonly relPath: string;
+  readonly kind: "add" | "change" | "unlink";
+}
+
 export function StatusPage({ refreshKey }: { refreshKey: number }) {
-  const { data, error, loading } = useFetch(() => api.status(), [refreshKey]);
+  const statusReq = useFetch(() => api.status(), [refreshKey]);
+  const projectsReq = useFetch(() => api.projects(), [refreshKey]);
+  const events = useWatcherEvents(8);
 
-  if (loading && data === null) return <p className="pullquote">Loading…</p>;
-  if (error !== null) return <ErrorBlock message={error} />;
-  if (data === null) return <p className="pullquote">No data.</p>;
+  if (statusReq.loading && statusReq.data === null) {
+    return <p className="pullquote">Loading…</p>;
+  }
+  if (statusReq.error !== null) {
+    return (
+      <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
+        {statusReq.error}
+      </p>
+    );
+  }
+  if (statusReq.data === null) return <p className="pullquote">No data.</p>;
 
-  const daemon = data.daemon;
-  const daemonFields: ReadonlyArray<readonly [string, string]> = daemon.running
-    ? [
-        ["status", "running"],
-        ["pid", String(daemon.pid)],
-        [
-          "endpoint",
-          daemon.port !== null
-            ? `http://${daemon.hostname ?? "localhost"}:${daemon.port}`
-            : "(stdio only)",
-        ],
-        ["started", new Date(daemon.startedAt).toLocaleString()],
-        ["version", daemon.version],
-      ]
-    : [["status", `not running (no PID lock at ${daemon.pidLockPath})`]];
+  const status = statusReq.data;
+  const projects = projectsReq.data?.active ?? [];
+  const totals = projects.reduce(
+    (acc, row) => ({
+      files: acc.files + row.files,
+      chunks: acc.chunks + row.chunks,
+      errors: acc.errors + row.errors,
+    }),
+    { files: 0, chunks: 0, errors: 0 },
+  );
 
-  const runtimeFields: ReadonlyArray<readonly [string, string]> = [
-    ["config (global)", data.runtime.configGlobal ?? "(default)"],
-    ["config (project)", data.runtime.configProject ?? "(none)"],
-    ["data dir", data.runtime.dataDir],
-    ["vector dir", data.runtime.vectorDir],
-    ["state db", data.runtime.stateDb],
-    ["embedding", `${data.runtime.embeddingProvider}/${data.runtime.embeddingModel}`],
-    ["retrieval mode", data.runtime.retrievalMode],
-    ["watcher debounce", `${data.runtime.watcherDebounceMs}ms`],
-    [
-      "reconciliation",
-      data.runtime.reconciliationIntervalSeconds === 0
-        ? "disabled (set reconciliation.interval_seconds > 0 to enable)"
-        : `every ${data.runtime.reconciliationIntervalSeconds}s${
-            data.runtime.reconciliationRunOnStart ? " + on boot" : ""
-          }`,
-    ],
-  ];
-
+  const daemon = status.daemon;
   const baseUrl =
     daemon.running && daemon.port !== null
-      ? `http://${daemon.hostname ?? "localhost"}:${daemon.port}`
-      : "http://localhost:3022";
+      ? `http://${daemon.hostname ?? "127.0.0.1"}:${daemon.port}`
+      : "http://127.0.0.1:3022";
 
-  const httpMcpSnippet = JSON.stringify(
-    { mcpServers: { loctx: { url: `${baseUrl}/mcp` } } },
-    null,
-    2,
-  );
-  const stdioMcpSnippet = JSON.stringify(
-    { mcpServers: { loctx: { command: "npx", args: ["loctx-mcp"] } } },
-    null,
-    2,
-  );
+  // Coverage: discovered projects that have *any* indexed content. We
+  // base the gauge on chunks rather than live watcher state so a daemon
+  // started with --no-watch still shows useful coverage (the watcher is
+  // a freshness signal, not a "did we index this once" signal).
+  const indexed = projects.filter((p) => p.chunks > 0).length;
+  const coveragePct =
+    projects.length === 0 ? 0 : Math.round((indexed / projects.length) * 100);
 
   return (
-    <section>
-      <span className="eyebrow">Workspace</span>
-      <h1 className="display">Status</h1>
-      <p className="subtitle">
-        Live view of the loctx daemon — configuration, storage, and the projects currently
-        discoverable under <code>workspace_roots</code>.
-      </p>
-
-      <h2>Daemon</h2>
-      <dl className="kv">
-        {daemonFields.map(([label, value]) => (
-          <Fragment key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
-          </Fragment>
-        ))}
-      </dl>
-      {!daemon.running ? (
-        <p className="pullquote">
-          Run <code>loctx start</code> to bring the daemon up.
-        </p>
-      ) : null}
-
-      <h2>Runtime</h2>
-      <dl className="kv">
-        {runtimeFields.map(([label, value]) => (
-          <Fragment key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
-          </Fragment>
-        ))}
-      </dl>
-
-      <h2>
-        Discovered projects <span style={{ color: "var(--subtle)" }}>· {data.projects.length}</span>
-      </h2>
-      {data.projects.length === 0 ? (
-        <p className="pullquote">
-          No projects found. Set <code>workspace_roots</code> in your config, or
-          <code>cd</code> into a directory containing a <code>.git</code> marker and re-run.
-        </p>
-      ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>id</th>
-              <th>name</th>
-              <th>root</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.projects.map((project) => (
-              <tr key={project.id}>
-                <td className="dim">{project.id}</td>
-                <td>{project.name}</td>
-                <td className="dim">{project.root}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      <h2>Connect an MCP client</h2>
-      <h3>HTTP (recommended)</h3>
-      <pre className="snippet">{httpMcpSnippet}</pre>
-      <h3>Stdio</h3>
-      <pre className="snippet">{stdioMcpSnippet}</pre>
+    <section className="dashboard">
+      <IndexFlowHero
+        totals={totals}
+        projects={projects.slice(0, 5)}
+        extra={Math.max(0, projects.length - 5)}
+        daemonRunning={daemon.running}
+      />
+      <DaemonCard status={status} baseUrl={baseUrl} />
+      <CoverageGauge percent={coveragePct} healthy={indexed} total={projects.length} />
+      <div className="tiles">
+        <DetailsTile status={status} />
+        <ActivityTile events={events} />
+        <McpTile baseUrl={baseUrl} />
+      </div>
     </section>
   );
 }
 
-function ErrorBlock({ message }: { message: string }) {
+// ---- hero --------------------------------------------------------------
+
+function IndexFlowHero({
+  totals,
+  projects,
+  extra,
+  daemonRunning,
+}: {
+  totals: { files: number; chunks: number };
+  projects: ReadonlyArray<{
+    readonly id: string;
+    readonly name: string;
+    readonly chunks: number;
+    readonly watcher: WatcherState | null;
+  }>;
+  extra: number;
+  daemonRunning: boolean;
+}) {
+  const rowCount = Math.max(projects.length, 1);
+  const rowGap = 100 / (rowCount + 1);
   return (
-    <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-      {message}
-    </p>
+    <article className="card hero">
+      <header className="hero-head">
+        <div>
+          <p className="card-eyebrow">Index</p>
+          <h2 className="card-title">
+            Index
+            <br />
+            Flow
+          </h2>
+        </div>
+        <span className={`daemon-status ${daemonRunning ? "ok" : "bad"}`}>
+          <span className="dot-mark" />
+          {daemonRunning ? "running" : "stopped"}
+        </span>
+      </header>
+
+      <div className="hero-body">
+        <div className="flow-stage" aria-hidden="true">
+          <div className="flow-source">
+            <div className="flow-source-label">
+              <p className="flow-source-label-eyebrow">Output</p>
+              <p className="flow-source-value">
+                {totals.chunks.toLocaleString()} <small>chunks</small>
+              </p>
+            </div>
+            <div className="flow-source-icon">⚡</div>
+          </div>
+
+          {/* SVG connectors from source → each project pill */}
+          <svg
+            className="flow-svg"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            role="presentation"
+          >
+            {projects.map((p, i) => {
+              const y = rowGap * (i + 1);
+              // Cubic Bezier from the source (centered at x=22 due to label)
+              // out to each output row's vertical position.
+              const d = `M 22 50 C 50 50, 60 ${y}, 100 ${y}`;
+              const lineClass =
+                p.watcher === "active" && p.chunks > 0
+                  ? "flow-line active"
+                  : p.chunks > 0
+                    ? "flow-line ready"
+                    : "flow-line";
+              return (
+                <path
+                  // biome-ignore lint/suspicious/noArrayIndexKey: paths reflect array order, not identity
+                  key={`flow-${i}`}
+                  className={lineClass}
+                  d={d}
+                />
+              );
+            })}
+          </svg>
+        </div>
+
+        <div className="flow-outputs">
+          {projects.length === 0 ? (
+            <p className="dim" style={{ fontSize: "0.85rem" }}>
+              No projects discovered. Set <code>workspace_roots</code> in your config.
+            </p>
+          ) : (
+            projects.map((p) => (
+              <OutputRow
+                key={p.id}
+                name={p.name}
+                chunks={p.chunks}
+                watcher={p.watcher}
+              />
+            ))
+          )}
+          {extra > 0 ? (
+            <p className="dim" style={{ fontSize: "0.75rem", margin: 0 }}>
+              + {extra} more
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <footer className="hero-foot">
+        <div className="hero-stat">
+          <span>
+            <span className="hero-stat-value">{totals.files.toLocaleString()}</span>
+            <span className="hero-stat-unit">files</span>
+          </span>
+          <span className="hero-stat-label">Indexed</span>
+        </div>
+        <div className="hero-stat">
+          <span>
+            <span className="hero-stat-value">{projects.length}</span>
+            <span className="hero-stat-unit">projects</span>
+          </span>
+          <span className="hero-stat-label">Discovered</span>
+        </div>
+      </footer>
+    </article>
   );
+}
+
+function OutputRow({
+  name,
+  chunks,
+  watcher,
+}: {
+  name: string;
+  chunks: number;
+  watcher: WatcherState | null;
+}) {
+  // Pill states track the data-flow story the hero is trying to tell:
+  //   - active   = watcher running + indexed (the happy path; glows)
+  //   - ready    = indexed but no live watcher (–no-watch); subtle fill
+  //   - paused   = watcher explicitly paused
+  //   - dim      = nothing yet (no chunks, no watcher)
+  const pillClass =
+    watcher === "active" && chunks > 0
+      ? "output-pill active"
+      : watcher === "paused"
+        ? "output-pill paused"
+        : chunks > 0
+          ? "output-pill ready"
+          : "output-pill";
+  return (
+    <div className="output-row">
+      <div>
+        <p className="output-info-label">{name}</p>
+        <p className="output-info-value">{chunks.toLocaleString()} chunks</p>
+      </div>
+      <span className={pillClass} />
+    </div>
+  );
+}
+
+// ---- daemon card -------------------------------------------------------
+
+function DaemonCard({ status, baseUrl }: { status: StatusPayload; baseUrl: string }) {
+  const daemon = status.daemon;
+  return (
+    <article className="card daemon-card">
+      <header>
+        <p className="card-eyebrow">Daemon</p>
+        <h3 className="card-title" style={{ fontSize: "1.5rem" }}>
+          {daemon.running ? "Online" : "Offline"}
+        </h3>
+      </header>
+      <dl className="daemon-kv">
+        {daemon.running ? (
+          <>
+            <dt>PID</dt>
+            <dd>{daemon.pid}</dd>
+            <dt>Endpoint</dt>
+            <dd>{baseUrl}</dd>
+            <dt>Version</dt>
+            <dd>{daemon.version}</dd>
+            <dt>Started</dt>
+            <dd>{new Date(daemon.startedAt).toLocaleString()}</dd>
+          </>
+        ) : (
+          <>
+            <dt>State</dt>
+            <dd>
+              not running — start with <code>loctx start</code>
+            </dd>
+          </>
+        )}
+        <dt>Model</dt>
+        <dd>{status.runtime.embeddingModel}</dd>
+        <dt>Retrieval</dt>
+        <dd>{status.runtime.retrievalMode}</dd>
+      </dl>
+    </article>
+  );
+}
+
+// ---- coverage gauge ----------------------------------------------------
+
+function CoverageGauge({
+  percent,
+  healthy,
+  total,
+}: {
+  percent: number;
+  healthy: number;
+  total: number;
+}) {
+  // Half-circle gauge: stroke an arc from 180° → 0° (left → right across
+  // the top half), fill clamped by `percent`. Using a 100x50 viewBox with
+  // a stroke-dasharray-based fill on a single path keeps the markup tiny.
+  const radius = 42;
+  const cx = 50;
+  const cy = 50;
+  const arcLength = Math.PI * radius; // half-circle perimeter
+  const fillLen = (Math.max(0, Math.min(100, percent)) / 100) * arcLength;
+
+  return (
+    <article className="card gauge-card">
+      <header>
+        <p className="card-eyebrow">Coverage</p>
+        <h3 className="card-title-sm">Index health</h3>
+      </header>
+      <div className="gauge-wrap">
+        <svg className="gauge-svg" viewBox="0 0 100 60" aria-hidden="true">
+          <title>{percent}% coverage</title>
+          <path
+            className="gauge-track"
+            d={`M ${cx - radius} ${cy} A ${radius} ${radius} 0 0 1 ${cx + radius} ${cy}`}
+          />
+          <path
+            className="gauge-fill"
+            d={`M ${cx - radius} ${cy} A ${radius} ${radius} 0 0 1 ${cx + radius} ${cy}`}
+            strokeDasharray={`${fillLen} ${arcLength}`}
+          />
+        </svg>
+        <div className="gauge-readout">
+          <span className="gauge-readout-value">{percent}</span>
+          <span className="gauge-readout-unit">%</span>
+        </div>
+      </div>
+      <div className="gauge-foot">
+        <span>0%</span>
+        <span>
+          {healthy} of {total} indexed
+        </span>
+        <span>100%</span>
+      </div>
+    </article>
+  );
+}
+
+// ---- tile row ----------------------------------------------------------
+
+function DetailsTile({ status }: { status: StatusPayload }) {
+  const r = status.runtime;
+  const reconciliation =
+    r.reconciliationIntervalSeconds === 0
+      ? "off"
+      : `${r.reconciliationIntervalSeconds}s${r.reconciliationRunOnStart ? " + boot" : ""}`;
+  return (
+    <article className="card">
+      <p className="card-eyebrow">Details</p>
+      <div className="tile-grid">
+        <Metric label="Mode" value={r.retrievalMode} />
+        <Metric label="Embedding" value={r.embeddingModel} />
+        <Metric label="Watcher" value={`${r.watcherDebounceMs}ms`} />
+        <Metric label="Reconcile" value={reconciliation} />
+      </div>
+    </article>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="metric" title={value}>
+      <span className="metric-label">{label}</span>
+      <span className="metric-value">{value}</span>
+    </div>
+  );
+}
+
+function ActivityTile({ events }: { events: ReadonlyArray<WatcherEvent> }) {
+  return (
+    <article className="card">
+      <p className="card-eyebrow">Activity</p>
+      {events.length === 0 ? (
+        <p className="activity-empty">Idle — waiting for file events…</p>
+      ) : (
+        <ul className="activity">
+          {events.map((e) => (
+            <li key={`${e.at}-${e.projectName}-${e.relPath}`} className="activity-row">
+              <span className="activity-time">
+                {new Date(e.at).toLocaleTimeString([], { hour12: false })}
+              </span>
+              <span className={`activity-kind ${e.kind}`}>{e.kind}</span>
+              <span className="activity-path">
+                {e.projectName}/{e.relPath}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </article>
+  );
+}
+
+function McpTile({ baseUrl }: { baseUrl: string }) {
+  const httpSnippet = JSON.stringify(
+    { mcpServers: { loctx: { url: `${baseUrl}/mcp` } } },
+    null,
+    2,
+  );
+  const stdioSnippet = JSON.stringify(
+    { mcpServers: { loctx: { command: "npx", args: ["loctx-mcp"] } } },
+    null,
+    2,
+  );
+  return (
+    <article className="card">
+      <p className="card-eyebrow">MCP</p>
+      <p className="card-title-sm">Client snippets</p>
+      <p className="metric-label" style={{ marginTop: 0 }}>
+        HTTP
+      </p>
+      <pre className="mcp-snippet">{httpSnippet}</pre>
+      <p className="metric-label" style={{ marginTop: "var(--space-2)" }}>
+        stdio
+      </p>
+      <pre className="mcp-snippet">{stdioSnippet}</pre>
+    </article>
+  );
+}
+
+// ---- watcher SSE -------------------------------------------------------
+
+/**
+ * Subscribe to /api/events and keep the most recent `n` events in memory.
+ * Reuses the same SSE stream the LiveRefresh badge consumes; second
+ * subscription is fine since the bus broadcasts.
+ */
+function useWatcherEvents(n: number): ReadonlyArray<WatcherEvent> {
+  const [events, setEvents] = useState<WatcherEvent[]>([]);
+
+  useEffect(() => {
+    const source = new EventSource("/api/events");
+    source.onmessage = (msg) => {
+      try {
+        const parsed = JSON.parse(msg.data) as Partial<WatcherEvent> & {
+          at?: number;
+          projectName?: string;
+          relPath?: string;
+          kind?: string;
+        };
+        if (
+          typeof parsed.at !== "number" ||
+          typeof parsed.projectName !== "string" ||
+          typeof parsed.relPath !== "string" ||
+          (parsed.kind !== "add" && parsed.kind !== "change" && parsed.kind !== "unlink")
+        ) {
+          return;
+        }
+        const event: WatcherEvent = {
+          at: parsed.at,
+          projectName: parsed.projectName,
+          relPath: parsed.relPath,
+          kind: parsed.kind,
+        };
+        setEvents((prev) => [event, ...prev].slice(0, n));
+      } catch {
+        /* malformed */
+      }
+    };
+    return () => source.close();
+  }, [n]);
+
+  return events;
 }
