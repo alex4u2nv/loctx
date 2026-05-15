@@ -61,7 +61,7 @@ test.describe("loctx admin UI", () => {
     await expect(page.getByRole("row").filter({ hasText: "embedding" }).first()).toBeVisible();
   });
 
-  test("config editor renders schema sections, source pills, and a save target picker", async ({
+  test("config editor renders schema sections and source pills", async ({
     page,
   }) => {
     await page.goto("/config");
@@ -69,10 +69,8 @@ test.describe("loctx admin UI", () => {
     // Sectioned form — at least Embedding and Retrieval render.
     await expect(page.getByRole("heading", { name: "Embedding" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Retrieval" })).toBeVisible();
-    // Save target picker exists with both layer options.
-    const select = page.locator(".config-target-select");
-    await expect(select).toBeVisible();
-    await expect(select.locator("option")).toHaveCount(2);
+    // Save target is always global — no picker select present.
+    await expect(page.locator(".config-target-select")).toHaveCount(0);
     // At least one source pill renders for the embedding model field.
     await expect(page.locator(".config-pill").first()).toBeVisible();
   });
