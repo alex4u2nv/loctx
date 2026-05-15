@@ -37,10 +37,12 @@ beforeAll(async () => {
   );
   writeFileSync(join(project, "README.md"), "# Demo project\n", "utf-8");
 
-  // Port comes from the project-level `.loctx.yaml` since CLI flags no longer
-  // override config. Walk-up discovery finds this from `cwd: workspace`.
+  // Port comes from the global config since CLI flags no longer override
+  // it and the project-level `.loctx.yaml` layer was removed. `LOCTX_CONFIG_DIR`
+  // below points the loader at this directory.
+  mkdirSync(join(workspace, "config"), { recursive: true });
   writeFileSync(
-    join(workspace, ".loctx.yaml"),
+    join(workspace, "config", "config.yaml"),
     `daemon:\n  port: ${port}\n  hostname: localhost\n`,
     "utf-8",
   );

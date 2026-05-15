@@ -73,7 +73,6 @@ beforeAll(async () => {
       }),
     }),
     source: null,
-    projectSource: null,
     sources: Object.freeze({}),
   });
 

@@ -25,7 +25,6 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
   return {
     config: {
       source: null,
-      projectSource: null,
       sources: {},
       workspaceRoots: ["/ws"],
       paths: {

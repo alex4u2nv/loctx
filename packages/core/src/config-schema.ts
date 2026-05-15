@@ -30,12 +30,6 @@ export interface FieldSchema {
   readonly enumValues?: ReadonlyArray<string>;
   readonly min?: number;
   readonly max?: number;
-  /**
-   * Restrict edits to the global layer. Mirrors `Picker.globalOnly` in
-   * `config.ts` — security-sensitive leaves like external-binary commands
-   * must not be settable from a project-level YAML.
-   */
-  readonly globalOnly?: boolean;
 }
 
 export interface SectionSchema {
@@ -274,10 +268,9 @@ export const CONFIG_SCHEMA: ReadonlyArray<SectionSchema> = Object.freeze([
         key: "analyzers.lizard.command",
         yamlPath: ["analyzers", "lizard", "command"],
         label: "command",
-        help: "Path to the lizard binary. Global-only — projects can't override.",
+        help: "Path to the lizard binary.",
         type: "string",
         default: "lizard",
-        globalOnly: true,
       },
     ],
   },
@@ -335,10 +328,9 @@ export const CONFIG_SCHEMA: ReadonlyArray<SectionSchema> = Object.freeze([
         key: "analyzers.semgrep.command",
         yamlPath: ["analyzers", "semgrep", "command"],
         label: "command",
-        help: "Path to the semgrep binary. Global-only.",
+        help: "Path to the semgrep binary.",
         type: "string",
         default: "semgrep",
-        globalOnly: true,
       },
       {
         key: "analyzers.semgrep.ruleDirs",
@@ -378,10 +370,9 @@ export const CONFIG_SCHEMA: ReadonlyArray<SectionSchema> = Object.freeze([
         key: "analyzers.astGrep.command",
         yamlPath: ["analyzers", "astGrep", "command"],
         label: "command",
-        help: "Path to the ast-grep binary. Global-only.",
+        help: "Path to the ast-grep binary.",
         type: "string",
         default: "ast-grep",
-        globalOnly: true,
       },
       {
         key: "analyzers.astGrep.ruleDirs",
@@ -422,22 +413,12 @@ export interface ValidationError {
  * Validate a patch (dot-path → value) against the schema. Returns
  * `[]` when clean. Used by `/api/config/write` before writing YAML.
  */
-export function validatePatch(
-  patch: Record<string, unknown>,
-  target: "global" | "project",
-): ReadonlyArray<ValidationError> {
+export function validatePatch(patch: Record<string, unknown>): ReadonlyArray<ValidationError> {
   const errors: ValidationError[] = [];
   for (const [key, value] of Object.entries(patch)) {
     const f = FIELDS_BY_KEY.get(key);
     if (f === undefined) {
       errors.push({ key, message: `unknown config key '${key}'` });
-      continue;
-    }
-    if (f.globalOnly === true && target === "project") {
-      errors.push({
-        key,
-        message: `'${key}' is restricted to the global config (security-sensitive)`,
-      });
       continue;
     }
     const err = validateValue(f, value);

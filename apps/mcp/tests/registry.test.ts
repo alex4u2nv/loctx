@@ -13,7 +13,6 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
   const baseline = {
     config: {
       source: "/cfg/loctx/config.yaml",
-      projectSource: null,
       sources: {},
       workspaceRoots: ["/ws"] as ReadonlyArray<string>,
       paths: {

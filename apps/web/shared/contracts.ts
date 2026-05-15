@@ -20,7 +20,6 @@ export interface StatusPayload {
       };
   readonly runtime: {
     readonly configGlobal: string | null;
-    readonly configProject: string | null;
     readonly dataDir: string;
     readonly vectorDir: string;
     readonly stateDb: string;
@@ -184,10 +183,10 @@ export interface DoctorPayload {
   readonly summary: string;
 }
 
-export type ConfigSourceKind = "default" | "global" | "project" | "env";
+export type ConfigSourceKind = "default" | "global" | "env";
 
 export interface ConfigLayerPayload {
-  readonly kind: "global" | "project";
+  readonly kind: "global";
   /** Absolute path on disk; null when this layer doesn't exist yet. */
   readonly path: string | null;
   /** Per-leaf values literally present in this YAML, keyed by dot-path. */
@@ -203,7 +202,6 @@ export interface ConfigFieldSchemaWire {
   readonly enumValues?: ReadonlyArray<string>;
   readonly min?: number;
   readonly max?: number;
-  readonly globalOnly?: boolean;
 }
 
 export interface ConfigSectionSchemaWire {
@@ -216,20 +214,16 @@ export interface ConfigSectionSchemaWire {
 export interface ConfigPayload {
   readonly raw: unknown;
   readonly globalSource: string | null;
-  readonly projectSource: string | null;
   /** Per-leaf provenance from `Config.sources`. */
   readonly sources: Readonly<Record<string, ConfigSourceKind>>;
   /** Effective values keyed by dot-path (post-merge). */
   readonly effective: Readonly<Record<string, unknown>>;
-  /** What's literally in each YAML layer (so the editor can explain inheritance). */
+  /** What's literally in the global YAML (so the editor can explain inheritance). */
   readonly layers: ReadonlyArray<ConfigLayerPayload>;
   readonly schema: ReadonlyArray<ConfigSectionSchemaWire>;
-  /** Suggested project YAML path even when none is currently loaded. */
-  readonly suggestedProjectPath: string;
 }
 
 export interface ConfigWriteRequest {
-  readonly target: "global" | "project";
   readonly patch: Record<string, unknown>;
 }
 

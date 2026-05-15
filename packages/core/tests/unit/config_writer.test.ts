@@ -37,7 +37,7 @@ describe("writeConfigPatch", () => {
       "utf-8",
     );
 
-    const r = writeConfigPatch(path, "global", { "embedding.model": "new-model" });
+    const r = writeConfigPatch(path, { "embedding.model": "new-model" });
     expect(r.ok).toBe(true);
 
     const after = readFileSync(path, "utf-8");
@@ -51,7 +51,7 @@ describe("writeConfigPatch", () => {
 
   it("creates intermediate sections when patching a key in an empty file", () => {
     writeFileSync(path, "", "utf-8");
-    const r = writeConfigPatch(path, "global", {
+    const r = writeConfigPatch(path, {
       "retrieval.mode": "vector",
       "retrieval.rrfK": 80,
     });
@@ -63,7 +63,7 @@ describe("writeConfigPatch", () => {
 
   it("rejects an unknown key without writing", () => {
     writeFileSync(path, "embedding:\n  model: original\n", "utf-8");
-    const r = writeConfigPatch(path, "global", { "embedding.bogus": "x" });
+    const r = writeConfigPatch(path, { "embedding.bogus": "x" });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.errors[0].key).toBe("embedding.bogus");
@@ -71,23 +71,16 @@ describe("writeConfigPatch", () => {
     expect(readFileSync(path, "utf-8")).toContain("original");
   });
 
-  it("rejects a project-target write to a global-only field", () => {
-    writeFileSync(path, "", "utf-8");
-    const r = writeConfigPatch(path, "project", { "analyzers.lizard.command": "/bin/evil" });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors[0].message).toMatch(/global config/);
-  });
-
   it("rejects a value that fails type validation", () => {
     writeFileSync(path, "", "utf-8");
-    const r = writeConfigPatch(path, "global", { "watcher.debounceMs": -5 });
+    const r = writeConfigPatch(path, { "watcher.debounceMs": -5 });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors[0].message).toMatch(/≥ 0/);
   });
 
   it("rejects an out-of-set enum value", () => {
     writeFileSync(path, "", "utf-8");
-    const r = writeConfigPatch(path, "global", { "retrieval.mode": "fancy" });
+    const r = writeConfigPatch(path, { "retrieval.mode": "fancy" });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors[0].message).toMatch(/hybrid, vector, lexical/);
   });

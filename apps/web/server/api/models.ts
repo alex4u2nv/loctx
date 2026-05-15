@@ -6,7 +6,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import {
   type Config,
   EMBEDDING_REGISTRY,
@@ -36,15 +36,13 @@ export function mountModels(app: Hono, config: Config): void {
   });
 
   app.post("/api/models/use", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as
-      | { name?: string; project?: boolean }
-      | null;
+    const body = (await c.req.json().catch(() => null)) as { name?: string } | null;
     const name = body?.name?.trim() ?? "";
     if (name === "") return c.json({ error: "name required" }, 400);
     const info = findModel(name);
     if (info === null) return c.json({ error: `unknown model '${name}'` }, 404);
 
-    const target = body?.project === true ? resolve(".loctx.yaml") : globalConfigYaml(config);
+    const target = globalConfigYaml(config);
     await writeModelChoice(target, info.name, info.normalize);
     return c.json({
       ok: true,

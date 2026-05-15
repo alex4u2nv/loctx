@@ -5,9 +5,7 @@
  *
  *   1. Built-in defaults
  *   2. Global config — `$XDG_CONFIG_HOME/loctx/config.yaml`
- *   3. Project config — `.loctx.yaml` discovered by walking up from `cwd`
- *      (stops at the filesystem root). Opt-in by file existence.
- *   4. Environment overrides — `LOCTX_DATA_DIR`, `LOCTX_CONFIG_DIR`
+ *   3. Environment overrides — `LOCTX_DATA_DIR`, `LOCTX_CONFIG_DIR`
  *
  * There are no flag-level config overrides. Per-invocation flags
  * (`--scope`, `--limit`, `--cwd`, `--no-watch`, …) are operational and
@@ -38,7 +36,13 @@ const DEFAULT_DAEMON_PORT = 3000;
 // Users can override to `localhost` or `0.0.0.0` in config if they
 // understand the trade-off.
 const DEFAULT_DAEMON_HOSTNAME = "127.0.0.1";
-const PROJECT_CONFIG_FILENAME = ".loctx.yaml";
+/**
+ * Legacy project-level config filename. The project layer was dropped in
+ * favor of a single global `config.yaml` editable through the admin UI;
+ * `start.ts` still scans for this name to print a one-time deprecation
+ * warning if a user has one lying around.
+ */
+export const LEGACY_PROJECT_CONFIG_FILENAME = ".loctx.yaml";
 
 export interface EmbeddingConfig {
   readonly provider: string;
@@ -159,7 +163,7 @@ export interface DiscoveryConfig {
   readonly maxDepth: number;
 }
 
-export type ConfigSource = "default" | "global" | "project" | "env";
+export type ConfigSource = "default" | "global" | "env";
 
 /** Where each leaf came from. Keyed by dot-path (e.g. "embedding.model"). */
 export type ConfigSources = Readonly<Record<string, ConfigSource>>;
@@ -176,8 +180,6 @@ export interface Config {
   readonly analyzers: AnalyzerConfig;
   /** Path of the global YAML if loaded; null when only defaults applied. */
   readonly source: string | null;
-  /** Path of the project YAML if discovered; null otherwise. */
-  readonly projectSource: string | null;
   readonly sources: ConfigSources;
 }
 
@@ -249,15 +251,16 @@ export function defaultConfigYaml(): string {
 export interface LoadConfigOptions {
   /** Override the global config path. Defaults to `<configDir>/config.yaml`. */
   readonly configPath?: string;
-  /** Working directory for project-file discovery. Defaults to `process.cwd()`. */
-  readonly cwd?: string;
 }
 
 /**
- * Load and merge the layered config.
+ * Load the global config and stamp every leaf's source. The project-level
+ * layer was removed in favor of a single global YAML editable from the
+ * admin UI — `start.ts` warns separately when it finds a stray
+ * `.loctx.yaml` so users know to migrate.
  *
- * Backward-compat: passing a string is interpreted as `{ configPath }`, the
- * pre-layered call shape.
+ * Backward-compat: passing a string is interpreted as `{ configPath }`,
+ * the pre-layered call shape.
  */
 export function loadConfig(options?: string | LoadConfigOptions): Config {
   const opts: LoadConfigOptions =
@@ -270,16 +273,12 @@ export function loadConfig(options?: string | LoadConfigOptions): Config {
   ensurePaths(paths);
 
   const globalPath = opts.configPath ?? join(paths.configDir, "config.yaml");
-  const projectPath = findProjectConfig(opts.cwd ?? process.cwd());
-
   const globalRaw = readYamlOrNull(globalPath);
-  const projectRaw = projectPath !== null ? readYamlOrNull(projectPath) : null;
 
   rejectFilteringSection(globalRaw, globalPath);
-  if (projectPath !== null) rejectFilteringSection(projectRaw, projectPath);
 
   const sources: Record<string, ConfigSource> = {};
-  const merged = mergeFields(globalRaw, projectRaw, env, sources);
+  const merged = mergeFields(globalRaw, env, sources);
 
   for (const [k, v] of Object.entries(sourcesForPaths(origin))) sources[k] = v;
 
@@ -294,9 +293,26 @@ export function loadConfig(options?: string | LoadConfigOptions): Config {
     discovery: merged.discovery,
     analyzers: merged.analyzers,
     source: globalRaw === null ? null : globalPath,
-    projectSource: projectRaw === null ? null : projectPath,
     sources: Object.freeze(sources),
   });
+}
+
+/**
+ * Walk up from `cwd` looking for a legacy `.loctx.yaml`. Returns the
+ * first match (closest to cwd) or null. Used by the daemon to surface a
+ * deprecation warning — the loader no longer reads these files.
+ */
+export function findLegacyProjectConfig(cwd: string): string | null {
+  let cur = resolve(cwd);
+  // Bound: walk ≤ 64 levels in case of weird symlinks. fs root halts naturally.
+  for (let i = 0; i < 64; i += 1) {
+    const candidate = join(cur, LEGACY_PROJECT_CONFIG_FILENAME);
+    if (existsSync(candidate)) return candidate;
+    const parent = parsePath(cur).dir;
+    if (parent === cur) return null;
+    cur = parent;
+  }
+  return null;
 }
 
 interface LoctxEnv {
@@ -308,20 +324,7 @@ function readLoctxEnv(): LoctxEnv {
   return { embeddingProvider: raw && raw.length > 0 ? raw : undefined };
 }
 
-// ---- discovery + parsing -----------------------------------------------
-
-function findProjectConfig(startCwd: string): string | null {
-  let cur = resolve(startCwd);
-  // Bound: walk ≤ 64 levels in case of weird symlinks. fs root halts naturally.
-  for (let i = 0; i < 64; i += 1) {
-    const candidate = join(cur, PROJECT_CONFIG_FILENAME);
-    if (existsSync(candidate)) return candidate;
-    const parent = parsePath(cur).dir;
-    if (parent === cur) return null;
-    cur = parent;
-  }
-  return null;
-}
+// ---- parsing -----------------------------------------------------------
 
 function readYamlOrNull(path: string): Record<string, unknown> | null {
   if (!existsSync(path)) return null;
@@ -362,32 +365,29 @@ interface MergedFields {
 
 function mergeFields(
   global: Record<string, unknown> | null,
-  project: Record<string, unknown> | null,
   env: LoctxEnv,
   sources: Record<string, ConfigSource>,
 ): MergedFields {
-  const pickRoot = makePicker(project, global, sources);
+  const pickRoot = makePicker(global, sources);
   return {
     workspaceRoots: pickRoot("workspaceRoots", "workspace_roots", STR_ARRAY, [process.cwd()]),
-    embedding: mergeEmbedding(project, global, env, sources),
-    watcher: mergeWatcher(project, global, sources),
-    daemon: mergeDaemon(project, global, sources),
-    retrieval: mergeRetrieval(project, global, sources),
-    reconciliation: mergeReconciliation(project, global, sources),
-    discovery: mergeDiscovery(project, global, sources),
-    analyzers: mergeAnalyzers(project, global, sources),
+    embedding: mergeEmbedding(global, env, sources),
+    watcher: mergeWatcher(global, sources),
+    daemon: mergeDaemon(global, sources),
+    retrieval: mergeRetrieval(global, sources),
+    reconciliation: mergeReconciliation(global, sources),
+    discovery: mergeDiscovery(global, sources),
+    analyzers: mergeAnalyzers(global, sources),
   };
 }
 
 function mergeEmbedding(
-  project: Record<string, unknown> | null,
   global: Record<string, unknown> | null,
   env: LoctxEnv,
   sources: Record<string, ConfigSource>,
 ): EmbeddingConfig {
-  const projE = sectionRecord(project, "embedding", "<project>");
   const gloE = sectionRecord(global, "embedding", "<global>");
-  const pick = makePicker(projE, gloE, sources);
+  const pick = makePicker(gloE, sources);
   const base = {
     provider: pick("embedding.provider", "provider", STR, DEFAULT_EMBEDDING.provider),
     model: pick("embedding.model", "model", STR, DEFAULT_EMBEDDING.model),
@@ -401,30 +401,20 @@ function mergeEmbedding(
 }
 
 function mergeWatcher(
-  project: Record<string, unknown> | null,
   global: Record<string, unknown> | null,
   sources: Record<string, ConfigSource>,
 ): WatcherConfig {
-  const pick = makePicker(
-    sectionRecord(project, "watcher", "<project>"),
-    sectionRecord(global, "watcher", "<global>"),
-    sources,
-  );
+  const pick = makePicker(sectionRecord(global, "watcher", "<global>"), sources);
   return Object.freeze({
     debounceMs: pick("watcher.debounceMs", "debounce_ms", INT_NON_NEG, DEFAULT_WATCHER.debounceMs),
   });
 }
 
 function mergeDaemon(
-  project: Record<string, unknown> | null,
   global: Record<string, unknown> | null,
   sources: Record<string, ConfigSource>,
 ): DaemonConfig {
-  const pick = makePicker(
-    sectionRecord(project, "daemon", "<project>"),
-    sectionRecord(global, "daemon", "<global>"),
-    sources,
-  );
+  const pick = makePicker(sectionRecord(global, "daemon", "<global>"), sources);
   return Object.freeze({
     port: pick("daemon.port", "port", INT_NON_NEG, DEFAULT_DAEMON.port),
     hostname: pick("daemon.hostname", "hostname", STR, DEFAULT_DAEMON.hostname),
@@ -432,15 +422,10 @@ function mergeDaemon(
 }
 
 function mergeRetrieval(
-  project: Record<string, unknown> | null,
   global: Record<string, unknown> | null,
   sources: Record<string, ConfigSource>,
 ): RetrievalConfig {
-  const pick = makePicker(
-    sectionRecord(project, "retrieval", "<project>"),
-    sectionRecord(global, "retrieval", "<global>"),
-    sources,
-  );
+  const pick = makePicker(sectionRecord(global, "retrieval", "<global>"), sources);
   const modeStr = pick("retrieval.mode", "mode", STR, DEFAULT_RETRIEVAL.mode);
   if (!VALID_RETRIEVAL_MODES.has(modeStr as RetrievalMode)) {
     throw new ConfigError(
@@ -454,15 +439,10 @@ function mergeRetrieval(
 }
 
 function mergeReconciliation(
-  project: Record<string, unknown> | null,
   global: Record<string, unknown> | null,
   sources: Record<string, ConfigSource>,
 ): ReconciliationConfig {
-  const pick = makePicker(
-    sectionRecord(project, "reconciliation", "<project>"),
-    sectionRecord(global, "reconciliation", "<global>"),
-    sources,
-  );
+  const pick = makePicker(sectionRecord(global, "reconciliation", "<global>"), sources);
   return Object.freeze({
     runOnStart: pick(
       "reconciliation.runOnStart",
@@ -480,15 +460,10 @@ function mergeReconciliation(
 }
 
 function mergeDiscovery(
-  project: Record<string, unknown> | null,
   global: Record<string, unknown> | null,
   sources: Record<string, ConfigSource>,
 ): DiscoveryConfig {
-  const pick = makePicker(
-    sectionRecord(project, "discovery", "<project>"),
-    sectionRecord(global, "discovery", "<global>"),
-    sources,
-  );
+  const pick = makePicker(sectionRecord(global, "discovery", "<global>"), sources);
   return Object.freeze({
     extraMarkers: Object.freeze(
       pick("discovery.extraMarkers", "extra_markers", STR_ARRAY, [
@@ -500,30 +475,15 @@ function mergeDiscovery(
 }
 
 function mergeAnalyzers(
-  project: Record<string, unknown> | null,
   global: Record<string, unknown> | null,
   sources: Record<string, ConfigSource>,
 ): AnalyzerConfig {
-  const projA = sectionRecord(project, "analyzers", "<project>");
   const gloA = sectionRecord(global, "analyzers", "<global>");
-  const pick = makePicker(projA, gloA, sources);
-  const lizardPick = makePicker(
-    sectionRecord(projA, "lizard", "<project>"),
-    sectionRecord(gloA, "lizard", "<global>"),
-    sources,
-  );
-  const dupPick = makePicker(
-    sectionRecord(projA, "duplicates", "<project>"),
-    sectionRecord(gloA, "duplicates", "<global>"),
-    sources,
-  );
-  const semgrepPick = makePicker(
-    sectionRecord(projA, "semgrep", "<project>"),
-    sectionRecord(gloA, "semgrep", "<global>"),
-    sources,
-  );
+  const pick = makePicker(gloA, sources);
+  const lizardPick = makePicker(sectionRecord(gloA, "lizard", "<global>"), sources);
+  const dupPick = makePicker(sectionRecord(gloA, "duplicates", "<global>"), sources);
+  const semgrepPick = makePicker(sectionRecord(gloA, "semgrep", "<global>"), sources);
   const astGrepPick = makePicker(
-    sectionRecord(projA, "astGrep", "<project>") ?? sectionRecord(projA, "ast_grep", "<project>"),
     sectionRecord(gloA, "astGrep", "<global>") ?? sectionRecord(gloA, "ast_grep", "<global>"),
     sources,
   );
@@ -553,7 +513,7 @@ function mergeAnalyzers(
         BOOL,
         DEFAULT_ANALYZERS.lizard.enabled,
       ),
-      command: lizardPick.globalOnly(
+      command: lizardPick(
         "analyzers.lizard.command",
         "command",
         STR,
@@ -587,7 +547,7 @@ function mergeAnalyzers(
         BOOL,
         DEFAULT_ANALYZERS.semgrep.enabled,
       ),
-      command: semgrepPick.globalOnly(
+      command: semgrepPick(
         "analyzers.semgrep.command",
         "command",
         STR,
@@ -612,7 +572,7 @@ function mergeAnalyzers(
         BOOL,
         DEFAULT_ANALYZERS.astGrep.enabled,
       ),
-      command: astGrepPick.globalOnly(
+      command: astGrepPick(
         "analyzers.astGrep.command",
         "command",
         STR,
@@ -636,35 +596,18 @@ function mergeAnalyzers(
 // ---- per-leaf picker ---------------------------------------------------
 
 /**
- * Curry the project/global mappings + the source-tracking record, then return
- * a generic picker that resolves a single leaf against any `Spec<T>`. Walks
- * project → global → fallback and stamps the source map as it goes.
- */
-/**
- * The picker function with an attached `.globalOnly` variant. Use the
- * variant for security-sensitive leaves (executable paths, network
- * overrides) so a malicious project-level YAML can't hijack them.
+ * Curry the global mapping + the source-tracking record, then return a
+ * generic picker that resolves a single leaf against any `Spec<T>`.
+ * Walks global → fallback and stamps the source map as it goes.
  */
 type PickFn = <T>(trackKey: string, yamlKey: string, spec: Spec<T>, fallback: T) => T;
-interface Picker extends PickFn {
-  /** Like the picker, but ignores the project layer with a warning. */
-  globalOnly: PickFn;
-}
 
 function makePicker(
-  proj: Record<string, unknown> | null,
   glo: Record<string, unknown> | null,
   sources: Record<string, ConfigSource>,
-): Picker {
-  const projectV = new Validator(ConfigError, "<project>");
+): PickFn {
   const globalV = new Validator(ConfigError, "<global>");
-
-  const pick: PickFn = <T>(trackKey: string, yamlKey: string, spec: Spec<T>, fallback: T): T => {
-    const projVal = proj === null ? undefined : projectV.get(proj, yamlKey, spec);
-    if (projVal !== undefined) {
-      sources[trackKey] = "project";
-      return projVal;
-    }
+  return <T>(trackKey: string, yamlKey: string, spec: Spec<T>, fallback: T): T => {
     const gloVal = glo === null ? undefined : globalV.get(glo, yamlKey, spec);
     if (gloVal !== undefined) {
       sources[trackKey] = "global";
@@ -673,34 +616,6 @@ function makePicker(
     sources[trackKey] = "default";
     return fallback;
   };
-
-  const globalOnly: PickFn = <T>(
-    trackKey: string,
-    yamlKey: string,
-    spec: Spec<T>,
-    fallback: T,
-  ): T => {
-    if (proj !== null && projectV.get(proj, yamlKey, spec) !== undefined) {
-      // The project YAML tried to override a security-sensitive leaf
-      // (e.g. an external-binary command). loctx walks up from cwd to
-      // find project YAML, so a hostile checkout could otherwise swap
-      // `lizard` to `rm -rf ~`. Refuse silently-on-stderr.
-      console.error(
-        `[loctx config] ignoring project-level override of ${trackKey} — that leaf is restricted to the global config to prevent malicious project YAMLs from swapping security-sensitive values`,
-      );
-    }
-    const gloVal = glo === null ? undefined : globalV.get(glo, yamlKey, spec);
-    if (gloVal !== undefined) {
-      sources[trackKey] = "global";
-      return gloVal;
-    }
-    sources[trackKey] = "default";
-    return fallback;
-  };
-
-  const picker = pick as Picker;
-  picker.globalOnly = globalOnly;
-  return picker;
 }
 
 function sectionRecord(
@@ -734,7 +649,7 @@ function sourcesForPaths(origin: PathOrigin): Record<string, ConfigSource> {
  * built-in default, surfaced so users can edit rather than discover.
  */
 export const CONFIG_TEMPLATE = `# loctx global config — $XDG_CONFIG_HOME/loctx/config.yaml
-# A project-level .loctx.yaml at any directory above your cwd takes precedence.
+# Edit here or via the admin UI; this is the single source of truth.
 
 # Roots searched for projects (each top-level dir with a .git/ becomes a project).
 # Defaults to process.cwd() when omitted.

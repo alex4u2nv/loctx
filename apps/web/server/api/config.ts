@@ -26,15 +26,11 @@ export function mountConfig(app: Hono, config: Config): void {
     }
     const parsed = parseRequest(raw);
     if (parsed === null) {
-      return c.json({ error: "expected { target, patch }" }, 400);
+      return c.json({ error: "expected { patch }" }, 400);
     }
 
-    const path = resolveTargetPath(parsed.target, config);
-    if (path === null) {
-      return c.json({ error: `cannot resolve a writable path for target '${parsed.target}'` }, 400);
-    }
-
-    const r = writeConfigPatch(path, parsed.target, parsed.patch);
+    const path = config.source ?? defaultGlobalPath(config);
+    const r = writeConfigPatch(path, parsed.patch);
     if (!r.ok) {
       const failure: ConfigWriteError = { ok: false, errors: r.errors };
       return c.json(failure, 400);
@@ -52,21 +48,14 @@ function buildPayload(config: Config): ConfigPayload {
       path: config.source ?? defaultGlobalPath(config),
       values: readLayerSnapshot(config.source),
     },
-    {
-      kind: "project",
-      path: config.projectSource,
-      values: readLayerSnapshot(config.projectSource),
-    },
   ];
   return {
     raw: deepClone(config),
     globalSource: config.source,
-    projectSource: config.projectSource,
     sources: config.sources as Readonly<Record<string, ConfigSourceKind>>,
     effective,
     layers,
     schema: schemaForWire(),
-    suggestedProjectPath: join(process.cwd(), ".loctx.yaml"),
   };
 }
 
@@ -91,7 +80,6 @@ function schemaForWire(): ReadonlyArray<ConfigSectionSchemaWire> {
         ...(f.enumValues ? { enumValues: f.enumValues } : {}),
         ...(f.min !== undefined ? { min: f.min } : {}),
         ...(f.max !== undefined ? { max: f.max } : {}),
-        ...(f.globalOnly ? { globalOnly: f.globalOnly } : {}),
       }),
     ),
   }));
@@ -123,18 +111,9 @@ function pluckByKey(config: Config, key: string): unknown {
 function parseRequest(body: unknown): ConfigWriteRequest | null {
   if (body === null || typeof body !== "object") return null;
   const b = body as Record<string, unknown>;
-  const target = b["target"];
   const patch = b["patch"];
-  if (target !== "global" && target !== "project") return null;
   if (patch === null || typeof patch !== "object" || Array.isArray(patch)) return null;
-  return { target, patch: patch as Record<string, unknown> };
-}
-
-function resolveTargetPath(target: "global" | "project", config: Config): string | null {
-  if (target === "global") return config.source ?? defaultGlobalPath(config);
-  if (config.projectSource !== null) return config.projectSource;
-  // Project YAML doesn't exist yet — write to cwd/.loctx.yaml.
-  return join(process.cwd(), ".loctx.yaml");
+  return { patch: patch as Record<string, unknown> };
 }
 
 function deepClone<T>(value: T): T {

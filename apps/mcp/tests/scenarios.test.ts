@@ -140,7 +140,6 @@ function makeConfig(workspaceRoot: string, dataDir: string): Config {
       }),
     }),
     source: null,
-    projectSource: null,
     sources: Object.freeze({}),
   });
 }

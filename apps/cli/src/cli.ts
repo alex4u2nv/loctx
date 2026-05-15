@@ -320,7 +320,6 @@ function printConfig(config: Config): void {
 
   console.log("loctx config (effective):");
   console.log(`  global file           : ${config.source ?? "(none)"}`);
-  console.log(`  project file          : ${config.projectSource ?? "(none)"}`);
   console.log("");
   console.log("workspace_roots:");
   for (const root of config.workspaceRoots) {
@@ -644,17 +643,14 @@ configCmd
 configCmd
   .command("init")
   .description(
-    "Write a commented config template to $XDG_CONFIG_HOME/loctx/config.yaml " +
-      "(or to a project-level .loctx.yaml with --project). Never overwrites.",
+    "Write a commented config template to $XDG_CONFIG_HOME/loctx/config.yaml. Never overwrites.",
   )
-  .option("--project", "Write to ./.loctx.yaml in the current directory instead.", false)
   .option("--force", "Overwrite an existing file.", false)
-  .action(async (opts: { project: boolean; force: boolean }) => {
+  .action(async (opts: { force: boolean }) => {
     const { existsSync, writeFileSync } = await import("node:fs");
-    const { resolve } = await import("node:path");
     const { CONFIG_TEMPLATE } = await import("@loctx/core");
     const ctx = getCtx();
-    const target = opts.project ? resolve(".loctx.yaml") : ctx.configPath;
+    const target = ctx.configPath;
     if (existsSync(target) && !opts.force) {
       console.error(
         `[loctx config init] refused: ${target} already exists. Pass --force to overwrite.`,
@@ -708,15 +704,14 @@ modelCmd
 modelCmd
   .command("use <name>")
   .description("Switch the active embedding model. Reindex required afterward.")
-  .option("--project", "Write to ./.loctx.yaml in the current directory instead.", false)
-  .action(async (name: string, opts: { project: boolean }) => {
+  .action(async (name: string) => {
     const { findModel } = await import("@loctx/core");
     const info = findModel(name);
     if (info === null) {
       console.error(`Unknown model '${name}'. Run 'loctx model list' to see available options.`);
       process.exit(1);
     }
-    await writeModelChoice(opts.project, info.name, info.normalize);
+    await writeModelChoice(info.name, info.normalize);
     console.error(`[loctx model use] switched embedding.model to ${info.name}.`);
     console.error("[loctx model use] the existing index was built for the previous model;");
     console.error("                  run 'loctx reset index' then 'loctx index' to rebuild it,");
@@ -757,7 +752,7 @@ modelCmd
     console.error("[loctx model download] done.");
     if (opts.use) {
       const previous = config.embedding.model;
-      await writeModelChoice(false, info.name, info.normalize);
+      await writeModelChoice(info.name, info.normalize);
       console.error(`[loctx model download] embedding.model: ${previous} → ${info.name}`);
       console.error("[loctx model download] the existing index was built for the previous model;");
       console.error(
@@ -776,16 +771,11 @@ modelCmd.action(() => {
   console.log("Use --help for options.");
 });
 
-async function writeModelChoice(
-  isProject: boolean,
-  modelName: string,
-  normalize: boolean,
-): Promise<void> {
+async function writeModelChoice(modelName: string, normalize: boolean): Promise<void> {
   const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
-  const { resolve } = await import("node:path");
   const { parse: parseYaml, stringify: stringifyYaml } = await import("yaml");
   const ctx = getCtx();
-  const target = isProject ? resolve(".loctx.yaml") : ctx.configPath;
+  const target = ctx.configPath;
 
   type Mutable = Record<string, unknown> & { embedding?: Record<string, unknown> };
   const existing: Mutable = existsSync(target)

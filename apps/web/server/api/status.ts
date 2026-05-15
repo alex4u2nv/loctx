@@ -21,7 +21,6 @@ export function mountStatus(app: Hono, config: Config): void {
           : { running: false, pidLockPath: `${config.paths.dataDir}/loctx.pid` },
       runtime: {
         configGlobal: config.source,
-        configProject: config.projectSource,
         dataDir: config.paths.dataDir,
         vectorDir: config.paths.vectorDir,
         stateDb: config.paths.stateDb,

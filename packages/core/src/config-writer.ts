@@ -1,7 +1,7 @@
 /**
- * Patch a layered YAML config file in place, preserving comments and
+ * Patch the global YAML config file in place, preserving comments and
  * formatting. Used by the admin UI's `POST /api/config/write` to apply
- * partial edits to either the global or project YAML.
+ * partial edits to the user's single source of truth.
  *
  * Why eemeli/yaml's Document API and not js-yaml: round-trips comments,
  * blank lines, and key order — important because our default global
@@ -37,10 +37,9 @@ export interface WriteFailure {
 
 export function writeConfigPatch(
   path: string,
-  target: "global" | "project",
   patch: Record<string, unknown>,
 ): WriteResult | WriteFailure {
-  const errors = validatePatch(patch, target);
+  const errors = validatePatch(patch);
   if (errors.length > 0) return { ok: false, errors };
 
   const doc = readDoc(path);

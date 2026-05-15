@@ -1,17 +1,14 @@
 /**
  * Config editor.
  *
- * Renders a schema-driven form for the layered YAML config (global +
- * project) with per-leaf source pills, type-specific editors, and an
- * explicit "save target" picker so the user always sees which file
- * their changes land in.
+ * Renders a schema-driven form for the global YAML config with per-leaf
+ * source pills (default vs. global vs. env) and type-specific editors.
+ * All writes land in the single global config file — the older project-
+ * level layer was removed to keep the surface area honest.
  *
  * Design notes:
  *   - Fields default to the *effective* (post-merge) value. A change
  *     becomes a pending patch keyed by dot-path.
- *   - Save target defaults to the layer of the *first edited field*'s
- *     current source — i.e. if you edit a project-overridden value,
- *     the writer defaults to the project YAML.
  *   - After save, a banner offers to restart the daemon (most settings
  *     only take effect after a fresh `loadConfig`).
  *   - Filtering rules live in a separate overlay system and aren't
@@ -25,6 +22,7 @@ import type {
   ConfigSourceKind,
 } from "@shared/contracts";
 import { useMemo, useState } from "react";
+import { confirm } from "../components/confirm";
 import { Icon } from "../components/icon";
 import { type NavSection, SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
@@ -35,7 +33,6 @@ type Patch = Record<string, unknown>;
 export function ConfigPage() {
   const { data, error, loading, reload } = useFetch(() => api.config(), []);
   const [patch, setPatch] = useState<Patch>({});
-  const [target, setTarget] = useState<"global" | "project">("global");
   const [saveState, setSaveState] = useState<
     | { kind: "idle" }
     | { kind: "saving" }
@@ -69,7 +66,7 @@ export function ConfigPage() {
   const onSave = async (): Promise<void> => {
     setSaveState({ kind: "saving" });
     try {
-      const r = await api.configWrite({ target, patch });
+      const r = await api.configWrite({ patch });
       setSaveState({ kind: "saved", path: r.path });
       setPatch({});
       reload();
@@ -79,7 +76,12 @@ export function ConfigPage() {
   };
 
   const onRestart = async (): Promise<void> => {
-    if (!window.confirm("Restart the daemon to apply config changes?")) return;
+    const ok = await confirm({
+      title: "Restart daemon?",
+      message: "Required for most config changes to take effect.",
+      confirmLabel: "Restart",
+    });
+    if (!ok) return;
     setRestartState("restarting");
     try {
       await api.restart();
@@ -107,8 +109,6 @@ export function ConfigPage() {
 
       <SaveBar
         pendingCount={pendingCount}
-        target={target}
-        onTargetChange={setTarget}
         data={data}
         onSave={() => void onSave()}
         saveState={saveState}
@@ -124,7 +124,6 @@ export function ConfigPage() {
           section={section}
           data={data}
           patch={patch}
-          target={target}
           onChange={setField}
         />
       ))}
@@ -145,8 +144,6 @@ function LayerSummary({ data }: { data: ConfigPayload }) {
   return (
     <p className="summary">
       global: <code>{data.globalSource ?? "(default — file not yet created)"}</code>
-      <span className="sep">·</span>
-      project: <code>{data.projectSource ?? `(none — would create at ${data.suggestedProjectPath})`}</code>
     </p>
   );
 }
@@ -155,15 +152,11 @@ function LayerSummary({ data }: { data: ConfigPayload }) {
 
 function SaveBar({
   pendingCount,
-  target,
-  onTargetChange,
   data,
   onSave,
   saveState,
 }: {
   pendingCount: number;
-  target: "global" | "project";
-  onTargetChange: (t: "global" | "project") => void;
   data: ConfigPayload;
   onSave: () => void;
   saveState:
@@ -172,9 +165,7 @@ function SaveBar({
     | { kind: "saved"; path: string }
     | { kind: "error"; message: string };
 }) {
-  const targetPath = target === "global"
-    ? data.globalSource ?? "<global config> (will create)"
-    : data.projectSource ?? `${data.suggestedProjectPath} (will create)`;
+  const targetPath = data.globalSource ?? "<global config> (will create)";
 
   return (
     <div className="config-savebar">
@@ -182,18 +173,10 @@ function SaveBar({
         <span className="config-pending-count">{pendingCount}</span>
         <span className="dim">pending change{pendingCount === 1 ? "" : "s"}</span>
       </div>
-      <label className="config-target">
+      <span className="config-target">
         <span className="dim">save to</span>
-        <select
-          className="input config-target-select"
-          value={target}
-          onChange={(e) => onTargetChange(e.target.value as "global" | "project")}
-        >
-          <option value="global">global YAML</option>
-          <option value="project">project YAML (.loctx.yaml)</option>
-        </select>
         <code className="config-target-path">{targetPath}</code>
-      </label>
+      </span>
       <button
         type="button"
         className="btn btn-primary"
@@ -255,13 +238,11 @@ function SectionEditor({
   section,
   data,
   patch,
-  target,
   onChange,
 }: {
   section: ConfigSectionSchemaWire;
   data: ConfigPayload;
   patch: Patch;
-  target: "global" | "project";
   onChange: (key: string, value: unknown) => void;
 }) {
   return (
@@ -277,7 +258,6 @@ function SectionEditor({
             field={field}
             data={data}
             patch={patch}
-            target={target}
             onChange={onChange}
           />
         ))}
@@ -290,13 +270,11 @@ function FieldRow({
   field,
   data,
   patch,
-  target,
   onChange,
 }: {
   field: ConfigFieldSchemaWire;
   data: ConfigPayload;
   patch: Patch;
-  target: "global" | "project";
   onChange: (key: string, value: unknown) => void;
 }) {
   const baseline = data.effective[field.key];
@@ -304,7 +282,6 @@ function FieldRow({
   const value = pending ? patch[field.key] : baseline;
   const source: ConfigSourceKind = data.sources[field.key] ?? "default";
 
-  const restricted = field.globalOnly === true && target === "project";
   const validation = useMemo(() => validate(field, value), [field, value]);
 
   const onReset = () => onChange(field.key, field.default);
@@ -315,25 +292,15 @@ function FieldRow({
         <label className="config-field-label" htmlFor={`f-${field.key}`}>
           {field.label}
         </label>
-        <SourcePill kind={source} />
-        {field.globalOnly === true ? (
-          <span className="config-pill config-pill-locked" title="Global-only field — projects cannot override.">
-            global-only
-          </span>
-        ) : null}
+        <SourcePill kind={source} field={field} />
       </div>
       <p className="config-field-help dim">{field.help}</p>
       <FieldEditor
         field={field}
         value={value}
         onChange={(v) => onChange(field.key, v)}
-        disabled={restricted}
+        disabled={false}
       />
-      {restricted ? (
-        <p className="warn" style={{ fontSize: "0.8rem" }}>
-          This field is global-only — switch the save target to global to edit it.
-        </p>
-      ) : null}
       {validation !== null ? (
         <p className="err" style={{ fontSize: "0.8rem" }}>
           {validation}
@@ -352,9 +319,18 @@ function FieldRow({
   );
 }
 
-function SourcePill({ kind }: { kind: ConfigSourceKind }) {
+function SourcePill({ kind, field }: { kind: ConfigSourceKind; field: ConfigFieldSchemaWire }) {
   const cls = `config-pill config-pill-${kind}`;
-  return <span className={cls}>{kind}</span>;
+  // Spell out the default value for default-sourced fields so the user
+  // doesn't have to guess whether the built-in default is true or false
+  // (or some specific number) just from the checkbox / input state.
+  const text = kind === "default" ? `default: ${formatDefault(field)}` : kind;
+  return <span className={cls}>{text}</span>;
+}
+
+function formatDefault(field: ConfigFieldSchemaWire): string {
+  if (field.type === "bool") return field.default === true ? "on" : "off";
+  return formatDisplay(field.default);
 }
 
 function FieldEditor({
