@@ -380,7 +380,7 @@ function FieldEditor({
             onChange={(e) => onChange(e.target.checked)}
             disabled={disabled}
           />
-          <span>{value === true ? "enabled" : "disabled"}</span>
+          <span>{value === true ? "on" : "off"}</span>
         </label>
       );
     case "enum":
