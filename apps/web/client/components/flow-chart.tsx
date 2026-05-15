@@ -26,15 +26,17 @@ export interface FlowProject {
 }
 
 const MAX_OUTPUTS = 6;
-const NAME_TRUNCATE = 22;
-const WIDTH = 720;
-const HEIGHT = 320;
+const NAME_TRUNCATE = 26;
+const WIDTH = 960;
+const HEIGHT = 340;
 const SOURCE_X = 16;
-const SOURCE_WIDTH = 96;
-const OUTPUT_X = 600;
+const SOURCE_WIDTH = 110;
+const OUTPUT_X = 540;
 const OUTPUT_NODE_WIDTH = 14;
-const MIN_LINK_WIDTH = 2;
-const MAX_LINK_WIDTH = 14;
+const MIN_LINK_WIDTH = 3;
+const MAX_LINK_WIDTH = 16;
+
+type OutputKind = "active" | "indexing" | "paused" | "failed" | "ready" | "dim" | "more";
 
 interface OutputNode {
   readonly key: string;
@@ -44,6 +46,7 @@ interface OutputNode {
   readonly hiddenCount?: number;
   readonly cy: number;
   readonly thickness: number;
+  readonly kind: OutputKind;
 }
 
 export function FlowChart({
@@ -53,6 +56,14 @@ export function FlowChart({
   totalChunks: number;
   projects: ReadonlyArray<FlowProject>;
 }) {
+  const counts = projects.reduce(
+    (acc, p) => {
+      const kind = classify(p.watcher, p.chunks, undefined);
+      acc[kind] = (acc[kind] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<OutputKind, number>,
+  );
   // Sort by chunk count desc so the noisiest projects survive the cap.
   const sorted = [...projects].sort((a, b) => b.chunks - a.chunks);
   const visible = sorted.slice(0, MAX_OUTPUTS);
@@ -92,6 +103,7 @@ export function FlowChart({
     // hugging the top/bottom edges.
     cy: top + ((i + 1) * span) / (rowCount + 1),
     thickness: thicknessFor(r.chunks, totalChunks),
+    kind: classify(r.watcher, r.chunks, r.hiddenCount),
   }));
 
   interface Point {
@@ -111,10 +123,15 @@ export function FlowChart({
   // Source bar — vertically centred, height proportional to total chunks
   // capped so a tiny workspace doesn't show a sliver.
   const sourceCy = HEIGHT / 2;
-  const sourceHeight = Math.max(60, Math.min(HEIGHT - 40, rowCount * 28 + 32));
+  const sourceHeight = Math.max(60, Math.min(HEIGHT - 40, rowCount * 32 + 40));
   const sourceY = sourceCy - sourceHeight / 2;
+  // Inset the link-fan range slightly so links don't start at the source
+  // rect's literal corners (looks pinched).
+  const sourceY1 = sourceY + 12;
+  const sourceY2 = sourceY + sourceHeight - 12;
 
   return (
+    <div className="flow-chart-wrap">
     <svg
       className="flow-chart"
       viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
@@ -131,22 +148,41 @@ export function FlowChart({
           <stop offset="0%" stopColor="var(--primary-dim)" stopOpacity="0.85" />
           <stop offset="100%" stopColor="var(--primary-dim)" stopOpacity="0.5" />
         </linearGradient>
+        <linearGradient id="flow-link-paused" x1="0" x2="1">
+          <stop offset="0%" stopColor="var(--warn)" stopOpacity="0.9" />
+          <stop offset="100%" stopColor="var(--warn)" stopOpacity="0.45" />
+        </linearGradient>
+        <linearGradient id="flow-link-failed" x1="0" x2="1">
+          <stop offset="0%" stopColor="var(--bad)" stopOpacity="0.9" />
+          <stop offset="100%" stopColor="var(--bad)" stopOpacity="0.45" />
+        </linearGradient>
+        <linearGradient id="flow-link-indexing" x1="0" x2="1">
+          <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.7" />
+          <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.3" />
+        </linearGradient>
         <linearGradient id="flow-link-dim" x1="0" x2="1">
           <stop offset="0%" stopColor="var(--border-strong)" stopOpacity="0.7" />
           <stop offset="100%" stopColor="var(--border-strong)" stopOpacity="0.4" />
         </linearGradient>
       </defs>
 
-      {/* Links first so the source/output rects sit on top */}
-      {outputs.map((o) => {
+      {/* Links first so the source/output rects sit on top.
+          Each link starts at its own y on the source rect's right edge
+          so the bezier curves visibly fan out instead of converging on
+          one point — fixes the "middle row looks disconnected" effect
+          where coincident start points overlap. */}
+      {outputs.map((o, i) => {
+        const sourceY = sourceFanY(i, outputs.length, sourceY1, sourceY2);
+        const linkClass =
+          o.kind === "indexing" ? "flow-chart-link indexing" : "flow-chart-link";
         const link = path({
-          source: { x: SOURCE_X + SOURCE_WIDTH, y: sourceCy },
+          source: { x: SOURCE_X + SOURCE_WIDTH, y: sourceY },
           target: { x: OUTPUT_X, y: o.cy },
         });
         return (
           <path
             key={`link-${o.key}`}
-            className="flow-chart-link"
+            className={linkClass}
             d={link ?? ""}
             stroke={linkGradient(o)}
             strokeWidth={o.thickness}
@@ -229,6 +265,33 @@ export function FlowChart({
         );
       })}
     </svg>
+    <Legend counts={counts} />
+    </div>
+  );
+}
+
+const LEGEND_ITEMS: ReadonlyArray<{ kind: OutputKind; label: string }> = [
+  { kind: "active", label: "active" },
+  { kind: "indexing", label: "indexing" },
+  { kind: "ready", label: "ready" },
+  { kind: "paused", label: "paused" },
+  { kind: "failed", label: "failed" },
+  { kind: "dim", label: "empty" },
+];
+
+function Legend({ counts }: { counts: Record<OutputKind, number> }) {
+  const items = LEGEND_ITEMS.filter((it) => (counts[it.kind] ?? 0) > 0);
+  if (items.length === 0) return null;
+  return (
+    <ul className="flow-chart-legend" aria-label="Watcher state legend">
+      {items.map((it) => (
+        <li key={it.kind} className={`flow-chart-legend-item ${it.kind}`}>
+          <span className="flow-chart-legend-swatch" />
+          <span className="flow-chart-legend-label">{it.label}</span>
+          <span className="flow-chart-legend-count">{counts[it.kind]}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -244,19 +307,51 @@ function thicknessFor(chunks: number, total: number): number {
   return MIN_LINK_WIDTH + norm * (MAX_LINK_WIDTH - MIN_LINK_WIDTH);
 }
 
+function classify(
+  watcher: WatcherState | null,
+  chunks: number,
+  hiddenCount: number | undefined,
+): OutputKind {
+  if (hiddenCount !== undefined) return "more";
+  if (watcher === "failed") return "failed";
+  if (watcher === "paused") return "paused";
+  // Active watcher but nothing indexed yet → in-progress / queued.
+  if (watcher === "active" && chunks === 0) return "indexing";
+  if (watcher === "active") return "active";
+  if (chunks > 0) return "ready";
+  return "dim";
+}
+
 function linkGradient(o: OutputNode): string {
-  if (o.hiddenCount !== undefined) return "url(#flow-link-dim)";
-  if (o.watcher === "active" && o.chunks > 0) return "url(#flow-link-active)";
-  if (o.chunks > 0) return "url(#flow-link-ready)";
-  return "url(#flow-link-dim)";
+  switch (o.kind) {
+    case "active":
+      return "url(#flow-link-active)";
+    case "indexing":
+      return "url(#flow-link-indexing)";
+    case "paused":
+      return "url(#flow-link-paused)";
+    case "failed":
+      return "url(#flow-link-failed)";
+    case "ready":
+      return "url(#flow-link-ready)";
+    case "more":
+    case "dim":
+      return "url(#flow-link-dim)";
+  }
 }
 
 function nodeClass(o: OutputNode): string {
-  const base = "flow-chart-node";
-  if (o.hiddenCount !== undefined) return `${base} more`;
-  if (o.watcher === "active" && o.chunks > 0) return `${base} active`;
-  if (o.chunks > 0) return `${base} ready`;
-  return `${base} dim`;
+  return `flow-chart-node ${o.kind}`;
+}
+
+/**
+ * Distribute N output-link source endpoints evenly across the source
+ * rect's vertical inset range so each link visibly emerges from its
+ * own point on the source. Single-output case sits at the centre.
+ */
+function sourceFanY(i: number, n: number, y1: number, y2: number): number {
+  if (n <= 1) return (y1 + y2) / 2;
+  return y1 + (i * (y2 - y1)) / (n - 1);
 }
 
 function truncate(name: string): string {

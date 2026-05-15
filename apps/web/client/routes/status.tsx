@@ -50,6 +50,7 @@ export function StatusPage({ refreshKey }: { refreshKey: number }) {
 
   const status = statusReq.data;
   const projects = projectsReq.data?.active ?? [];
+  const inactiveCount = projectsReq.data?.inactive.length ?? 0;
   const totals = projects.reduce(
     (acc, row) => ({
       files: acc.files + row.files,
@@ -69,9 +70,12 @@ export function StatusPage({ refreshKey }: { refreshKey: number }) {
   // base the gauge on chunks rather than live watcher state so a daemon
   // started with --no-watch still shows useful coverage (the watcher is
   // a freshness signal, not a "did we index this once" signal).
-  const indexed = projects.filter((p) => p.chunks > 0).length;
+  const indexedProjects = projects.filter((p) => p.chunks > 0).length;
+  // Discovered = active + inactive (anything we know about under the
+  // workspace_roots, regardless of whether it's currently indexing).
+  const discoveredProjects = projects.length + inactiveCount;
   const coveragePct =
-    projects.length === 0 ? 0 : Math.round((indexed / projects.length) * 100);
+    projects.length === 0 ? 0 : Math.round((indexedProjects / projects.length) * 100);
 
   const flowProjects: FlowProject[] = projects.map((p) => ({
     id: p.id,
@@ -85,10 +89,12 @@ export function StatusPage({ refreshKey }: { refreshKey: number }) {
       <IndexFlowHero
         totals={totals}
         flowProjects={flowProjects}
+        indexedProjects={indexedProjects}
+        discoveredProjects={discoveredProjects}
         daemonRunning={daemon.running}
       />
       <DaemonCard status={status} baseUrl={baseUrl} />
-      <CoverageGauge percent={coveragePct} healthy={indexed} total={projects.length} />
+      <CoverageGauge percent={coveragePct} healthy={indexedProjects} total={projects.length} />
       <div className="tiles">
         <DetailsTile status={status} />
         <ActivityTile events={events} />
@@ -113,10 +119,14 @@ export function StatusPage({ refreshKey }: { refreshKey: number }) {
 function IndexFlowHero({
   totals,
   flowProjects,
+  indexedProjects,
+  discoveredProjects,
   daemonRunning,
 }: {
   totals: { files: number; chunks: number };
   flowProjects: ReadonlyArray<FlowProject>;
+  indexedProjects: number;
+  discoveredProjects: number;
   daemonRunning: boolean;
 }) {
   return (
@@ -149,17 +159,17 @@ function IndexFlowHero({
       <footer className="hero-foot">
         <div className="hero-stat">
           <span>
-            <span className="hero-stat-value">{totals.files.toLocaleString()}</span>
-            <span className="hero-stat-unit">files</span>
+            <span className="hero-stat-value">{indexedProjects}</span>
+            <span className="hero-stat-unit">/ {discoveredProjects}</span>
           </span>
-          <span className="hero-stat-label">Indexed</span>
+          <span className="hero-stat-label">Projects indexed</span>
         </div>
         <div className="hero-stat">
           <span>
-            <span className="hero-stat-value">{flowProjects.length}</span>
-            <span className="hero-stat-unit">projects</span>
+            <span className="hero-stat-value">{totals.files.toLocaleString()}</span>
+            <span className="hero-stat-unit">files</span>
           </span>
-          <span className="hero-stat-label">Discovered</span>
+          <span className="hero-stat-label">{totals.chunks.toLocaleString()} chunks</span>
         </div>
       </footer>
     </article>

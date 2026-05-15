@@ -668,6 +668,28 @@ h3 {
   stroke: var(--primary-dim);
 }
 
+.flow-chart-node.indexing rect {
+  fill: var(--primary);
+  stroke: var(--primary);
+  opacity: 0.55;
+  animation: flow-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes flow-pulse {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 0.85; }
+}
+
+.flow-chart-node.paused rect {
+  fill: var(--warn);
+  stroke: var(--warn);
+}
+
+.flow-chart-node.failed rect {
+  fill: var(--bad);
+  stroke: var(--bad);
+}
+
 .flow-chart-node.dim rect {
   fill: var(--border-strong);
   stroke: var(--border-strong);
@@ -676,6 +698,62 @@ h3 {
 .flow-chart-node.more rect {
   fill: var(--surface-elevated);
   stroke: var(--border);
+}
+
+.flow-chart-link.indexing {
+  stroke-dasharray: 6 4;
+  animation: flow-dash 2s linear infinite;
+}
+
+@keyframes flow-dash {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: -20; }
+}
+
+.flow-chart-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  height: 100%;
+}
+
+.flow-chart-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--space-3);
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.flow-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.flow-chart-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.flow-chart-legend-item.active .flow-chart-legend-swatch { background: var(--primary); }
+.flow-chart-legend-item.indexing .flow-chart-legend-swatch {
+  background: var(--primary);
+  opacity: 0.6;
+  animation: flow-pulse 1.6s ease-in-out infinite;
+}
+.flow-chart-legend-item.ready .flow-chart-legend-swatch { background: var(--primary-dim); }
+.flow-chart-legend-item.paused .flow-chart-legend-swatch { background: var(--warn); }
+.flow-chart-legend-item.failed .flow-chart-legend-swatch { background: var(--bad); }
+.flow-chart-legend-item.dim .flow-chart-legend-swatch { background: var(--border-strong); }
+.flow-chart-legend-count {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .flow-chart-source-label {
