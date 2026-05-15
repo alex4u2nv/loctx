@@ -28,7 +28,7 @@ export async function runDoctorChecks(config: Config): Promise<DoctorCheck[]> {
   checks.push({
     name: "config",
     status: "ok",
-    detail: `loaded from ${config.source ?? "(defaults)"}; project=${config.projectSource ?? "(none)"}`,
+    detail: `loaded from ${config.source ?? "(defaults)"}`,
   });
 
   for (const [label, p] of [

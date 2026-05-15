@@ -7,6 +7,7 @@ import {
   type Runtime,
   StateStore,
   type WatcherRegistry,
+  WatcherService,
   WorkspaceDiscovery,
   inventoryProjects,
   makeProject,
@@ -116,15 +117,29 @@ export function mountProjects(
     const project = makeProject(resolve(path));
     const rt = await getRuntime();
     rt.state.upsertProjectWithActive(project, true);
-    // Kick off an initial index pass so the user sees data right
-    // away rather than having to follow up with `loctx index`.
-    const summary = await rt.indexer.indexProject(project);
+
+    // Attach a watcher live so the newly-active project gets indexed
+    // incrementally without a daemon restart. Idempotent — if a watcher
+    // already exists (re-activate after deactivate), we leave it alone.
+    if (watcherRegistry !== undefined && watcherRegistry.get(project.id as ProjectId) === null) {
+      await attachWatcher(project, rt, config, watcherRegistry);
+    }
+
+    // Kick off an initial index pass in the background. For a real-world
+    // project this can take minutes; awaiting it here would stall the
+    // POST until the embedder finishes and the UI would look frozen.
+    // Errors land in stderr; the watcher (above) covers live changes in
+    // the meantime.
+    void rt.indexer.indexProject(project).catch((err) => {
+      console.error(
+        `[activate] initial index failed for ${project.name}: ${(err as Error).message}`,
+      );
+    });
+
     return c.json({
       ok: true,
       project: { id: project.id, name: project.name, root: project.root },
-      indexed: summary.indexed,
-      skipped: summary.skipped,
-      failed: summary.failed,
+      queuedForIndex: true,
     });
   });
 
@@ -136,8 +151,53 @@ export function mountProjects(
     const rt = await getRuntime();
     const ok = rt.state.setProjectActive(project.id, false);
     if (!ok) return c.json({ error: "no such project" }, 404);
+
+    // Stop the live watcher too so we're not still emitting events for
+    // a deactivated project. Errors during teardown are logged; we
+    // still report success because the state row already flipped.
+    if (watcherRegistry !== undefined) {
+      await detachWatcher(project.id as ProjectId, watcherRegistry).catch((err) => {
+        console.error(
+          `[deactivate] failed to stop watcher for ${project.name}: ${(err as Error).message}`,
+        );
+      });
+    }
+
     return c.json({ ok: true, project: { id: project.id, name: project.name, root: project.root } });
   });
+}
+
+async function attachWatcher(
+  project: Project,
+  rt: Runtime,
+  config: Config,
+  registry: WatcherRegistry,
+): Promise<void> {
+  const w = new WatcherService(project, rt.indexer, {
+    debounceMs: config.watcher.debounceMs,
+    onEvent: (event, relPath) => {
+      console.error(`[loctx watch] ${event}\t${project.name}/${relPath}`);
+    },
+    onError: (event, relPath, err) => {
+      console.error(`[watcher] ${event} ${relPath}: ${err.message}`);
+      registry.markFailed(project.id, err.message);
+    },
+  });
+  await w.start();
+  registry.register({
+    projectId: project.id,
+    projectName: project.name,
+    projectRoot: project.root,
+    watcher: w,
+    startedAt: new Date().toISOString(),
+  });
+}
+
+async function detachWatcher(projectId: ProjectId, registry: WatcherRegistry): Promise<void> {
+  const entry = registry.get(projectId);
+  if (entry === null) return;
+  await entry.watcher.stop();
+  registry.unregister(projectId);
 }
 
 /**

@@ -24,6 +24,7 @@ import {
   acquireDaemonLock,
   buildRuntime,
   checkNofile,
+  findLegacyProjectConfig,
   inventoryProjects,
   nofileBumpHint,
   stopActiveDaemon,
@@ -43,6 +44,7 @@ export interface StartOptions {
 const ROOT_RELATIVE_WEB_DIR = "../../web";
 
 export async function start(config: Config, options: StartOptions): Promise<void> {
+  warnOnLegacyProjectConfig();
   // Single-instance lock keyed on the data dir. Two daemons sharing the same
   // SQLite + LanceDB would race on writes; the lock keeps one alive at a time
   // regardless of how the second was launched (workspace, npm link, -g).
@@ -232,6 +234,20 @@ function startReconciliation(
 }
 
 // ---- preflight ---------------------------------------------------------
+
+/**
+ * The project-level `.loctx.yaml` layer was removed; values now live in
+ * the global YAML editable from the admin UI. If we find a stray
+ * `.loctx.yaml` walking up from cwd, surface it so the user knows their
+ * old settings are being ignored.
+ */
+function warnOnLegacyProjectConfig(): void {
+  const legacy = findLegacyProjectConfig(process.cwd());
+  if (legacy === null) return;
+  console.error(
+    `[loctx start] WARNING: ${legacy} is no longer loaded. Project-level config was removed; move its contents into the global config (edit via the admin UI or \`loctx config show\`).`,
+  );
+}
 
 function warnIfNofileLow(projectCount: number): void {
   const status = checkNofile();

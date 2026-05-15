@@ -5,6 +5,9 @@
 
 import type {
   ConfigPayload,
+  ConfigWriteError,
+  ConfigWriteRequest,
+  ConfigWriteResponse,
   DoctorPayload,
   FindUsagesPayload,
   FindUsagesRequest,
@@ -41,6 +44,31 @@ export const api = {
   search: (body: SearchRequestBody) => postJson<SearchPayload>("/api/search", body),
   doctor: () => getJson<DoctorPayload>("/api/doctor"),
   config: () => getJson<ConfigPayload>("/api/config"),
+  configWrite: async (body: ConfigWriteRequest): Promise<ConfigWriteResponse> => {
+    // Server returns 400 + ConfigWriteError on validation failure; surface
+    // the parsed errors as a thrown Error so the form can show them.
+    const r = await fetch("/api/config/write", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const text = await r.text();
+      try {
+        const parsed = JSON.parse(text) as ConfigWriteError | { error: string };
+        if ("errors" in parsed) {
+          throw new Error(
+            parsed.errors.map((e) => `${e.key}: ${e.message}`).join("; ") || "validation failed",
+          );
+        }
+        throw new Error(parsed.error ?? text);
+      } catch (e) {
+        if (e instanceof Error) throw e;
+        throw new Error(text);
+      }
+    }
+    return (await r.json()) as ConfigWriteResponse;
+  },
   models: () => getJson<ModelsPayload>("/api/models"),
   modelUse: (name: string, project = false) =>
     postJson<{ ok: true; target: string; reindexRequired: boolean; message: string }>(
