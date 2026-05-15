@@ -1,4 +1,5 @@
 import type { InactiveRow, OrphanRow, ProjectHealth, ProjectsRow } from "@shared/contracts";
+import { confirm } from "../components/confirm";
 import { Icon, type IconName } from "../components/icon";
 import { type NavSection, SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
@@ -38,10 +39,15 @@ export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
       ops.run(`resume ${name}`, () => api.watchResume(id)).then(() => undefined),
     recrawl: (root: string, name: string) =>
       ops.run(`recrawl ${name}`, () => api.index(root)).then(() => undefined),
-    purge: (root: string, name: string): Promise<void> => {
-      if (!window.confirm(`Purge index data for ${name}? Source files untouched.`))
-        return Promise.resolve();
-      return ops.run(`purge ${name}`, () => api.resetProject(root)).then(() => undefined);
+    purge: async (root: string, name: string): Promise<void> => {
+      const ok = await confirm({
+        title: `Purge ${name}?`,
+        message: "Removes index data for this project. Source files are untouched.",
+        confirmLabel: "Purge",
+        danger: true,
+      });
+      if (!ok) return;
+      await ops.run(`purge ${name}`, () => api.resetProject(root));
     },
     activate: (root: string, name: string) =>
       ops.run(`activate ${name}`, () => api.activateProject(root)).then(() => undefined),
@@ -337,14 +343,14 @@ function RowActionButtons({
         <IconButton
           icon="pause"
           label="deactivate"
-          onClick={() => {
-            if (
-              !window.confirm(
-                `Deactivate ${row.name}? Watcher stops; indexed data stays. Use purge to remove.`,
-              )
-            ) {
-              return;
-            }
+          onClick={async () => {
+            const ok = await confirm({
+              title: `Deactivate ${row.name}?`,
+              message:
+                "Watcher stops and indexing pauses. Indexed data stays — use purge to remove it.",
+              confirmLabel: "Deactivate",
+            });
+            if (!ok) return;
             void actions.deactivate?.(row.root, row.name);
           }}
           disabled={isBusy}

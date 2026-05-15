@@ -1454,3 +1454,71 @@ h3 {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* ---- Confirm modal -------------------------------------------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: modal-fade 120ms ease-out;
+}
+
+.modal {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-hover);
+  max-width: 480px;
+  width: calc(100% - var(--space-5));
+  padding: var(--space-4);
+  animation: modal-rise 140ms ease-out;
+}
+
+.modal-title {
+  margin: 0 0 var(--space-2);
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.modal-body {
+  margin: 0 0 var(--space-4);
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.btn-danger {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #1a1a1a;
+  opacity: 0.92;
+}
+
+@keyframes modal-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes modal-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

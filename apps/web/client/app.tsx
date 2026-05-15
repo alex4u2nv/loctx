@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
+import { ConfirmHost } from "./components/confirm";
 import { LiveRefresh } from "./components/live-refresh";
 import { AdminPage } from "./routes/admin";
 import { ConfigPage } from "./routes/config";
@@ -51,6 +52,7 @@ export function App() {
           <Route path="/admin" element={<AdminPage />} />
         </Routes>
       </main>
+      <ConfirmHost />
     </BrowserRouter>
   );
 }

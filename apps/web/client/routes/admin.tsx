@@ -4,6 +4,7 @@
  */
 
 import { Link } from "react-router-dom";
+import { confirm } from "../components/confirm";
 import { Icon } from "../components/icon";
 import { SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
@@ -14,23 +15,34 @@ export function AdminPage() {
 
   const indexAll = (): Promise<unknown> => ops.run("index all", () => api.index());
   const refreshAll = (): Promise<unknown> => ops.run("refresh", () => api.refresh());
-  const resetIndex = (): Promise<unknown> => {
-    if (
-      !window.confirm(
-        "Delete every chunk + vector + file row in the local index? Source files untouched. The daemon must be stopped first.",
-      )
-    )
-      return Promise.resolve();
+  const resetIndex = async (): Promise<unknown> => {
+    const ok = await confirm({
+      title: "Reset index?",
+      message:
+        "Delete every chunk + vector + file row in the local index. Source files are untouched. The daemon must be stopped first.",
+      confirmLabel: "Reset index",
+      danger: true,
+    });
+    if (!ok) return;
     return ops.run("reset index", () => api.resetIndex());
   };
-  const restart = (): Promise<unknown> => {
-    if (!window.confirm("Stop the daemon? Re-launch it with `loctx start` afterwards.")) {
-      return Promise.resolve();
-    }
+  const restart = async (): Promise<unknown> => {
+    const ok = await confirm({
+      title: "Restart daemon?",
+      message: "Stop the daemon and re-launch it with `loctx start` afterwards.",
+      confirmLabel: "Restart",
+    });
+    if (!ok) return;
     return ops.run("restart", () => api.restart());
   };
-  const stop = (): Promise<unknown> => {
-    if (!window.confirm("Stop the daemon? The UI will lose its server.")) return Promise.resolve();
+  const stop = async (): Promise<unknown> => {
+    const ok = await confirm({
+      title: "Stop daemon?",
+      message: "The UI will lose its server.",
+      confirmLabel: "Stop",
+      danger: true,
+    });
+    if (!ok) return;
     return ops.run("stop", () => api.stop());
   };
 
