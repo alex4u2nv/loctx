@@ -35,6 +35,14 @@ const OUTPUT_X = 540;
 const OUTPUT_NODE_WIDTH = 14;
 const MIN_LINK_WIDTH = 3;
 const MAX_LINK_WIDTH = 16;
+// How far each link's source endpoint sits inside the source rect's
+// right edge, so the link visibly anchors onto the rect rather than
+// just touching its boundary.
+const LINK_OVERLAP = 8;
+// Vertical spacing between adjacent source-side endpoints. Small enough
+// to feel like the lines branch out of one node, big enough that a flat
+// middle link doesn't disappear underneath the row above it.
+const SOURCE_FAN_STEP = 10;
 
 type OutputKind = "active" | "indexing" | "paused" | "failed" | "ready" | "dim" | "more";
 
@@ -125,10 +133,6 @@ export function FlowChart({
   const sourceCy = HEIGHT / 2;
   const sourceHeight = Math.max(60, Math.min(HEIGHT - 40, rowCount * 32 + 40));
   const sourceY = sourceCy - sourceHeight / 2;
-  // Inset the link-fan range slightly so links don't start at the source
-  // rect's literal corners (looks pinched).
-  const sourceY1 = sourceY + 12;
-  const sourceY2 = sourceY + sourceHeight - 12;
 
   return (
     <div className="flow-chart-wrap">
@@ -166,17 +170,36 @@ export function FlowChart({
         </linearGradient>
       </defs>
 
-      {/* Links first so the source/output rects sit on top.
-          Each link starts at its own y on the source rect's right edge
-          so the bezier curves visibly fan out instead of converging on
-          one point — fixes the "middle row looks disconnected" effect
-          where coincident start points overlap. */}
+      {/* Render order matters:
+          1. Source rect (so links visibly emerge over its right edge —
+             without this, a perfectly horizontal middle link gets
+             absorbed by the rect's body and drop-shadow glow).
+          2. Links — start a few px INSIDE the rect so each one
+             unambiguously anchors to it, and converge near the rect's
+             vertical centre so the visual reads as "branching out"
+             from the cube rather than fanning along its full height.
+          3. Source text labels last so they sit on top of the link
+             stubs that pass under them. */}
+      <g className="flow-chart-node source">
+        <rect
+          x={SOURCE_X}
+          y={sourceY}
+          width={SOURCE_WIDTH}
+          height={sourceHeight}
+          rx={8}
+        />
+        <title>
+          Index source · {totalChunks.toLocaleString()} chunks across {projects.length} project
+          {projects.length === 1 ? "" : "s"}
+        </title>
+      </g>
+
       {outputs.map((o, i) => {
-        const sourceY = sourceFanY(i, outputs.length, sourceY1, sourceY2);
+        const srcY = sourceFanY(i, outputs.length, sourceCy);
         const linkClass =
           o.kind === "indexing" ? "flow-chart-link indexing" : "flow-chart-link";
         const link = path({
-          source: { x: SOURCE_X + SOURCE_WIDTH, y: sourceY },
+          source: { x: SOURCE_X + SOURCE_WIDTH - LINK_OVERLAP, y: srcY },
           target: { x: OUTPUT_X, y: o.cy },
         });
         return (
@@ -191,15 +214,7 @@ export function FlowChart({
         );
       })}
 
-      {/* Source (OUTPUT) block */}
-      <g className="flow-chart-node source">
-        <rect
-          x={SOURCE_X}
-          y={sourceY}
-          width={SOURCE_WIDTH}
-          height={sourceHeight}
-          rx={8}
-        />
+      <g className="flow-chart-node source labels">
         <text
           className="flow-chart-source-label"
           x={SOURCE_X + 12}
@@ -218,10 +233,6 @@ export function FlowChart({
         >
           {totalChunks.toLocaleString()}
         </text>
-        <title>
-          Index source · {totalChunks.toLocaleString()} chunks across {projects.length} project
-          {projects.length === 1 ? "" : "s"}
-        </title>
       </g>
 
       {/* Output nodes */}
@@ -345,13 +356,18 @@ function nodeClass(o: OutputNode): string {
 }
 
 /**
- * Distribute N output-link source endpoints evenly across the source
- * rect's vertical inset range so each link visibly emerges from its
- * own point on the source. Single-output case sits at the centre.
+ * Place each link's source endpoint a few pixels apart vertically,
+ * centred on the source rect's middle. This gives the visual feel of
+ * lines branching out from one node without making coincident endpoints
+ * (which would render as a single overlapping cluster and could hide a
+ * perfectly horizontal middle link). Total spread is bounded so the
+ * cluster always reads as "one source", not a tall fan.
  */
-function sourceFanY(i: number, n: number, y1: number, y2: number): number {
-  if (n <= 1) return (y1 + y2) / 2;
-  return y1 + (i * (y2 - y1)) / (n - 1);
+function sourceFanY(i: number, n: number, cy: number): number {
+  if (n <= 1) return cy;
+  // Centre the spread on cy: positions go (i - (n-1)/2) * step.
+  const offset = (i - (n - 1) / 2) * SOURCE_FAN_STEP;
+  return cy + offset;
 }
 
 function truncate(name: string): string {
