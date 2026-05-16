@@ -39,11 +39,46 @@ export interface ReconciliationSummary {
   readonly elapsedSeconds: number;
 }
 
+/**
+ * Snapshot of the reconciler's live state. Surfaced via `/api/status`
+ * and the admin dashboard so users can tell — for the first ~minutes
+ * after daemon start, or during a periodic pass on a busy workspace —
+ * that search results may be incomplete while the index is catching
+ * up. See #216.
+ */
+export interface ReconciliationStatus {
+  readonly running: boolean;
+  /** ISO-8601 timestamp of the in-flight pass; null when idle. */
+  readonly startedAt: string | null;
+  /** Project currently being reconciled; null when idle. */
+  readonly currentProjectName: string | null;
+  /** How many projects in the current batch are done. */
+  readonly completed: number;
+  /** Total projects in the current batch. */
+  readonly total: number;
+}
+
 export class Reconciler {
+  private _running = false;
+  private _startedAt: string | null = null;
+  private _currentProjectName: string | null = null;
+  private _completed = 0;
+  private _total = 0;
+
   constructor(
     private readonly state: StateStore,
     private readonly indexer: ProjectIndexer,
   ) {}
+
+  status(): ReconciliationStatus {
+    return Object.freeze({
+      running: this._running,
+      startedAt: this._startedAt,
+      currentProjectName: this._currentProjectName,
+      completed: this._completed,
+      total: this._total,
+    });
+  }
 
   /**
    * Pre-prune deleted files, drop anything the current filter now
@@ -94,9 +129,22 @@ export class Reconciler {
   async reconcileAll(
     projects: ReadonlyArray<Project>,
   ): Promise<ReadonlyArray<ReconciliationSummary>> {
+    // Live status: flip running=true for the duration so /api/status can
+    // tell the UI that search results may be incomplete during the pass.
+    this._running = true;
+    this._startedAt = new Date().toISOString();
+    this._completed = 0;
+    this._total = projects.length;
     const out: ReconciliationSummary[] = [];
-    for (const project of projects) {
-      out.push(await this.reconcileProject(project));
+    try {
+      for (const project of projects) {
+        this._currentProjectName = project.name;
+        out.push(await this.reconcileProject(project));
+        this._completed += 1;
+      }
+    } finally {
+      this._running = false;
+      this._currentProjectName = null;
     }
     return Object.freeze(out);
   }

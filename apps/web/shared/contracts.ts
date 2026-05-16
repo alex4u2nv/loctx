@@ -25,10 +25,24 @@ export interface StatusPayload {
     readonly stateDb: string;
     readonly embeddingProvider: string;
     readonly embeddingModel: string;
+    /** True once the embedding model has been initialized successfully. */
+    readonly embeddingReady: boolean;
     readonly retrievalMode: string;
     readonly watcherDebounceMs: number;
     readonly reconciliationIntervalSeconds: number;
     readonly reconciliationRunOnStart: boolean;
+  };
+  /**
+   * Live reconciliation state — non-null only while a pass is in
+   * flight. The UI shows a banner during reconciliation so users know
+   * search results may be incomplete.
+   */
+  readonly reconciliation: {
+    readonly running: boolean;
+    readonly startedAt: string | null;
+    readonly currentProjectName: string | null;
+    readonly completed: number;
+    readonly total: number;
   };
   readonly projects: ReadonlyArray<{
     readonly id: string;
