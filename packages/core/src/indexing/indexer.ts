@@ -59,6 +59,15 @@ export interface IndexerOptions {
 export class ProjectIndexer {
   private readonly chunkerFn: ChunkerFn;
   private readonly afterFileIndexed: AfterFileIndexed;
+  /**
+   * Per-fileId mutex covering the whole persist() sequence (SQLite +
+   * LanceDB writes). Two concurrent persists for the same file — typical
+   * race: watcher dispatch + reconciler walk — would otherwise interleave
+   * between the state and vector writes, leaving the two stores
+   * disagreeing on which chunk-set is current. Different files keep
+   * their own chains so cross-file work stays parallel.
+   */
+  private readonly fileWriteMutex = new PerKeyMutex();
 
   constructor(
     public readonly state: StateStore,
@@ -218,6 +227,9 @@ export class ProjectIndexer {
     absPath: string,
   ): Promise<void> {
     const fileId = fileIdFor(project, relPath);
+    // Embedding work happens outside the mutex — it's CPU/GPU-bound and
+    // doesn't touch storage, so blocking other files behind it would
+    // cost throughput. The mutex guards only the actual writes below.
     const embeddings = await this.embeddings.embedDocuments(chunks.map((c) => c.content));
     const language = detectLanguage(relPath) ?? "";
 
@@ -244,9 +256,6 @@ export class ProjectIndexer {
       };
     });
 
-    await this.vectors.deleteFileChunks(project.id, relPath);
-    await this.vectors.upsertChunks(embedded);
-
     const chunkInserts: ChunkInsert[] = embedded.map((ec, i) => {
       const c = chunks[i];
       if (c === undefined) throw new Error("chunk index out of range");
@@ -267,7 +276,6 @@ export class ProjectIndexer {
           : {}),
       };
     });
-    this.state.replaceChunks(fileId, chunkInserts);
 
     const stat = statSync(absPath);
     const fileState: FileState = {
@@ -281,7 +289,23 @@ export class ProjectIndexer {
       embeddingIdentity: identityStr,
       error: null,
     };
-    this.state.upsertFile(fileState);
+
+    // All writes for `fileId` run as one critical section. Order matters:
+    // SQLite is the system of record (it owns the `contentSha` that
+    // marks a file as up-to-date), and LanceDB is a derived index. By
+    // writing state first and stamping `upsertFile` last, a crash leaves
+    // the file's row pointing at the *old* sha; the next reconciler pass
+    // sees the mismatch and retries the whole sequence idempotently. The
+    // alternative (vectors first) could leave orphan vectors invisible
+    // to reconciliation. See #188, #193.
+    await this.fileWriteMutex.runExclusive(fileId, async () => {
+      this.state.replaceChunks(fileId, chunkInserts);
+      await this.vectors.deleteFileChunks(project.id, relPath);
+      await this.vectors.upsertChunks(embedded);
+      // Stamp the file row last — this is the "commit" marker that a
+      // future reconciler uses to decide the file is up-to-date.
+      this.state.upsertFile(fileState);
+    });
 
     // Background analyzer enrichment hook (#61, #62, #64, #65). Synchronous
     // — handler is expected to enqueue work without blocking. Wrapped in
@@ -297,6 +321,37 @@ export class ProjectIndexer {
     } catch (err) {
       console.error(`[indexer] afterFileIndexed hook threw: ${(err as Error).message}`);
     }
+  }
+}
+
+/**
+ * Per-key serialization primitive. Each unique key gets its own FIFO
+ * chain of pending tasks; callers with different keys run in parallel.
+ * The chain entry is cleaned up once the last waiter resolves so the
+ * map size tracks live keys only.
+ *
+ * Used by ProjectIndexer to serialize all writes for a single fileId
+ * (vectors + state) without blocking work on other files.
+ */
+class PerKeyMutex {
+  private readonly chains = new Map<string, Promise<unknown>>();
+
+  runExclusive<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.chains.get(key) ?? Promise.resolve();
+    const result = prev.then(fn);
+    // Continue the chain whether fn rejects or resolves so one failing
+    // call doesn't deadlock subsequent waiters on the same key.
+    const settled = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.chains.set(key, settled);
+    // Drop the entry once this run is the tail and has settled — keeps
+    // the map size bounded to the number of live, in-flight keys.
+    void settled.then(() => {
+      if (this.chains.get(key) === settled) this.chains.delete(key);
+    });
+    return result;
   }
 }
 
