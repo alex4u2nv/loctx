@@ -16,6 +16,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { RULE_FILENAMES } from "../gitignore.js";
 import type { ProjectIndexer } from "../indexing/index.js";
+import { safeLog } from "../log.js";
 import type { Project } from "../models.js";
 import { watcherBus } from "./bus.js";
 
@@ -111,7 +112,14 @@ export class WatcherService {
     this.onError =
       options.onError ??
       ((event, path, err) => {
-        console.error(`[watcher] ${event} ${path}: ${err.message}`);
+        // Default handler runs `path` and `err.message` through
+        // `safeLog` so absolute paths get reduced relative to the
+        // project root and over-long strings (chunk content surfacing
+        // through an error message) get summarized. LOCTX_LOG=debug
+        // restores the raw output for local debugging (#154).
+        safeLog("error", `[watcher] ${event} ${path}: ${err.message}`, {
+          projectRoot: this.project.root,
+        });
       });
   }
 
