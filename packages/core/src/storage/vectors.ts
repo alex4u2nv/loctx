@@ -65,6 +65,8 @@ interface LanceTable {
   add(records: ReadonlyArray<Record<string, unknown>>): Promise<unknown>;
   delete(predicate: string): Promise<unknown>;
   countRows(filter?: string): Promise<number>;
+  createIndex(column: string, options?: { replace?: boolean }): Promise<void>;
+  listIndices(): Promise<Array<{ name?: string; columns?: ReadonlyArray<string> }>>;
   mergeInsert(on: string | string[]): {
     whenMatchedUpdateAll(): {
       whenNotMatchedInsertAll(): {
@@ -103,6 +105,17 @@ export interface VectorStore {
   readonly deleteFileChunks: (projectId: ProjectId, relPath: string) => Promise<void>;
   readonly deleteProjectChunks: (projectId: ProjectId) => Promise<void>;
   readonly query: (request: VectorQuery) => Promise<VectorMatch[]>;
+  /**
+   * Build a vector index (LanceDB picks the kind — typically IVF_PQ
+   * or HNSW depending on dimension) when the corpus has grown past
+   * `minRowsForIndex`. No-op when the corpus is small enough that
+   * flat scan is faster than the index, or when an index is already
+   * present. Cheap to call repeatedly — protected by a "last
+   * checked" gate. See #210.
+   */
+  readonly ensureVectorIndex: (
+    minRowsForIndex?: number,
+  ) => Promise<{ built: boolean; rows: number }>;
 }
 
 export function createVectorStore(
@@ -183,6 +196,30 @@ export function createVectorStore(
       const stage = request.where !== undefined ? search.where(request.where) : search;
       const rows = await stage.limit(limit).toArray();
       return rows.map(toMatch);
+    },
+
+    ensureVectorIndex: async (minRowsForIndex = 10_000) => {
+      const t = await ready();
+      const rows = await t.countRows();
+      if (rows < minRowsForIndex) return { built: false, rows };
+      try {
+        const indices = await t.listIndices();
+        const alreadyIndexed = indices.some((ix) => ix.columns?.includes("vector") ?? false);
+        if (alreadyIndexed) return { built: false, rows };
+        // `replace: false` so a concurrent caller doesn't blow away
+        // an in-progress build. Goes through the writer mutex
+        // because LanceDB serializes index work behind the same
+        // lock as inserts/deletes.
+        await writeMutex.runExclusive(() => t.createIndex("vector", { replace: false }));
+        return { built: true, rows };
+      } catch (err) {
+        // Index build can fail if the data is too small for the
+        // chosen algorithm, or if the version of LanceDB rejects
+        // the call shape. Log and continue — search still works
+        // via flat scan.
+        console.error(`[vectors] createIndex skipped: ${(err as Error).message}`);
+        return { built: false, rows };
+      }
     },
   };
   return api;

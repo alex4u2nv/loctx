@@ -24,6 +24,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Project } from "../models.js";
 import type { StateStore } from "../storage/state.js";
+import type { VectorStore } from "../storage/vectors.js";
 import type { ProjectIndexer } from "./indexer.js";
 
 export interface ReconciliationSummary {
@@ -68,6 +69,7 @@ export class Reconciler {
   constructor(
     private readonly state: StateStore,
     private readonly indexer: ProjectIndexer,
+    private readonly vectors?: VectorStore,
   ) {}
 
   status(): ReconciliationStatus {
@@ -145,6 +147,15 @@ export class Reconciler {
     } finally {
       this._running = false;
       this._currentProjectName = null;
+    }
+    // Build the ANN index once the post-reconcile corpus has grown
+    // past the threshold. Cheap when an index already exists; the
+    // builder bails fast in that case (#210).
+    if (this.vectors !== undefined) {
+      const result = await this.vectors.ensureVectorIndex();
+      if (result.built) {
+        console.error(`[loctx reconcile] built vector ANN index over ${result.rows} chunks`);
+      }
     }
     return Object.freeze(out);
   }
