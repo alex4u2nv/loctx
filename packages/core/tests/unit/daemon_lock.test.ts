@@ -84,6 +84,42 @@ describe("acquireDaemonLock", () => {
       lock.release();
     }
   });
+
+  it("simulates crash-then-restart: stale lock with dead PID is reclaimed end-to-end (#165)", () => {
+    // Phase 1: a "daemon" has crashed leaving a real-looking lock file
+    // on disk. We model the crash by forging a lock pointing at a
+    // dead PID — same shape as the lock file written by a real
+    // daemon, including the dataDir field acquireDaemonLock stamps.
+    const crashedDaemon = {
+      pid: 99_999_999,
+      port: 3022,
+      hostname: "127.0.0.1",
+      startedAt: new Date(Date.now() - 60_000).toISOString(),
+      version: "0.0.0-crashed",
+      dataDir: tmp,
+    };
+    writeFileSync(daemonLockPath(tmp), JSON.stringify(crashedDaemon));
+    expect(existsSync(daemonLockPath(tmp))).toBe(true);
+    // The readActiveDaemon path treats a dead-PID lock as "no daemon"
+    // — important because daemon-client uses this to decide whether
+    // to talk to the daemon vs run the work locally.
+    expect(readActiveDaemon(tmp)).toBeNull();
+
+    // Phase 2: a fresh daemon starts. It must reclaim cleanly — no
+    // DaemonLockHeldError, no manual cleanup required.
+    const fresh = acquireDaemonLock(tmp, info());
+    try {
+      const onDisk = JSON.parse(readFileSync(fresh.path, "utf-8"));
+      expect(onDisk.pid).toBe(process.pid);
+      expect(onDisk.version).toBe("0.0.0-test");
+      // And readActiveDaemon now sees the fresh daemon by its live
+      // PID, so daemon-client routes through it.
+      const active = readActiveDaemon(tmp);
+      expect(active?.pid).toBe(process.pid);
+    } finally {
+      fresh.release();
+    }
+  });
 });
 
 describe("readActiveDaemon", () => {

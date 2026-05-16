@@ -89,11 +89,30 @@ describe("Reconciler (#14)", () => {
     writeFileSync(join(projectRoot, "src", "auth.ts"), "export function authenticate() {}\n");
     const project = makeProject();
     await reconciler.reconcileProject(project);
+    // Snapshot the post-first-pass state. A truly idempotent rerun
+    // must leave file count, chunk count, and the per-file content_sha
+    // bit-for-bit identical (#167) — not just `reindexed=0`, which
+    // wouldn't catch a regression that re-embedded but coincidentally
+    // produced the same chunk ids.
+    const beforeFiles = state.listFiles(project.id).map((f) => ({
+      relPath: f.relPath,
+      contentSha: f.contentSha,
+    }));
+    const beforeFileId = state.listFiles(project.id)[0]?.fileId;
+    const beforeChunks = beforeFileId !== undefined ? state.listChunks(beforeFileId).length : 0;
+
     const second = await reconciler.reconcileProject(project);
     expect(second.pruned).toBe(0);
     expect(second.reindexed).toBe(0);
-    // Skipped count == file count: every file already at sha.
     expect(second.skipped).toBeGreaterThanOrEqual(1);
+
+    const afterFiles = state.listFiles(project.id).map((f) => ({
+      relPath: f.relPath,
+      contentSha: f.contentSha,
+    }));
+    const afterChunks = beforeFileId !== undefined ? state.listChunks(beforeFileId).length : 0;
+    expect(afterFiles).toEqual(beforeFiles);
+    expect(afterChunks).toBe(beforeChunks);
   });
 
   it("does not stamp last_reconciled_at when indexProject throws (#194)", async () => {
