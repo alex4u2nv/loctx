@@ -16,6 +16,7 @@ import { execFileSync } from "node:child_process";
 import {
   closeSync,
   fsyncSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -59,12 +60,30 @@ export class DaemonLockHeldError extends Error {
  */
 export function acquireDaemonLock(dataDir: string, info: Omit<DaemonInfo, "dataDir">): DaemonLock {
   mkdirSync(dataDir, { recursive: true });
+  // Refuse to operate on a data dir that's a symlink — a local
+  // attacker writeable to `$LOCTX_DATA_DIR/..` could plant a symlink
+  // here and steer the lock file (plus state DB + vectors) outside
+  // the user's intended dataDir. mkdirSync above follows symlinks
+  // happily; lstatSync sees the link itself. See #181.
+  try {
+    if (lstatSync(dataDir).isSymbolicLink()) {
+      throw new Error(`refusing to use a symlinked data dir at ${dataDir}`);
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    // Race: dir disappeared between mkdir and lstat. Recreate and retry.
+    mkdirSync(dataDir, { recursive: true });
+  }
   const path = join(dataDir, LOCK_FILENAME);
   const fullInfo: DaemonInfo = { ...info, dataDir };
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const fd = openSync(path, "wx");
+      // O_EXCL ensures only one caller wins the create. Mode 0o600
+      // restricts read access to the daemon's user (the lock file
+      // carries the bound port + hostname an attacker could use to
+      // shape a CSRF/rebinding probe).
+      const fd = openSync(path, "wx", 0o600);
       try {
         writeSync(fd, JSON.stringify(fullInfo, null, 2));
         fsyncSync(fd);
@@ -135,6 +154,19 @@ export async function stopActiveDaemon(
   const verification = verifyLoctxProcess(info.pid);
   if (verification.outcome === "not-loctx") {
     throw new LockFileTamperedError(info.pid, verification.command);
+  }
+
+  // PID-reuse guard: between `verifyLoctxProcess` and `process.kill`
+  // the original daemon could exit and the OS could recycle its PID
+  // to a new process. Re-read the lock file immediately before
+  // signaling — if it still names the same PID, the daemon is still
+  // running under that PID and SIGTERM is safe; otherwise abort.
+  // See #182.
+  const stillRecorded = readDaemonInfoFromPath(path);
+  if (stillRecorded === null || stillRecorded.pid !== info.pid) {
+    // Lock file changed underneath us; treat as "daemon already gone".
+    rmSync(path, { force: true });
+    return null;
   }
 
   process.kill(info.pid, "SIGTERM");

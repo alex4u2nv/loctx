@@ -221,6 +221,20 @@ export class StateStore {
         `state DB schema is version ${current}; this build only knows up to ${SCHEMA_VERSION}. You're running an older loctx than the one that last touched this data dir. Upgrade loctx, or reset the index with \`loctx reset index --force\` and re-run \`loctx index\`.`,
       );
     }
+    // Sanity check on partial migrations: if user_version says we've
+    // been here before but a required table is missing, the DB has
+    // been hand-edited or partially corrupted. ALTERing a missing
+    // table yields a cryptic error; refuse upfront with a clearer
+    // recovery hint. Skips the brand-new case (current === 0).
+    // See #187.
+    if (current > 0) {
+      const missing = this.missingRequiredTables();
+      if (missing.length > 0) {
+        throw new Error(
+          `state DB at user_version=${current} is missing tables: ${missing.join(", ")}. Run \`loctx reset index --force\` to recreate, or restore from backup.`,
+        );
+      }
+    }
     if (current === SCHEMA_VERSION) return;
 
     if (current < 1) {
@@ -236,7 +250,38 @@ export class StateStore {
     if (current < 3) {
       const schemaV3 = QUERIES["schema_v3"];
       if (schemaV3 === undefined) throw new Error("Missing schema_v3 in state.sql");
-      this.db.exec(schemaV3);
+      // schema_v3 ALTERs `chunks` to add `metadata_json` + `symbol_def`,
+      // and CREATEs `symbol_refs` + indices. The CREATEs use
+      // `IF NOT EXISTS`, but the ALTERs don't have that option in
+      // SQLite. Guard them the same way v4 and v6 already do so a
+      // downgrade-then-reupgrade scenario (or test sandbox that
+      // walks user_version backwards) doesn't trip "duplicate
+      // column" errors. See #196.
+      if (
+        !this.columnExists("chunks", "metadata_json") ||
+        !this.columnExists("chunks", "symbol_def")
+      ) {
+        this.db.exec(schemaV3);
+      } else {
+        // Columns already present; still need to (re-)create
+        // symbol_refs + indices. Those use IF NOT EXISTS so it's
+        // safe to run the whole block — but we can't run it without
+        // the ALTERs failing. Split: run only the CREATEs.
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS symbol_refs (
+            symbol TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            file_id TEXT NOT NULL,
+            chunk_id TEXT NOT NULL,
+            line INTEGER NOT NULL,
+            kind TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_symbol_refs_lookup
+              ON symbol_refs(project_id, symbol, kind);
+          CREATE INDEX IF NOT EXISTS idx_symbol_refs_chunk ON symbol_refs(chunk_id);
+          CREATE INDEX IF NOT EXISTS idx_chunks_symbol_def ON chunks(symbol_def);
+        `);
+      }
     }
     if (current < 4) {
       const schemaV4 = QUERIES["schema_v4"];
@@ -274,6 +319,25 @@ export class StateStore {
   private columnExists(table: string, column: string): boolean {
     const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
     return rows.some((r) => r.name === column);
+  }
+
+  /**
+   * Subset of expected tables for a partially-migrated DB. The list is
+   * the v1 baseline (`projects`, `files`, `chunks`, `collections`) —
+   * tables added in later migrations are checked by `columnExists`
+   * lower down. Returning a non-empty list means the DB has been
+   * tampered with or partially corrupted. See #187.
+   */
+  private missingRequiredTables(): string[] {
+    const required = ["projects", "files", "chunks", "collections"];
+    const present = new Set(
+      (
+        this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{
+          name: string;
+        }>
+      ).map((r) => r.name),
+    );
+    return required.filter((t) => !present.has(t));
   }
 
   // ---- projects -------------------------------------------------------
