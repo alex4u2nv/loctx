@@ -168,15 +168,12 @@ export class Reconciler {
       this._running = false;
       this._currentProjectName = null;
     }
-    // Build the ANN index once the post-reconcile corpus has grown
-    // past the threshold. Cheap when an index already exists; the
-    // builder bails fast in that case (#210).
-    if (this.vectors !== undefined) {
-      const result = await this.vectors.ensureVectorIndex();
-      if (result.built) {
-        console.error(`[loctx reconcile] built vector ANN index over ${result.rows} chunks`);
-      }
-    }
+    // (#210: ANN-index trigger temporarily disabled — touching the
+    // LanceDB table mid-boot via `countRows()` interacts badly with
+    // an unflushed write from the pre-index step, leaving subsequent
+    // searches reading a stale fragment reference. The method is
+    // still exposed on VectorStore; a future PR will wire it in once
+    // the interaction is fixed.)
     return Object.freeze(out);
   }
 }
