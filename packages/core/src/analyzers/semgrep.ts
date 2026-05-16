@@ -54,6 +54,7 @@ export interface RunSemgrepOptions {
 export async function runSemgrep(
   filePath: string,
   opts: RunSemgrepOptions,
+  signal?: AbortSignal,
 ): Promise<RulePackFileResult> {
   if (opts.ruleDirs.length === 0) {
     return Object.freeze({
@@ -67,9 +68,13 @@ export async function runSemgrep(
     args.push("--config", dir);
   }
   args.push(filePath);
+  // `signal` wires the queue's per-task abort through to the child
+  // process so a timeout actually kills semgrep instead of letting it
+  // keep running off-thread (#197).
   const { stdout } = await exec(opts.command, args, {
     timeout: opts.timeoutMs ?? 30_000,
     maxBuffer: 16 * 1024 * 1024,
+    ...(signal !== undefined ? { signal } : {}),
   });
   return parseSemgrepJson(stdout, opts.maxFindingsPerFile);
 }

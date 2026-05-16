@@ -59,8 +59,18 @@ export async function detectLizard(command = "lizard"): Promise<string | null> {
  * per-function metrics. Throws on non-zero exit; the caller
  * (`EnrichmentQueue` runner) translates that to a `failed` status.
  */
-export async function runLizard(command: string, filePath: string): Promise<LizardFileResult> {
-  const { stdout } = await exec(command, ["--csv", filePath], { timeout: 30_000 });
+export async function runLizard(
+  command: string,
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<LizardFileResult> {
+  // The `signal` is wired through to Node's child_process so an aborted
+  // task SIGTERMs the lizard child instead of letting it churn until
+  // the internal 30s timeout (#197).
+  const { stdout } = await exec(command, ["--csv", filePath], {
+    timeout: 30_000,
+    ...(signal !== undefined ? { signal } : {}),
+  });
   return parseLizardCsv(filePath, stdout);
 }
 

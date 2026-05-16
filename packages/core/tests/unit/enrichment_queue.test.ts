@@ -14,7 +14,7 @@ import { EnrichmentQueue, type EnrichmentTask } from "../../src/analyzers/queue.
 
 function task(
   id: string,
-  run: () => Promise<unknown>,
+  run: (signal?: AbortSignal) => Promise<unknown>,
   overrides: Partial<Omit<EnrichmentTask, "id" | "run">> = {},
 ): EnrichmentTask {
   return {
@@ -117,6 +117,34 @@ describe("EnrichmentQueue", () => {
     await q.drainAll();
     expect(failureSeen).toBe(true);
     expect(q.status().failures).toBe(1);
+  });
+
+  it("aborts the runner's signal on timeout so subprocess work can stop (#197)", async () => {
+    // The runner observes the signal directly. After the queue's timeout
+    // fires, the runner's signal must be aborted so an analyzer
+    // adapter (lizard/semgrep/ast-grep) can pass it to child_process
+    // and reclaim the child via SIGTERM.
+    let observedAborted = false;
+    const q = new EnrichmentQueue({ perTaskTimeoutMs: 30 });
+    q.enqueue(
+      task(
+        "with-signal",
+        (signal) =>
+          new Promise<unknown>((_, reject) => {
+            if (signal === undefined) {
+              reject(new Error("expected signal"));
+              return;
+            }
+            signal.addEventListener("abort", () => {
+              observedAborted = true;
+              reject(new Error("aborted"));
+            });
+            // Never resolves on its own; the abort wakes us up.
+          }),
+      ),
+    );
+    await q.drainAll();
+    expect(observedAborted).toBe(true);
   });
 
   it("surfaces runner exceptions as failed without stopping the queue", async () => {

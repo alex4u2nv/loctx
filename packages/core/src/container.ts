@@ -113,7 +113,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
             analyzer: "lizard",
             analyzerVersion: LIZARD_VERSION,
             contentSha,
-            run: () => runLizard(command, absPath),
+            run: (signal) => runLizard(command, absPath, signal),
           }),
         );
       }
@@ -144,12 +144,16 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
             analyzer: "semgrep",
             analyzerVersion: SEMGREP_VERSION,
             contentSha,
-            run: () =>
-              runSemgrep(absPath, {
-                command: sg.command,
-                ruleDirs: sg.ruleDirs,
-                maxFindingsPerFile: sg.maxFindingsPerFile,
-              }),
+            run: (signal) =>
+              runSemgrep(
+                absPath,
+                {
+                  command: sg.command,
+                  ruleDirs: sg.ruleDirs,
+                  maxFindingsPerFile: sg.maxFindingsPerFile,
+                },
+                signal,
+              ),
           }),
         );
       }
@@ -162,12 +166,16 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
             analyzer: "ast-grep",
             analyzerVersion: AST_GREP_VERSION,
             contentSha,
-            run: () =>
-              runAstGrep(absPath, {
-                command: ag.command,
-                ruleDirs: ag.ruleDirs,
-                maxFindingsPerFile: ag.maxFindingsPerFile,
-              }),
+            run: (signal) =>
+              runAstGrep(
+                absPath,
+                {
+                  command: ag.command,
+                  ruleDirs: ag.ruleDirs,
+                  maxFindingsPerFile: ag.maxFindingsPerFile,
+                },
+                signal,
+              ),
           }),
         );
       }
@@ -206,7 +214,7 @@ function analyzerTaskMeta(input: {
   analyzer: string;
   analyzerVersion: number;
   contentSha: string;
-  run: () => Promise<unknown>;
+  run: (signal?: AbortSignal) => Promise<unknown>;
 }) {
   return {
     id: `${input.analyzer}:${input.fileId}`,
