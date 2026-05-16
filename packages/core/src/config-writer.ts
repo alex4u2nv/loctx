@@ -65,10 +65,13 @@ function readDoc(path: string): Document {
   if (!existsSync(path)) return new Document({});
   const raw = readFileSync(path, "utf-8");
   if (raw.trim() === "") return new Document({});
-  // Same hardening as the runtime YAML loaders: disable merge keys and
-  // cap alias expansion so a malicious global config file can't DoS
-  // the writer's parse step before we round-trip + emit (#179).
-  return parseDocument(raw, { merge: false, maxAliasCount: 100 });
+  // Disable merge-key (`<<`) handling so the writer round-trips
+  // exactly what's on disk (#179). `parseDocument`'s option shape
+  // doesn't include `maxAliasCount` in our pinned yaml version — the
+  // load-path parsers in `config.ts` / `filtering.ts` carry that cap
+  // for us, and the writer is only reached for our own scaffolded
+  // config file anyway.
+  return parseDocument(raw, { merge: false });
 }
 
 function setIn(doc: Document, yamlPath: ReadonlyArray<string>, value: unknown): void {
