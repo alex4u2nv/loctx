@@ -69,7 +69,11 @@ export class Reconciler {
   constructor(
     private readonly state: StateStore,
     private readonly indexer: ProjectIndexer,
-    private readonly vectors?: VectorStore,
+    // `_vectors` retained on the constructor so callers (container.ts)
+    // don't churn while #210's ensureVectorIndex auto-trigger is
+    // temporarily disabled. Prefixed underscore tells the strict
+    // `noUnusedLocals` check this is intentional.
+    private readonly _vectors?: VectorStore,
   ) {}
 
   status(): ReconciliationStatus {
