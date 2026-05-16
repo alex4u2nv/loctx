@@ -175,6 +175,14 @@ export class WatcherService {
     return this.paused;
   }
 
+  /**
+   * Tear the subscriptions down. Each `unsubscribe()` is wrapped in a
+   * timeout race: parcel/watcher very occasionally hangs on cleanup
+   * (FSEvents queue drain on macOS, inotify removal on Linux) and a
+   * stuck unsubscribe would block the daemon shutdown path forever.
+   * After the timeout we drop the reference, log, and move on — the
+   * OS will reclaim the underlying fd at process exit. See #157.
+   */
   async stop(): Promise<void> {
     for (const timeout of this.pending.values()) clearTimeout(timeout);
     this.pending.clear();
@@ -183,11 +191,19 @@ export class WatcherService {
       this.rulesPending = null;
     }
     if (this.mainSub !== null) {
-      await this.mainSub.unsubscribe();
+      await raceWithTimeout(
+        this.mainSub.unsubscribe(),
+        STOP_TIMEOUT_MS,
+        `watcher.unsubscribe(main) for ${this.project.name}`,
+      );
       this.mainSub = null;
     }
     if (this.gitInfoSub !== null) {
-      await this.gitInfoSub.unsubscribe();
+      await raceWithTimeout(
+        this.gitInfoSub.unsubscribe(),
+        STOP_TIMEOUT_MS,
+        `watcher.unsubscribe(gitInfo) for ${this.project.name}`,
+      );
       this.gitInfoSub = null;
     }
   }
@@ -283,5 +299,30 @@ export class WatcherService {
     } finally {
       this.inflight.delete(absPath);
     }
+  }
+}
+
+/** Stop-path timeout for a single unsubscribe call. Generous on purpose. */
+const STOP_TIMEOUT_MS = 5_000;
+
+/**
+ * Resolve when `p` settles or print a warning and resolve when the
+ * timeout fires, whichever comes first. Never rejects — the call sites
+ * that use this would prefer "we tried; moving on" over a hung shutdown.
+ */
+async function raceWithTimeout(p: Promise<unknown>, ms: number, label: string): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), ms);
+  });
+  try {
+    const winner = await Promise.race([p.then(() => "ok" as const), timeout]);
+    if (winner === "timeout") {
+      console.error(`[watcher] ${label} hung past ${ms}ms; abandoning`);
+    }
+  } catch (err) {
+    console.error(`[watcher] ${label} rejected: ${(err as Error).message}`);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
