@@ -11,6 +11,8 @@ import type { FileState } from "../../src/storage/index.js";
 import {
   type ChunkInsert,
   CollectionIdentityMismatch,
+  SCHEMA_VERSION,
+  SchemaTooNewError,
   StateStore,
 } from "../../src/storage/state.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
@@ -83,6 +85,25 @@ describe("StateStore", () => {
     store.registerCollection("loctx_x", id);
     expect(store.getCollectionIdentity("loctx_x")).not.toBeNull();
     store.close();
+  });
+
+  it("refuses to open a DB with a newer schema version (#168)", async () => {
+    // Simulate a downgrade scenario: a newer loctx wrote SCHEMA_VERSION+1
+    // into PRAGMA user_version. The current build must refuse, not
+    // silently write through, because the newer build may have added
+    // columns / tables we can't populate.
+    const dbPath = join(tmp, "state.db");
+    {
+      const store = new StateStore(dbPath);
+      store.close();
+    }
+    // Bump user_version past what this build knows.
+    const Database = (await import("better-sqlite3")).default;
+    const raw = new Database(dbPath);
+    raw.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
+    raw.close();
+
+    expect(() => new StateStore(dbPath)).toThrow(SchemaTooNewError);
   });
 
   it("registerCollection rejects mismatch", () => {

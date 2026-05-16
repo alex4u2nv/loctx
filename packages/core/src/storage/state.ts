@@ -24,6 +24,14 @@ import { loadQueries } from "../sql/loader.js";
 
 export const SCHEMA_VERSION = 6;
 
+/**
+ * Raised when the on-disk schema version is newer than this build's
+ * `SCHEMA_VERSION` — i.e. the user downgraded loctx. We refuse to open
+ * the DB rather than blindly write through it, because newer schemas
+ * may have columns this build doesn't know to populate.
+ */
+export class SchemaTooNewError extends Error {}
+
 const QUERIES = loadQueries("../sql/state.sql", import.meta.url);
 
 export class CollectionIdentityMismatch extends Error {}
@@ -204,7 +212,16 @@ export class StateStore {
     const pragmaText = QUERIES["pragma_get_user_version"] ?? "PRAGMA user_version";
     const row = this.db.prepare(pragmaText).get() as { user_version: number } | undefined;
     const current = row?.user_version ?? 0;
-    if (current >= SCHEMA_VERSION) return;
+    if (current > SCHEMA_VERSION) {
+      // A previous, newer loctx opened this DB and migrated the schema
+      // forward. Writing through with an older codebase would silently
+      // skip columns / tables that we don't know exist. Refuse with a
+      // recovery hint instead of corrupting data.
+      throw new SchemaTooNewError(
+        `state DB schema is version ${current}; this build only knows up to ${SCHEMA_VERSION}. You're running an older loctx than the one that last touched this data dir. Upgrade loctx, or reset the index with \`loctx reset index --force\` and re-run \`loctx index\`.`,
+      );
+    }
+    if (current === SCHEMA_VERSION) return;
 
     if (current < 1) {
       const schemaV1 = QUERIES["schema_v1"];
