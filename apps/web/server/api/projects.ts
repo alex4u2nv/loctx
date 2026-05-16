@@ -163,15 +163,28 @@ export function mountProjects(
     const ok = rt.state.setProjectActive(project.id, false);
     if (!ok) return c.json({ error: "no such project" }, 404);
 
-    // Stop the live watcher too so we're not still emitting events for
-    // a deactivated project. Errors during teardown are logged; we
-    // still report success because the state row already flipped.
+    // Stop the live watcher so we're not still emitting events for a
+    // deactivated project. The state row already flipped, but if the
+    // watcher cleanup fails the user has a half-finished operation —
+    // surface it as a 500 so they can retry rather than walking away
+    // thinking it's done (#202). `stop()` has its own 5s timeout, so
+    // the request can't hang on a stuck unsubscribe.
     if (watcherRegistry !== undefined) {
-      await detachWatcher(project.id as ProjectId, watcherRegistry).catch((err) => {
-        console.error(
-          `[deactivate] failed to stop watcher for ${project.name}: ${(err as Error).message}`,
+      try {
+        await detachWatcher(project.id as ProjectId, watcherRegistry);
+      } catch (err) {
+        const message = (err as Error).message;
+        console.error(`[deactivate] failed to stop watcher for ${project.name}: ${message}`);
+        return c.json(
+          {
+            error: "watcher_stop_failed",
+            detail: message,
+            project: { id: project.id, name: project.name, root: project.root },
+            stateActive: false,
+          },
+          500,
         );
-      });
+      }
     }
 
     return c.json({ ok: true, project: { id: project.id, name: project.name, root: project.root } });

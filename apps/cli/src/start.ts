@@ -93,17 +93,17 @@ export async function start(config: Config, options: StartOptions): Promise<void
       ? await startWatchers(runtime, activeProjects, config, watcherRegistry)
       : [];
 
-  // Reconciliation (#14): catch up after the daemon was offline. We kick
-  // off boot reconciliation in the background so the HTTP / MCP surface
-  // doesn't wait on a long full-corpus walk; the watcher is already
-  // catching live events. The periodic timer drifts indefinitely until
-  // shutdown.
-  const reconciliationStop = startReconciliation(runtime, activeProjects, config);
+  // Bring HTTP up BEFORE scheduling boot reconciliation. Reconciliation
+  // failures during the very first pass (#198) should not knock the
+  // daemon over before the admin UI / `/api/doctor` can even surface
+  // them. The reconciler still runs in the background once scheduled —
+  // it doesn't block startup — but it now waits for HTTP to be live.
   const httpStop = options.enableWeb
     ? await startWeb(config, options, runtime, watcherRegistry)
     : async () => {
         /* no-op */
       };
+  const reconciliationStop = startReconciliation(runtime, activeProjects, config);
 
   const banner = [
     `[loctx start] runtime ready (${activeProjects.length} active of ${discoveredProjects.length} discovered, ${runtime.config.embedding.model})`,
@@ -119,14 +119,46 @@ export async function start(config: Config, options: StartOptions): Promise<void
     .join("\n");
   console.error(banner);
 
-  // Pragmatic shutdown: install signal handlers that close the SQLite state
-  // synchronously (so WAL flushes) and process.exit immediately. Trying to
-  // await Next.js app.close(), chokidar.close(), or HF transformers'
-  // dispose() reliably hangs on Node 25 + onnxruntime-node — see GH#33.
-  // The OS releases the port, watcher fds, and ONNX session as soon as
-  // we exit.
-  const shutdown = (signal: string): void => {
+  // Pragmatic shutdown (#203): drain in dependency order — first stop
+  // *generating* work (reconciler timer + watcher subscriptions), then
+  // *serving* it (HTTP), then close the storage handle. SIGKILL at the
+  // end because onnxruntime-node's C++ destructors crash on the way out
+  // (GH#33). The OS reclaims the port + watcher fds + ONNX session as
+  // soon as we exit; the goal of the drain is to avoid leaving SQLite
+  // mid-transaction or HTTP requests with a closed state handle.
+  //
+  // Each stage has a hard timeout so a stuck watcher (#157) or hung
+  // HTTP request can't pin shutdown. The signal handler itself is
+  // async-aware: SIGKILL only fires after the drain attempts settle.
+  const shutdown = async (signal: string): Promise<void> => {
     console.error(`\n[loctx start] shutting down (${signal})`);
+
+    // 1. Stop scheduling new reconciliation work. Pure sync — just a
+    //    flag flip + clearTimeout.
+    try {
+      reconciliationStop();
+    } catch (err) {
+      console.error(`[loctx start] reconciliation stop threw: ${(err as Error).message}`);
+    }
+
+    // 2. Tear watcher subscriptions down so no new index events fire
+    //    while HTTP is being drained. Each stop() has its own internal
+    //    5s timeout (see WatcherService.stop), but we cap the *batch*
+    //    too so a buggy iteration can't hold us forever.
+    if (watcherRegistry !== undefined) {
+      await raceShutdownStep(
+        "watcher stop",
+        Promise.all(watchers.map((w) => w.stop().catch(() => undefined))),
+        10_000,
+      );
+    }
+
+    // 3. Drain HTTP. The Hono node-server's close() waits for in-flight
+    //    requests; bound it so a slow client can't hold the daemon.
+    await raceShutdownStep("http stop", httpStop(), 5_000);
+
+    // 4. Close storage last so any final write from the drains above
+    //    is flushed cleanly. Sync, can't hang.
     try {
       runtime.state.close();
     } catch {
@@ -137,14 +169,10 @@ export async function start(config: Config, options: StartOptions): Promise<void
     } catch {
       // best effort
     }
-    // SIGKILL ourselves so onnxruntime-node's C++ destructors don't run on
-    // the way out — they crash with `libc++abi: mutex lock failed` (GH#33).
-    // The state DB has already been closed; nothing else needs orderly
-    // teardown that the OS won't reclaim.
     process.kill(process.pid, "SIGKILL");
   };
-  process.once("SIGINT", () => shutdown("SIGINT"));
-  process.once("SIGTERM", () => shutdown("SIGTERM"));
+  process.once("SIGINT", () => void shutdown("SIGINT"));
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
 
   // Block until the signal handler exits the process.
   await new Promise<void>(() => undefined);
@@ -393,6 +421,33 @@ function resolveWebDir(): string {
   // root's apps/web.
   const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, ROOT_RELATIVE_WEB_DIR);
+}
+
+/**
+ * Bound a single shutdown step so a stuck subsystem (hung watcher
+ * unsubscribe, slow HTTP request) can't pin the daemon's drain.
+ * Logs the outcome but never rejects — the caller has nowhere
+ * meaningful to surface a shutdown failure.
+ */
+async function raceShutdownStep(
+  label: string,
+  work: Promise<unknown>,
+  timeoutMs: number,
+): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<"timeout">((resolveTimeout) => {
+    timer = setTimeout(() => resolveTimeout("timeout"), timeoutMs);
+  });
+  try {
+    const winner = await Promise.race([work.then(() => "ok" as const), timeout]);
+    if (winner === "timeout") {
+      console.error(`[loctx start] ${label} hung past ${timeoutMs}ms; abandoning`);
+    }
+  } catch (err) {
+    console.error(`[loctx start] ${label} threw: ${(err as Error).message}`);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 async function acquireOrReplaceLock(config: Config, options: StartOptions): Promise<DaemonLock> {
