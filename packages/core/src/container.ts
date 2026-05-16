@@ -181,7 +181,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
       }
     },
   });
-  const reconciler = new Reconciler(state, indexer, vectors);
+  const reconciler = new Reconciler(state, indexer);
   const searcher = new WorkspaceSearcher(vectors, embeddings, discovery, state, config.retrieval);
 
   return Object.freeze({

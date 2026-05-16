@@ -24,7 +24,6 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Project } from "../models.js";
 import type { StateStore } from "../storage/state.js";
-import type { VectorStore } from "../storage/vectors.js";
 import type { ProjectIndexer } from "./indexer.js";
 
 export interface ReconciliationSummary {
@@ -69,11 +68,6 @@ export class Reconciler {
   constructor(
     private readonly state: StateStore,
     private readonly indexer: ProjectIndexer,
-    // `_vectors` retained on the constructor so callers (container.ts)
-    // don't churn while #210's ensureVectorIndex auto-trigger is
-    // temporarily disabled. Prefixed underscore tells the strict
-    // `noUnusedLocals` check this is intentional.
-    private readonly _vectors?: VectorStore,
   ) {}
 
   status(): ReconciliationStatus {
