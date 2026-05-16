@@ -48,10 +48,18 @@ describe("safeLog", () => {
     expect(stderr[0]).not.toContain("/tmp/repo/src/auth.ts");
   });
 
-  it("rewrites paths outside projectRoot to <external>/<basename>", () => {
+  it("rewrites paths outside projectRoot to <external>/<parent>/<basename> (#156)", () => {
+    // Last-two-segments scrubbing balances privacy with debuggability —
+    // bare basename drops the originating directory, making it hard to
+    // tell which tool produced the message.
     safeLog("info", "Skipping /etc/passwd", { projectRoot: "/tmp/repo" });
-    expect(stderr[0]).toContain("<external>/passwd");
-    expect(stderr[0]).not.toContain("/etc/passwd");
+    expect(stderr[0]).toContain("<external>/etc/passwd");
+    expect(stderr[0]).not.toContain("/etc/passwd ");
+
+    safeLog("info", "Tool error /Users/alex/.config/loctx/file.yaml", {
+      projectRoot: "/tmp/repo",
+    });
+    expect(stderr[1]).toContain("<external>/loctx/file.yaml");
   });
 
   it("summarizes large or multi-line messages", () => {

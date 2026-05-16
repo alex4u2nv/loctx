@@ -62,7 +62,7 @@ Both transports expose five tools: `search_workspace`, `workspace_status`, `find
 
 ## Configuration
 
-Layered, low to high: built-in defaults, `$XDG_CONFIG_HOME/loctx/config.yaml`, project-level `.loctx.yaml` (walked up from `cwd`), env vars (`LOCTX_DATA_DIR`, `LOCTX_CONFIG_DIR`, `LOCTX_EMBEDDING_PROVIDER`).
+Layered, low to high: built-in defaults, `$XDG_CONFIG_HOME/loctx/config.yaml`, env vars (`LOCTX_DATA_DIR`, `LOCTX_CONFIG_DIR`, `LOCTX_EMBEDDING_PROVIDER`). The project-level `.loctx.yaml` layer was removed in favor of a single editable global config (admin UI handles it).
 
 ```yaml
 workspace_roots:
@@ -94,7 +94,7 @@ loctx runs as **a local, single-user, no-auth daemon** by default. The HTTP serv
 Two caveats to flag explicitly:
 
 - **MCP results are untrusted input to your AI agent.** `search_workspace`, `find_usages`, and `find_duplicates` faithfully return whatever was in your codebase — including hostile comments, README text, or string literals that try to redirect the agent. If you index a repository you don't trust, treat its content the same way you'd treat any other untrusted text source for an LLM. loctx doesn't (and can't reliably) sanitise this for you.
-- **External analyzer commands come from the global config only.** `analyzers.{lizard,semgrep,astGrep}.command` is honored from `$XDG_CONFIG_HOME/loctx/config.yaml` but ignored if a project-level `.loctx.yaml` tries to override it. This prevents `cd hostile-repo && loctx index` from swapping `lizard` to an attacker-supplied binary.
+- **External analyzer commands come from the global config only.** `analyzers.{lizard,semgrep,astGrep}.command` is honored from `$XDG_CONFIG_HOME/loctx/config.yaml`. The project-level config layer was removed entirely, so `cd hostile-repo && loctx index` can no longer swap `lizard` to an attacker-supplied binary.
 
 Vulnerability reports go through [SECURITY.md](SECURITY.md), not public issues.
 

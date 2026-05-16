@@ -56,11 +56,22 @@ function scrub(message: string, options: LogOptions): string {
     if (abs.startsWith(`${root}/`)) {
       return `${leading}<project>/${abs.slice(root.length + 1)}`;
     }
-    return `${leading}<external>/${basenameOnly(abs)}`;
+    return `${leading}<external>/${lastTwoSegments(abs)}`;
   });
 }
 
-function basenameOnly(path: string): string {
+/**
+ * Preserve the last two path segments (parent dir + basename) for
+ * external-path scrubbing. Pure basenames drop too much context — an
+ * operator can't tell `<external>/config.yaml` from `<external>/config.yaml`
+ * that came from a different tool. Two segments balance privacy
+ * (still no full path) and debuggability (still tells you which
+ * subsystem produced the message). See #156.
+ */
+function lastTwoSegments(path: string): string {
   const idx = path.lastIndexOf("/");
-  return idx === -1 ? path : path.slice(idx + 1);
+  if (idx <= 0) return path;
+  const parentIdx = path.lastIndexOf("/", idx - 1);
+  if (parentIdx === -1) return path.slice(1);
+  return path.slice(parentIdx + 1);
 }
