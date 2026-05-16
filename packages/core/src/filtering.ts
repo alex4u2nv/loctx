@@ -141,7 +141,10 @@ function readYamlFile(path: string): Record<string, unknown> {
 function parseYamlText(text: string, source: string): Record<string, unknown> {
   let loaded: unknown;
   try {
-    loaded = parseYaml(text);
+    // Same hardening as `config.ts`: disable merge keys and cap alias
+    // expansion so a malicious `~/.loctx/config_overrides/*.yaml` can't
+    // DoS the loader (#179).
+    loaded = parseYaml(text, { merge: false, maxAliasCount: 100 });
   } catch (err) {
     throw new FilteringConfigError(`Invalid YAML in ${source}: ${(err as Error).message}`);
   }

@@ -330,7 +330,12 @@ function readYamlOrNull(path: string): Record<string, unknown> | null {
   if (!existsSync(path)) return null;
   let raw: unknown;
   try {
-    raw = parseYaml(readFileSync(path, "utf-8"));
+    // `merge: false` disables YAML merge keys (`<<`) and `maxAliasCount`
+    // caps alias resolution to defend against billion-laughs-style
+    // YAML bombs. Both matter because the global config and the
+    // filtering overlay are user-editable files; a hostile (or just
+    // malformed) one shouldn't be able to DoS the loader. See #179.
+    raw = parseYaml(readFileSync(path, "utf-8"), { merge: false, maxAliasCount: 100 });
   } catch (err) {
     throw new ConfigError(`Could not parse ${path}: ${(err as Error).message}`);
   }

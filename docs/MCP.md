@@ -286,3 +286,33 @@ Then `loctx restart`.
 
 The choice doesn't affect retrieval quality or the tool surface. It's
 purely about process model.
+
+## Trust model
+
+The MCP surface and the admin HTTP API share the same trust boundary:
+loopback-only network exposure, no per-tool authentication. Anything on
+your machine that can reach `127.0.0.1:<port>` can use the MCP tools
+without further proof.
+
+Concretely, `search_workspace` and (with `path`) `find_usages` return
+indexed file content — snippets, symbol context, and ranked chunks of
+your code. That's by design for AI coding agents, but it means MCP
+clients you connect to loctx are reading your indexed code in full.
+
+Practical guidance:
+
+- Keep the daemon bound to `127.0.0.1` (the default). Binding to
+  `0.0.0.0` or `localhost` (which is DNS-rebindable) weakens this
+  boundary; see SECURITY.md.
+- Only point trusted agents at loctx. The agent gets the same read
+  access a human user of the admin UI would have.
+- Things excluded from indexing (gitignored, `secret_globs` matched,
+  binary, oversized) never reach the index and so never reach MCP.
+  Audit your filtering rules — `loctx doctor` reports the active set.
+- The stdio transport (`loctx-mcp`) is process-scoped to its parent
+  agent, which is a stronger isolation than the HTTP port; prefer it
+  when feasible.
+
+Future hardening (not yet implemented) could include per-client tokens
+or per-tool capability gates. Until then, treat MCP access as
+equivalent to read access on your indexed source.
