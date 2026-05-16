@@ -96,6 +96,36 @@ describe("Reconciler (#14)", () => {
     expect(second.skipped).toBeGreaterThanOrEqual(1);
   });
 
+  it("does not stamp last_reconciled_at when indexProject throws (#194)", async () => {
+    writeFileSync(join(projectRoot, "src", "auth.ts"), "export function authenticate() {}\n");
+    const project = makeProject();
+    await reconciler.reconcileProject(project);
+    const stampedFirst = state.listProjects().find((p) => p.id === project.id)?.lastReconciledAt;
+    expect(stampedFirst).not.toBeNull();
+
+    // Sabotage indexProject by stubbing it to reject. The reconciler must
+    // surface the failure AND must not advance last_reconciled_at, so a
+    // subsequent doctor pass shows the project as drifted.
+    const original = indexer.indexProject.bind(indexer);
+    indexer.indexProject = async () => {
+      throw new Error("simulated indexer failure");
+    };
+    try {
+      await expect(reconciler.reconcileProject(project)).rejects.toThrow(
+        "simulated indexer failure",
+      );
+    } finally {
+      indexer.indexProject = original;
+    }
+
+    const stampedAfterFail = state
+      .listProjects()
+      .find((p) => p.id === project.id)?.lastReconciledAt;
+    // Unchanged from the first successful pass — the failed reconcile must
+    // not have advanced the stamp.
+    expect(stampedAfterFail).toBe(stampedFirst);
+  });
+
   it("prunes already-indexed files that a new ignore rule now excludes", async () => {
     // Sim the user's report: file is indexed first, then a matching
     // pattern is added to .gitignore (or global). Subsequent

@@ -14,7 +14,7 @@
  * the whole sequence idempotently.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeEmbeddingProvider } from "../../src/embeddings/index.js";
@@ -103,6 +103,44 @@ describe("ProjectIndexer concurrent persist (#188, #193)", () => {
     expect(fileRow?.error).toBeNull();
     // contentSha is sha256 of the file bytes — non-empty hex digest.
     expect(fileRow?.contentSha).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("persists a read error on the file row so doctor can surface it (#184)", async () => {
+    // Simulate the race-condition the ticket targets: filter saw a
+    // readable file but readFileSync hits EACCES (the file got chmod'd
+    // between the two). We feed the indexer a custom filter that
+    // unconditionally accepts the path so the filter's own UNREADABLE
+    // branch can't catch it — only the indexer's read-error path can.
+    const broken = join(projectRoot, "src", "broken.ts");
+    writeFileSync(broken, "export const x = 1;\n");
+    chmodSync(broken, 0o000);
+    try {
+      const p = project();
+      // Always-accepting filter; matches the FilterDecision shape the
+      // indexer expects without touching disk.
+      const acceptingFilter = {
+        rules: {
+          ignoredDirs: new Set<string>(),
+          maxFileSizeBytes: 10_000_000,
+          allowedExtensions: new Set<string>(),
+          allowedNamedFiles: new Set<string>(),
+          secretGlobs: [],
+          secretAllowlistGlobs: [],
+        },
+        shouldIndex: () => ({ shouldIndex: true, reason: "ok", detail: "" }),
+      } as unknown as Parameters<typeof indexer.indexFile>[2] extends { filter?: infer F }
+        ? F
+        : never;
+      const result = await indexer.indexFile(p, broken, { filter: acceptingFilter });
+      expect(result.kind).toBe("error");
+
+      const fileRow = state.getFile(p.id, "src/broken.ts");
+      expect(fileRow).not.toBeNull();
+      expect(fileRow?.error).toMatch(/read-error/);
+    } finally {
+      // Restore so tmp cleanup can remove the file.
+      chmodSync(broken, 0o644);
+    }
   });
 
   it("concurrent persists on different files run in parallel (different mutex chains)", async () => {

@@ -73,7 +73,12 @@ export class Reconciler {
     const refilter = await this.indexer.reevaluateFilter(project);
     pruned += refilter.pruned;
 
+    // Run the indexer pass; if it throws, do NOT stamp last_reconciled_at
+    // because the project's state is partial. Doctor + workspace_status
+    // surface the (now-stale) timestamp to tell the operator drift exists.
     const indexSummary = await this.indexer.indexProject(project);
+    // Stamp only on full success — a partially-failed reconcile must not
+    // mark the project as up-to-date (see #194).
     this.state.markProjectReconciled(project.id);
 
     return Object.freeze({

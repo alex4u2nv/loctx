@@ -137,7 +137,15 @@ export class ProjectIndexer {
     try {
       contentBytes = readFileSync(absPath);
     } catch (err) {
-      return { kind: "error", relPath, error: `read-error: ${(err as Error).message}` };
+      const message = `read-error: ${(err as Error).message}`;
+      // Persist the failure on the file row so doctor can surface
+      // persistent I/O issues (permission denied, deleted-between-stat-
+      // and-open, etc.) instead of silently skipping. Existing file
+      // metadata is preserved as a best-guess; the error field is the
+      // signal that gets read back by isUnchanged() to force a retry
+      // once the disk issue clears. See #184.
+      this.recordReadError(project, relPath, message);
+      return { kind: "error", relPath, error: message };
     }
 
     const content = decodeUtf8(contentBytes);
@@ -202,6 +210,37 @@ export class ProjectIndexer {
   }
 
   // ---- internals -----------------------------------------------------
+
+  /**
+   * Stamp a failed read on the file row so doctor and downstream tools
+   * can see persistent I/O failures. Existing metadata (size, mtime,
+   * sha) is preserved when we have a previous row to avoid losing
+   * context; otherwise we write a minimal placeholder. Returns
+   * silently on any state write failure — we're already on the error
+   * path and don't want to mask the original read error.
+   */
+  private recordReadError(project: Project, relPath: string, message: string): void {
+    const fileId = fileIdFor(project, relPath);
+    const previous = this.state.getFile(project.id, relPath);
+    try {
+      this.state.upsertFile({
+        fileId,
+        projectId: project.id,
+        relPath,
+        size: previous?.size ?? 0,
+        mtime: previous?.mtime ?? 0,
+        contentSha: previous?.contentSha ?? "",
+        indexedAt: new Date().toISOString(),
+        embeddingIdentity:
+          previous?.embeddingIdentity ?? identityToString(this.embeddings.identity),
+        error: message,
+      });
+    } catch (e) {
+      console.error(
+        `[indexer] could not record read error for ${relPath}: ${(e as Error).message}`,
+      );
+    }
+  }
 
   private isUnchanged(
     project: Project,
