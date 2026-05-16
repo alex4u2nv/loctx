@@ -15,12 +15,12 @@
  */
 
 import { rmSync } from "node:fs";
-import { resolve } from "node:path";
 import {
   type Config,
   type Runtime,
   makeProject,
   readActiveDaemon,
+  resolveUnderWorkspaceRoots,
   stopActiveDaemon,
 } from "@loctx/core";
 import type { Hono } from "hono";
@@ -33,9 +33,17 @@ export function mountOps(
   app.post("/api/index", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { path?: string };
     const rt = await getRuntime();
-    const projects = body.path
-      ? [rt.discovery.resolveProject(resolve(body.path))].filter((p) => p !== null)
-      : rt.discovery.discoverProjects();
+    let projects: ReturnType<typeof rt.discovery.discoverProjects>;
+    if (body.path) {
+      const confined = resolveUnderWorkspaceRoots(body.path, config.workspaceRoots);
+      if (confined === null) {
+        return c.json({ error: "path is not under any configured workspace_root" }, 403);
+      }
+      const resolved = rt.discovery.resolveProject(confined);
+      projects = resolved !== null ? [resolved] : [];
+    } else {
+      projects = rt.discovery.discoverProjects();
+    }
     const summaries: Array<{
       projectId: string;
       name: string;
@@ -92,12 +100,17 @@ export function mountOps(
     const path = body?.path?.trim() ?? "";
     if (path === "") return c.json({ error: "path required" }, 400);
 
+    const confined = resolveUnderWorkspaceRoots(path, config.workspaceRoots);
+    if (confined === null) {
+      return c.json({ error: "path is not under any configured workspace_root" }, 403);
+    }
+
     // We're inside the daemon — use its open Runtime rather than building
     // a second one (which would race on SQLite + LanceDB handles). The
     // CLI's `loctx reset project` retains the file-deletion path for the
     // no-daemon case.
     const rt = await getRuntime();
-    const project = makeProject(resolve(path));
+    const project = makeProject(confined);
     await rt.vectors.deleteProjectChunks(project.id);
     rt.state.deleteProject(project.id);
     return c.json({

@@ -25,12 +25,12 @@ export function mountApi(
 ): void {
   mountStatus(app, config);
   mountProjects(app, config, watcherRegistry, getRuntime);
-  mountSearch(app, getRuntime);
+  mountSearch(app, config, getRuntime);
   mountEvents(app);
   mountDoctor(app, config);
   mountConfig(app, config);
   mountModels(app, config);
-  mountFindUsages(app, getRuntime);
+  mountFindUsages(app, config, getRuntime);
   mountOps(app, config, getRuntime);
   mountWatchers(app, watcherRegistry);
 }

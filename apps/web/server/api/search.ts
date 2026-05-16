@@ -1,18 +1,29 @@
-import type { Runtime } from "@loctx/core";
+import { type Config, type Runtime, resolveUnderWorkspaceRoots } from "@loctx/core";
 import type { Hono } from "hono";
 import type { SearchPayload, SearchRequestBody } from "../../shared/contracts.js";
 
-export function mountSearch(app: Hono, getRuntime: () => Promise<Runtime>): void {
+export function mountSearch(app: Hono, config: Config, getRuntime: () => Promise<Runtime>): void {
   app.post("/api/search", async (c) => {
     const body = (await c.req.json().catch(() => null)) as SearchRequestBody | null;
     if (body === null || typeof body.query !== "string" || body.query.trim() === "") {
       return c.json({ error: "query required" }, 400);
     }
+    // Bound an optional path filter to configured workspace_roots so a
+    // caller can't probe arbitrary filesystem locations via the search
+    // surface.
+    let scopedPath: string | undefined;
+    if (body.path !== undefined && body.path !== "") {
+      const confined = resolveUnderWorkspaceRoots(body.path, config.workspaceRoots);
+      if (confined === null) {
+        return c.json({ error: "path is not under any configured workspace_root" }, 403);
+      }
+      scopedPath = confined;
+    }
     try {
       const rt = await getRuntime();
       const response = await rt.searcher.search({
         query: body.query.trim(),
-        ...(body.path !== undefined && body.path !== "" ? { path: body.path } : {}),
+        ...(scopedPath !== undefined ? { path: scopedPath } : {}),
         ...(body.language !== undefined && body.language !== ""
           ? { language: body.language }
           : {}),

@@ -60,6 +60,28 @@ describe("ProjectFilter", () => {
     expect(freshFilter().shouldIndex(f).shouldIndex).toBe(true);
   });
 
+  // Extended cloud/registry credential coverage (issue #175). The list
+  // below is the default secret_globs surface — drop any of these and a
+  // user could leak creds the first time their parent directory got
+  // activated. Each line is the basename ProjectFilter checks.
+  it.each([
+    [".npmrc", "registry npm authToken"],
+    [".pypirc", "pypi authToken"],
+    [".netrc", "old-style http credentials"],
+    [".pgpass", "postgres password file"],
+    ["credentials", "AWS shared credentials"],
+    ["token", "generic CI token drop-in"],
+    ["gh-token", "GitHub CLI token"],
+    ["gitlab-token", "GitLab token"],
+    ["gitea-token", "Gitea token"],
+    ["auth.json", "composer / generic auth"],
+    ["service-account.json", "GCP service account key"],
+    ["cluster.kubeconfig", "kubeconfig"],
+  ])("skips %s (%s)", (name, _why) => {
+    const f = write(join(projectRoot, name), "secret");
+    expect(freshFilter().shouldIndex(f).reason).toBe(FilterReason.SECRET);
+  });
+
   it("allows named files without extension", () => {
     const f = write(join(projectRoot, "Dockerfile"), "FROM scratch\n");
     expect(freshFilter().shouldIndex(f).shouldIndex).toBe(true);

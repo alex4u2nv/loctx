@@ -67,19 +67,37 @@ export const FILTERING_DEFAULTS = {
     ".aider",
   ],
   secret_globs: [
+    // env files
     ".env",
     ".env.*",
+    // x.509 + ssh keys
     "*.pem",
     "*.key",
+    "*.p12",
+    "*.pfx",
     "id_rsa",
     "id_dsa",
     "id_ecdsa",
     "id_ed25519",
-    "*.p12",
-    "*.pfx",
+    // password stores
+    "*.kdbx",
     "credentials.json",
     "secrets.json",
-    "*.kdbx",
+    // cloud + registry credentials (basename matched by ProjectFilter)
+    "credentials",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    ".pgpass",
+    // common token / config drop-ins
+    "token",
+    "gh-token",
+    "gitea-token",
+    "gitlab-token",
+    "auth.json",
+    "service-account*.json",
+    "*-credentials.json",
+    "*.kubeconfig",
   ],
   secret_allowlist_globs: [".env.example", ".env.template", ".env.sample", ".env.dist"],
   allowed_extensions: [
