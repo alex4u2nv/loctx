@@ -222,6 +222,13 @@ function startReconciliation(
   };
 
   const run = (label: string): void => {
+    // Short correlation ID per reconcile pass so an operator can match
+    // an "entered" log to its "completed/failed" log when multiple
+    // passes overlap with watcher events in the surrounding output
+    // (#155). 6 random hex chars is plenty for human eyeballs.
+    const traceId = Math.random().toString(16).slice(2, 8);
+    const startedAt = Date.now();
+    console.error(`[loctx reconcile ${traceId}] ${label} starting (${projects.length} project(s))`);
     runtime.reconciler
       .reconcileAll(projects)
       .then((summaries) => {
@@ -232,15 +239,16 @@ function startReconciliation(
           }),
           { pruned: 0, reindexed: 0 },
         );
+        const elapsed = Math.round((Date.now() - startedAt) / 100) / 10;
         console.error(
-          `[loctx reconcile] ${label} complete (${summaries.length} project(s), ` +
-            `pruned=${tally.pruned}, reindexed=${tally.reindexed})`,
+          `[loctx reconcile ${traceId}] ${label} complete (${summaries.length} project(s), ` +
+            `pruned=${tally.pruned}, reindexed=${tally.reindexed}, elapsed=${elapsed}s)`,
         );
         consecutiveFailures = 0;
       })
       .catch((err) => {
         consecutiveFailures += 1;
-        console.error(`[loctx reconcile] ${label} failed: ${(err as Error).message}`);
+        console.error(`[loctx reconcile ${traceId}] ${label} failed: ${(err as Error).message}`);
       })
       .finally(() => {
         // Schedule via setTimeout chain rather than setInterval so the

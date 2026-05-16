@@ -13,6 +13,7 @@ import { readActiveDaemon } from "./daemon-lock.js";
 import { WorkspaceDiscovery, inventoryProjects } from "./discovery.js";
 import { StateStore } from "./storage/state.js";
 import { checkNofile } from "./ulimit.js";
+import type { WatcherRegistry } from "./watcher/registry.js";
 
 export type DoctorStatus = "ok" | "warn" | "error";
 
@@ -22,7 +23,21 @@ export interface DoctorCheck {
   readonly detail: string;
 }
 
-export async function runDoctorChecks(config: Config): Promise<DoctorCheck[]> {
+export interface DoctorOptions {
+  /**
+   * Pass the daemon's live registry to surface per-project watcher
+   * health (active / paused / failed) and EMFILE-style failure
+   * reasons. Only the in-process daemon has access; the standalone
+   * `loctx doctor` CLI command leaves this unset and just doesn't emit
+   * watcher checks.
+   */
+  readonly watcherRegistry?: WatcherRegistry;
+}
+
+export async function runDoctorChecks(
+  config: Config,
+  opts: DoctorOptions = {},
+): Promise<DoctorCheck[]> {
   const checks: DoctorCheck[] = [];
 
   checks.push({
@@ -191,6 +206,46 @@ export async function runDoctorChecks(config: Config): Promise<DoctorCheck[]> {
       status: "error",
       detail: (err as Error).message,
     });
+  }
+
+  // Surface per-project watcher health when running inside the daemon
+  // (#160). A failed watcher silently stops emitting events; without
+  // this check the user's first signal is stale search results.
+  if (opts.watcherRegistry !== undefined) {
+    const watchers = opts.watcherRegistry.list();
+    if (watchers.length === 0) {
+      checks.push({
+        name: "watchers",
+        status: "warn",
+        detail: "no active watchers (daemon may have been started with --no-watch)",
+      });
+    } else {
+      const failed = watchers.filter((w) => w.state === "failed");
+      const paused = watchers.filter((w) => w.state === "paused");
+      const active = watchers.filter((w) => w.state === "active").length;
+      if (failed.length > 0) {
+        const reasons = failed
+          .map((w) => `${w.projectName}: ${w.failureReason ?? "unknown"}`)
+          .join("; ");
+        checks.push({
+          name: "watchers",
+          status: "error",
+          detail: `${failed.length} failed — ${reasons}. Try \`ulimit -n 10240\` if EMFILE/ENOSPC.`,
+        });
+      } else if (paused.length > 0) {
+        checks.push({
+          name: "watchers",
+          status: "warn",
+          detail: `${active} active, ${paused.length} paused (${paused.map((w) => w.projectName).join(", ")})`,
+        });
+      } else {
+        checks.push({
+          name: "watchers",
+          status: "ok",
+          detail: `${active} active`,
+        });
+      }
+    }
   }
 
   const nofile = checkNofile();

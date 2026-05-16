@@ -27,7 +27,7 @@ export function mountApi(
   mountProjects(app, config, watcherRegistry, getRuntime);
   mountSearch(app, config, getRuntime);
   mountEvents(app);
-  mountDoctor(app, config);
+  mountDoctor(app, config, watcherRegistry);
   mountConfig(app, config);
   mountModels(app, config);
   mountFindUsages(app, config, getRuntime);
