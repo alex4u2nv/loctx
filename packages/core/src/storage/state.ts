@@ -643,7 +643,7 @@ export class StateStore {
     }
     if (existing !== target) {
       throw new CollectionIdentityMismatch(
-        `Collection '${name}' is registered with identity '${existing}'; refusing to reuse with '${target}'. Run \`loctx reset --index\` or pick a different model.`,
+        `Collection '${name}' is registered with identity '${existing}'; refusing to reuse with '${target}'. Run \`loctx reset index --force\` then \`loctx index\` to rebuild, or pick a different model.`,
       );
     }
   }
