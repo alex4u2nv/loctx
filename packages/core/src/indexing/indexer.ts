@@ -84,7 +84,7 @@ export class ProjectIndexer {
 
   async indexProject(
     project: Project,
-    options: { signal?: AbortSignal } = {},
+    options: { signal?: AbortSignal; concurrency?: number } = {},
   ): Promise<IndexSummary> {
     // Indexing implies activation: if the caller is invoking indexProject,
     // the project should appear in the active inventory bucket so future
@@ -94,26 +94,40 @@ export class ProjectIndexer {
     const filter = this.filterFactory(project);
     const started = performance.now();
 
-    // Sequential by design: parallelizing across the embedding model would
-    // amplify GPU/CPU pressure without bounding it. Collect results first,
-    // then tally — counters drop out of pure filters over the discriminated
-    // union, no mutation.
+    // Bounded concurrency across files. Each `indexFile` already
+    // serialises its own SQLite+LanceDB writes through the per-fileId
+    // mutex, so we can safely run N files in parallel — what we gain
+    // is overlap of disk reads, chunker work, and embedder calls.
+    // Conservative default (2) tracks the analyzer queue's default;
+    // callers (e.g. the activate endpoint, or a future config knob)
+    // can dial it up. See #204.
     //
-    // Cancellation: check `options.signal` between files so a user who
-    // activates → immediately deactivates a project doesn't burn the
-    // remaining files through the embedder (closes #217). We check
-    // *between* files rather than mid-file so each file either fully
-    // indexes (with its atomic SQLite + LanceDB write) or doesn't index
-    // at all — partial state would surface as stale chunks in the index.
+    // Cancellation: check `options.signal` before pulling each file
+    // so a user who activates → immediately deactivates a project
+    // doesn't burn the remaining files through the embedder (#217).
+    const paths: string[] = [];
+    for (const absPath of iterFiles(project.root, filter.rules.ignoredDirs)) {
+      paths.push(absPath);
+    }
     const results: FileIndexResult[] = [];
     let aborted = false;
-    for (const absPath of iterFiles(project.root, filter.rules.ignoredDirs)) {
-      if (options.signal?.aborted) {
-        aborted = true;
-        break;
+    const concurrency = Math.max(1, options.concurrency ?? 2);
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      while (true) {
+        if (options.signal?.aborted) {
+          aborted = true;
+          return;
+        }
+        const i = cursor;
+        cursor += 1;
+        if (i >= paths.length) return;
+        const absPath = paths[i];
+        if (absPath === undefined) return;
+        results.push(await this.indexFile(project, absPath, { filter }));
       }
-      results.push(await this.indexFile(project, absPath, { filter }));
-    }
+    };
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
 
     const indexed = results.filter((r) => r.kind === "indexed").length;
     const skipped = results.filter((r) => r.kind === "skipped").length;
