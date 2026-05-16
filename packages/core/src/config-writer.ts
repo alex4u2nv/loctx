@@ -65,7 +65,10 @@ function readDoc(path: string): Document {
   if (!existsSync(path)) return new Document({});
   const raw = readFileSync(path, "utf-8");
   if (raw.trim() === "") return new Document({});
-  return parseDocument(raw);
+  // Same hardening as the runtime YAML loaders: disable merge keys and
+  // cap alias expansion so a malicious global config file can't DoS
+  // the writer's parse step before we round-trip + emit (#179).
+  return parseDocument(raw, { merge: false, maxAliasCount: 100 });
 }
 
 function setIn(doc: Document, yamlPath: ReadonlyArray<string>, value: unknown): void {

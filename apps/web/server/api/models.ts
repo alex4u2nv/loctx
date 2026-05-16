@@ -94,7 +94,10 @@ async function writeModelChoice(
   const { parse: parseYaml, stringify: stringifyYaml } = await import("yaml");
   type Mutable = Record<string, unknown> & { embedding?: Record<string, unknown> };
   const existing: Mutable = existsSync(target)
-    ? ((parseYaml(readFileSync(target, "utf-8")) as Mutable | null) ?? {})
+    ? ((parseYaml(readFileSync(target, "utf-8"), {
+        merge: false,
+        maxAliasCount: 100,
+      }) as Mutable | null) ?? {})
     : {};
   const embedding: Record<string, unknown> = { ...(existing.embedding ?? {}) };
   embedding["model"] = modelName;
