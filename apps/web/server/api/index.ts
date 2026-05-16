@@ -23,7 +23,7 @@ export function mountApi(
   getRuntime: () => Promise<Runtime>,
   watcherRegistry?: WatcherRegistry,
 ): void {
-  mountStatus(app, config);
+  mountStatus(app, config, getRuntime);
   mountProjects(app, config, watcherRegistry, getRuntime);
   mountSearch(app, config, getRuntime);
   mountEvents(app);
