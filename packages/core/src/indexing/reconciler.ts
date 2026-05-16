@@ -24,7 +24,6 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Project } from "../models.js";
 import type { StateStore } from "../storage/state.js";
-import type { VectorStore } from "../storage/vectors.js";
 import type { ProjectIndexer } from "./indexer.js";
 
 export interface ReconciliationSummary {
@@ -69,7 +68,6 @@ export class Reconciler {
   constructor(
     private readonly state: StateStore,
     private readonly indexer: ProjectIndexer,
-    private readonly vectors?: VectorStore,
   ) {}
 
   status(): ReconciliationStatus {
@@ -139,13 +137,13 @@ export class Reconciler {
     this._completed = 0;
     this._total = projects.length;
     const out: ReconciliationSummary[] = new Array(projects.length);
-    // Bounded concurrency across projects. The LanceDB writer mutex and
-    // the per-fileId mutex in the indexer already serialize the actual
-    // storage writes; what we gain here is overlap of disk walks,
-    // chunker work, and embedder awaits across projects. Default
-    // matches the indexer's own per-file concurrency to keep total
-    // load bounded (#207).
-    const concurrency = Math.max(1, options.concurrency ?? 2);
+    // Bounded concurrency across projects. Defaults to 1 (sequential)
+    // for the same reason indexProject does (#204) — concurrent
+    // LanceDB writers can leave fragments in a transient bad state
+    // until we add coarser write coordination. Callers can opt in via
+    // `options.concurrency` once they've verified their workload
+    // doesn't trip the same race. See #207.
+    const concurrency = Math.max(1, options.concurrency ?? 1);
     let cursor = 0;
     const worker = async (): Promise<void> => {
       while (true) {
@@ -168,15 +166,12 @@ export class Reconciler {
       this._running = false;
       this._currentProjectName = null;
     }
-    // Build the ANN index once the post-reconcile corpus has grown
-    // past the threshold. Cheap when an index already exists; the
-    // builder bails fast in that case (#210).
-    if (this.vectors !== undefined) {
-      const result = await this.vectors.ensureVectorIndex();
-      if (result.built) {
-        console.error(`[loctx reconcile] built vector ANN index over ${result.rows} chunks`);
-      }
-    }
+    // (#210: ANN-index trigger temporarily disabled — touching the
+    // LanceDB table mid-boot via `countRows()` interacts badly with
+    // an unflushed write from the pre-index step, leaving subsequent
+    // searches reading a stale fragment reference. The method is
+    // still exposed on VectorStore; a future PR will wire it in once
+    // the interaction is fixed.)
     return Object.freeze(out);
   }
 }
