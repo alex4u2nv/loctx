@@ -26,6 +26,7 @@ import {
   checkNofile,
   findLegacyProjectConfig,
   inventoryProjects,
+  looksLikeFdExhaustion,
   nofileBumpHint,
   stopActiveDaemon,
 } from "@loctx/core";
@@ -274,7 +275,12 @@ async function startWatchers(
   config: Config,
   registry: WatcherRegistry,
 ): Promise<WatcherService[]> {
-  return Promise.all(
+  // Per-project try/catch so one failure (typically EMFILE on a workspace
+  // larger than the kernel's inode budget) doesn't take down the whole
+  // daemon. Failed projects show up in the registry with `state: failed`
+  // and surface in /watchers + doctor; the remaining projects keep their
+  // live updates. See #200.
+  const settled = await Promise.all(
     projects.map(async (project) => {
       const w = new WatcherService(project, runtime.indexer, {
         debounceMs: config.watcher.debounceMs,
@@ -286,7 +292,34 @@ async function startWatchers(
           registry.markFailed(project.id, err.message);
         },
       });
-      await w.start();
+      try {
+        await w.start();
+      } catch (err) {
+        const message = (err as Error).message;
+        // Register the entry as failed so the UI and doctor have
+        // something to show. The watcher is not active; no events
+        // will fire for this project until the daemon restarts after
+        // the underlying issue is fixed.
+        registry.register({
+          projectId: project.id,
+          projectName: project.name,
+          projectRoot: project.root,
+          watcher: w,
+          startedAt: new Date().toISOString(),
+          state: "failed",
+          failureReason: message,
+        });
+        console.error(`[loctx start] watcher failed for ${project.name}: ${message}`);
+        if (looksLikeFdExhaustion(message)) {
+          console.error(
+            nofileBumpHint()
+              .split("\n")
+              .map((l) => `[loctx start] ${l}`)
+              .join("\n"),
+          );
+        }
+        return null;
+      }
       registry.register({
         projectId: project.id,
         projectName: project.name,
@@ -297,6 +330,7 @@ async function startWatchers(
       return w;
     }),
   );
+  return settled.filter((w): w is WatcherService => w !== null);
 }
 
 // ---- web ---------------------------------------------------------------

@@ -77,3 +77,20 @@ export function nofileBumpHint(): string {
     "  permanent:   add `ulimit -n 10240` to your ~/.zshrc or ~/.bashrc",
   ].join("\n");
 }
+
+/**
+ * Heuristic match for the error cluster that means "out of file
+ * descriptors / inotify watches" — surfaced when @parcel/watcher
+ * subscribe rejects. We match by string because the underlying error
+ * code varies by OS:
+ *   - macOS / BSD: EMFILE
+ *   - Linux process-limit: EMFILE
+ *   - Linux inotify-watch limit: ENOSPC (`max_user_watches`)
+ *   - Some libuv frames just say "too many open files"
+ *
+ * Used by the watcher boot path to decide whether to print the
+ * ulimit-bump hint alongside a watcher failure.
+ */
+export function looksLikeFdExhaustion(message: string): boolean {
+  return /EMFILE|ENOSPC|too many open files|max_user_watches/i.test(message);
+}
