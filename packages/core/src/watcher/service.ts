@@ -69,6 +69,13 @@ export interface WatcherServiceOptions {
 }
 
 const DEFAULT_DEBOUNCE_MS = 300;
+/**
+ * Cap on the pending-debounce map. A sustained event storm bigger
+ * than the indexer can drain — `npm install`, a large `git checkout`,
+ * etc. — gets oldest-evicted instead of growing without bound (#209).
+ * Dropped events are picked up by the next reconciliation pass.
+ */
+const PENDING_CAP = 5_000;
 
 /**
  * @parcel/watcher's `ignore` accepts glob patterns or absolute paths.
@@ -273,6 +280,23 @@ export class WatcherService {
     const key = resolve(absPath);
     const existing = this.pending.get(key);
     if (existing !== undefined) clearTimeout(existing);
+    // Bound the pending map so a sustained event storm (e.g.
+    // `npm install` writing thousands of files faster than the
+    // indexer can drain) can't grow it without limit. Once we hit
+    // the cap, drop the oldest pending timer (Map iteration order =
+    // insertion order, so `.keys().next().value` is the oldest).
+    // Dropped events get caught by the next reconciliation pass; we
+    // don't try to preserve them through back-pressure because the
+    // OS already gave us no ordering guarantees on the upstream side.
+    // See #209.
+    if (this.pending.size >= PENDING_CAP && !this.pending.has(key)) {
+      const oldestKey = this.pending.keys().next().value;
+      if (oldestKey !== undefined) {
+        const oldTimer = this.pending.get(oldestKey);
+        if (oldTimer !== undefined) clearTimeout(oldTimer);
+        this.pending.delete(oldestKey);
+      }
+    }
     const timeout = setTimeout(() => {
       this.pending.delete(key);
       void this.dispatch(event, key);
