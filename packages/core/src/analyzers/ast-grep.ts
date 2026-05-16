@@ -52,6 +52,7 @@ export interface RunAstGrepOptions {
 export async function runAstGrep(
   filePath: string,
   opts: RunAstGrepOptions,
+  signal?: AbortSignal,
 ): Promise<RulePackFileResult> {
   if (opts.ruleDirs.length === 0) {
     return Object.freeze({
@@ -65,9 +66,13 @@ export async function runAstGrep(
     args.push("--rule", dir);
   }
   args.push(filePath);
+  // `signal` flows from the queue's per-task abort; aborting kills the
+  // ast-grep subprocess so a timeout reliably reclaims resources
+  // (#197).
   const { stdout } = await exec(opts.command, args, {
     timeout: opts.timeoutMs ?? 30_000,
     maxBuffer: 16 * 1024 * 1024,
+    ...(signal !== undefined ? { signal } : {}),
   });
   return parseAstGrepJson(stdout, opts.maxFindingsPerFile);
 }

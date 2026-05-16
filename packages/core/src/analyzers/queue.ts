@@ -27,8 +27,15 @@ export interface EnrichmentTask {
   readonly analyzerVersion: number;
   /** Content hash the result is keyed against. Dedupe + invalidation. */
   readonly contentSha: string;
-  /** The runner produces a JSON-serialisable payload. */
-  run(): Promise<unknown>;
+  /**
+   * The runner produces a JSON-serialisable payload. Accepts an
+   * AbortSignal so the queue can kill subprocess work on timeout:
+   * adapters that shell out to external binaries pass this signal to
+   * `child_process.execFile`, which sends SIGTERM to the child when
+   * it aborts (closes #197). Adapters running pure-JS work can ignore
+   * the signal — they'll just settle on their own timeline.
+   */
+  run(signal?: AbortSignal): Promise<unknown>;
 }
 
 export interface EnrichmentResult {
@@ -161,8 +168,17 @@ export class EnrichmentQueue {
     let payload: unknown;
     let error: string | undefined;
     let status: EnrichmentStatus = "complete";
+    // Per-task AbortController so the timeout helper can signal the
+    // runner (and any child process it spawned) to exit. Without this,
+    // a hung semgrep / ast-grep subprocess would keep burning CPU and
+    // holding fds long after the queue gave up on the task (#197).
+    const controller = new AbortController();
     try {
-      payload = await this.withTimeout(task.run(), this.perTaskTimeoutMs);
+      payload = await this.withTimeout(
+        task.run(controller.signal),
+        this.perTaskTimeoutMs,
+        controller,
+      );
     } catch (err) {
       status = "failed";
       error = (err as Error).message ?? String(err);
@@ -188,9 +204,13 @@ export class EnrichmentQueue {
     }
   }
 
-  private withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  private withTimeout<T>(promise: Promise<T>, ms: number, controller: AbortController): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
+        // Trip the abort first so any child process the runner spawned
+        // gets SIGTERM via execFile's `signal` option — otherwise it
+        // keeps running long after we've rejected the promise.
+        controller.abort();
         reject(new Error(`task timed out after ${ms}ms`));
       }, ms);
       promise.then(
