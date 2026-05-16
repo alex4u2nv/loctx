@@ -141,21 +141,39 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
   /**
    * Release ONNX session held by the HF pipeline. Without this, exiting Node
    * with a warm pipeline produces "mutex lock failed" on stderr (see GH#33).
-   * We give dispose() 2s to clean up; if it hangs we proceed anyway.
+   *
+   * Timeout is 5s in normal operation and 30s when `LOCTX_LOG=debug` so
+   * the operator gets a fuller picture during teardown debugging.
+   * Either bound is generous enough for healthy disposes (typically
+   * tens of ms) but short enough that a hung session doesn't pin
+   * shutdown. We log when the timeout actually fires so a quietly
+   * accumulating leak becomes visible (#213).
    */
   async dispose(): Promise<void> {
     if (this.pipelineP === null) return;
     const promise = this.pipelineP;
     this.pipelineP = null;
     this.cachedIdentity = null;
+    const timeoutMs = process.env["LOCTX_LOG"] === "debug" ? 30_000 : 5_000;
     try {
       const pipe = await promise;
       const dispose = (pipe as unknown as { dispose?: () => Promise<void> }).dispose;
       if (typeof dispose !== "function") return;
+      let timedOut = false;
       await Promise.race([
         dispose.call(pipe),
-        new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            timedOut = true;
+            resolve();
+          }, timeoutMs),
+        ),
       ]);
+      if (timedOut) {
+        console.error(
+          `[embeddings] pipeline.dispose() hung past ${timeoutMs}ms; abandoning. ONNX session may leak until process exit.`,
+        );
+      }
     } catch {
       // best-effort — keep shutting down even if dispose throws
     }
