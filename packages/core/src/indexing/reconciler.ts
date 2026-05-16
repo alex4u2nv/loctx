@@ -130,6 +130,7 @@ export class Reconciler {
 
   async reconcileAll(
     projects: ReadonlyArray<Project>,
+    options: { concurrency?: number } = {},
   ): Promise<ReadonlyArray<ReconciliationSummary>> {
     // Live status: flip running=true for the duration so /api/status can
     // tell the UI that search results may be incomplete during the pass.
@@ -137,13 +138,32 @@ export class Reconciler {
     this._startedAt = new Date().toISOString();
     this._completed = 0;
     this._total = projects.length;
-    const out: ReconciliationSummary[] = [];
-    try {
-      for (const project of projects) {
+    const out: ReconciliationSummary[] = new Array(projects.length);
+    // Bounded concurrency across projects. The LanceDB writer mutex and
+    // the per-fileId mutex in the indexer already serialize the actual
+    // storage writes; what we gain here is overlap of disk walks,
+    // chunker work, and embedder awaits across projects. Default
+    // matches the indexer's own per-file concurrency to keep total
+    // load bounded (#207).
+    const concurrency = Math.max(1, options.concurrency ?? 2);
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      while (true) {
+        const i = cursor;
+        cursor += 1;
+        if (i >= projects.length) return;
+        const project = projects[i];
+        if (project === undefined) return;
+        // currentProjectName only tracks "one of the in-flight
+        // projects" when concurrency > 1; useful for the UI banner
+        // even if not strictly ordered.
         this._currentProjectName = project.name;
-        out.push(await this.reconcileProject(project));
+        out[i] = await this.reconcileProject(project);
         this._completed += 1;
       }
+    };
+    try {
+      await Promise.all(Array.from({ length: concurrency }, () => worker()));
     } finally {
       this._running = false;
       this._currentProjectName = null;

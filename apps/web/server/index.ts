@@ -62,6 +62,16 @@ export function createWebApp(opts: CreateWebAppOptions): Hono {
   // Lazy runtime: prebuilt one wins; otherwise build on first need and
   // memoise. `buildRuntime` is heavy (embedding model load) so /status,
   // /projects, /events deliberately don't trigger it.
+  //
+  // Invariant: once assigned, `lazyRuntime` is NEVER reset, even on a
+  // failed buildRuntime promise. A reset-on-error refactor would let
+  // two simultaneous early callers each kick off a fresh build,
+  // producing two independent VectorStores against the same LanceDB
+  // dir — each with its own writer mutex, so the cross-table write
+  // ordering from #228 stops holding. The rejected promise sticks
+  // around so subsequent callers see the same failure (and the
+  // operator gets a consistent error in logs / doctor) until the
+  // daemon is restarted. See #189.
   let lazyRuntime: Promise<Runtime> | null = null;
   const getRuntime = (): Promise<Runtime> => {
     if (opts.runtime !== undefined) return Promise.resolve(opts.runtime);
