@@ -31,7 +31,13 @@ export interface DaemonClient {
 export function daemonClient(dataDir: string): DaemonClient {
   const lock = readActiveDaemon(dataDir);
   if (lock === null || lock.port === undefined) throw new NoDaemonError();
-  const base = `http://${lock.hostname ?? "localhost"}:${lock.port}`;
+  // Fall back to the literal loopback IP (not the name) when the lock
+  // file lacks a hostname. Browsers refuse to DNS-rebind a literal IP,
+  // which is the whole point of the daemon binding 127.0.0.1 by default;
+  // resolving "localhost" via DNS would re-open the rebinding attack
+  // surface for any CLI tool talking to a misconfigured lock file
+  // (closes #171).
+  const base = `http://${lock.hostname ?? "127.0.0.1"}:${lock.port}`;
 
   const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
     const r = await fetch(`${base}${path}`, init);

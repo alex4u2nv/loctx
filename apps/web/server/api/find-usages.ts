@@ -1,25 +1,35 @@
 import { type Config, type Runtime, resolveUnderWorkspaceRoots } from "@loctx/core";
 import type { Hono } from "hono";
-import type { FindUsagesPayload, FindUsagesRequest, UsageHit } from "../../shared/contracts.js";
+import type { FindUsagesPayload, UsageHit } from "../../shared/contracts.js";
+import { parseString } from "../lib/request-validation.js";
 
 export function mountFindUsages(app: Hono, config: Config, getRuntime: () => Promise<Runtime>): void {
   app.post("/api/find-usages", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as FindUsagesRequest | null;
-    const symbol = body?.symbol?.trim() ?? "";
-    if (symbol === "") return c.json({ error: "symbol required" }, 400);
+    const raw = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (raw === null) {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+    const symbol = parseString(raw["symbol"], { maxLength: 256 });
+    if (symbol === null || symbol === "") {
+      return c.json({ error: "symbol required (non-empty string, ≤ 256 chars)" }, 400);
+    }
+    const pathField = parseString(raw["path"], { maxLength: 1024 });
+    if (pathField === null && raw["path"] !== undefined) {
+      return c.json({ error: "path must be a string (≤ 1024 chars)" }, 400);
+    }
 
     const rt = await getRuntime();
     let projects = rt.discovery.discoverProjects();
-    if (body?.path !== undefined && body.path !== "") {
+    if (pathField !== null && pathField !== "") {
       // Refuse paths outside configured workspace_roots so this surface
       // can't be used to probe arbitrary filesystem locations.
-      const confined = resolveUnderWorkspaceRoots(body.path, config.workspaceRoots);
+      const confined = resolveUnderWorkspaceRoots(pathField, config.workspaceRoots);
       if (confined === null) {
         return c.json({ error: "path is not under any configured workspace_root" }, 403);
       }
       const scoped = rt.discovery.resolveProject(confined);
       if (scoped === null) {
-        return c.json({ error: `path ${body.path} is not inside any indexed project` }, 404);
+        return c.json({ error: `path is not inside any indexed project` }, 404);
       }
       projects = [scoped];
     }
