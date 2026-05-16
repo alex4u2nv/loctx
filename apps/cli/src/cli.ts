@@ -4,6 +4,7 @@
  */
 
 import { resolve } from "node:path";
+import { createInterface } from "node:readline";
 import {
   type Config,
   ConfigError,
@@ -17,6 +18,7 @@ import {
   buildRuntime,
   daemonClient,
   defaultConfigFile,
+  findContainingProject,
   inventoryProjects,
   loadConfig,
   makeProject,
@@ -69,6 +71,44 @@ function getCtx(): CliContext {
     configPath: opts.config ?? defaultConfigFile().replace(/\.toml$/, ".yaml"),
     debug: opts.debug ?? false,
   });
+}
+
+/**
+ * Resolve the user's PATH argument to a concrete project root. Used by
+ * every command that operates on "a project" — `add`, `activate`,
+ * `deactivate`, `pause`, `resume`, `recrawl`, `purge`, `reset project`.
+ *
+ *   - `undefined` (no arg) or `"."` → walk up from `process.cwd()`
+ *   - any other value             → walk up from `resolve(value)`
+ *
+ * Walking up means: if the supplied directory isn't itself a project
+ * root, climb parents until a marker (`.git`, `package.json`, …) is
+ * found. So `loctx add` works from `proj/src/components/` the same way
+ * `loctx add ~/code/proj` does. Returns `null` when no marker exists
+ * anywhere on the chain — callers should error with a helpful message.
+ */
+function resolveCommandPath(input: string | undefined): Project | null {
+  const start = input === undefined || input === "." ? process.cwd() : resolve(input);
+  return findContainingProject(start);
+}
+
+/**
+ * Print a y/N confirmation prompt. Enter → "no" (safe default).
+ * Reads from /dev/tty when stdin is piped so test-driven invocations
+ * with no controlling terminal still error gracefully (caller passes
+ * `--yes`). Async because readline-question is callback-based.
+ */
+async function confirm(message: string): Promise<boolean> {
+  if (!process.stdin.isTTY) return false;
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const answer = await new Promise<string>((res) => {
+      rl.question(`${message} [y/N] `, (a) => res(a));
+    });
+    return /^y(es)?$/i.test(answer.trim());
+  } finally {
+    rl.close();
+  }
 }
 
 // ---- index --------------------------------------------------------------
@@ -129,53 +169,105 @@ program
     }
   });
 
-// ---- activate / deactivate ---------------------------------------------
+// ---- add / activate / deactivate ---------------------------------------
+
+/**
+ * `loctx add` is the friendly entry point: run it from anywhere inside
+ * a project (or pass an explicit PATH) and it walks up to the nearest
+ * marker, confirms with the user, then activates indexing. `activate`
+ * is kept as a non-interactive synonym for scripts and existing muscle
+ * memory.
+ */
+async function runActivate(project: Project, ctx: CliContext): Promise<void> {
+  const config = loadConfigOrFail(ctx);
+  const lock = readActiveDaemon(config.paths.dataDir);
+  if (lock !== null) {
+    const client = daemonClient(config.paths.dataDir);
+    await client.post("/api/projects/activate", { path: project.root });
+    console.error(`[loctx activate] ${project.name} (${project.root}) — via daemon`);
+    return;
+  }
+  const runtime = await buildRuntime(config);
+  try {
+    runtime.state.upsertProjectWithActive(project, true);
+    console.error(`[loctx activate] ${project.name} (${project.root})`);
+    const summary = await runtime.indexer.indexProject(project);
+    console.error(
+      `[loctx activate] initial index: indexed=${summary.indexed} skipped=${summary.skipped} failed=${summary.failed}`,
+    );
+  } finally {
+    await runtime.close();
+  }
+}
 
 program
-  .command("activate <path>")
-  .description("Opt a discovered project into indexing + watching. Runs an initial index pass.")
-  .action(async (path: string) => {
-    const ctx = getCtx();
-    const config = loadConfigOrFail(ctx);
-    const lock = readActiveDaemon(config.paths.dataDir);
-    if (lock !== null) {
-      const client = daemonClient(config.paths.dataDir);
-      await client.post("/api/projects/activate", { path: resolve(path) });
-      console.error(`[loctx activate] ${resolve(path)} — activated via daemon`);
-      return;
-    }
-    const runtime = await buildRuntime(config);
-    try {
-      const project = makeProject(resolve(path));
-      runtime.state.upsertProjectWithActive(project, true);
-      console.error(`[loctx activate] ${project.name} (${project.root})`);
-      const summary = await runtime.indexer.indexProject(project);
+  .command("add [path]")
+  .description(
+    "Activate the project containing PATH (or cwd) for indexing + watching. " +
+      "Walks up to the nearest project marker (.git, package.json, …), prompts " +
+      "for confirmation, then runs an initial index pass.",
+  )
+  .option("-y, --yes", "Skip the confirmation prompt.", false)
+  .action(async (path: string | undefined, opts: { yes: boolean }) => {
+    const project = resolveCommandPath(path);
+    if (project === null) {
+      const start = path === undefined || path === "." ? process.cwd() : resolve(path);
       console.error(
-        `[loctx activate] initial index: indexed=${summary.indexed} skipped=${summary.skipped} failed=${summary.failed}`,
+        `[loctx add] no project marker found at or above ${start}.\n  Expected one of: .git, .vscode, .idea, package.json, pyproject.toml, Cargo.toml, go.mod, …`,
       );
-    } finally {
-      await runtime.close();
+      process.exit(1);
     }
+    console.error(`[loctx add] resolved project: ${project.name} (${project.root})`);
+    if (!opts.yes) {
+      const ok = await confirm("Activate indexing for this project?");
+      if (!ok) {
+        console.error("[loctx add] aborted.");
+        process.exit(1);
+      }
+    }
+    await runActivate(project, getCtx());
   });
 
 program
-  .command("deactivate <path>")
+  .command("activate [path]")
   .description(
-    "Stop indexing + watching a project. Indexed data stays (use `loctx purge` to remove).",
+    "Activate a project for indexing + watching. Non-interactive synonym for `loctx add -y`. " +
+      "PATH may be omitted or `.` to use the project containing cwd.",
   )
-  .action(async (path: string) => {
+  .action(async (path: string | undefined) => {
+    const project = resolveCommandPath(path);
+    if (project === null) {
+      const start = path === undefined || path === "." ? process.cwd() : resolve(path);
+      console.error(`[loctx activate] no project marker found at or above ${start}.`);
+      process.exit(1);
+    }
+    await runActivate(project, getCtx());
+  });
+
+program
+  .command("deactivate [path]")
+  .description(
+    "Stop indexing + watching a project. PATH may be omitted or `.` to use the project containing cwd. " +
+      "Indexed data stays (use `loctx purge` to remove).",
+  )
+  .action(async (path: string | undefined) => {
+    const project = resolveCommandPath(path);
+    if (project === null) {
+      const start = path === undefined || path === "." ? process.cwd() : resolve(path);
+      console.error(`[loctx deactivate] no project marker found at or above ${start}.`);
+      process.exit(1);
+    }
     const ctx = getCtx();
     const config = loadConfigOrFail(ctx);
     const lock = readActiveDaemon(config.paths.dataDir);
     if (lock !== null) {
       const client = daemonClient(config.paths.dataDir);
-      await client.post("/api/projects/deactivate", { path: resolve(path) });
-      console.error(`[loctx deactivate] ${resolve(path)} — deactivated via daemon`);
+      await client.post("/api/projects/deactivate", { path: project.root });
+      console.error(`[loctx deactivate] ${project.name} (${project.root}) — via daemon`);
       return;
     }
     const state = new StateStore(config.paths.stateDb);
     try {
-      const project = makeProject(resolve(path));
       const ok = state.setProjectActive(project.id, false);
       if (!ok) {
         console.error(
@@ -473,11 +565,13 @@ program
 program
   .command("pause [path]")
   .description(
-    "Pause the watcher for a project (or every project when PATH is omitted). Requires a running daemon.",
+    "Pause the watcher for the project at PATH (or containing cwd). " +
+      "Use `--all` to pause every project. Requires a running daemon.",
   )
-  .action(async (path?: string) => {
+  .option("--all", "Pause every project's watcher.", false)
+  .action(async (path: string | undefined, opts: { all: boolean }) => {
     await withDaemonClient(async (client) => {
-      const targets = await resolveProjectIds(client, path);
+      const targets = await resolveScopedTargets(client, path, opts.all, "pause");
       for (const t of targets) {
         await client.post("/api/watch/pause", { projectId: t.id });
         console.error(`[loctx pause] ${t.name} (${t.id})`);
@@ -488,11 +582,13 @@ program
 program
   .command("resume [path]")
   .description(
-    "Resume the watcher for a project (or every project when PATH is omitted). Requires a running daemon.",
+    "Resume the watcher for the project at PATH (or containing cwd). " +
+      "Use `--all` to resume every project. Requires a running daemon.",
   )
-  .action(async (path?: string) => {
+  .option("--all", "Resume every project's watcher.", false)
+  .action(async (path: string | undefined, opts: { all: boolean }) => {
     await withDaemonClient(async (client) => {
-      const targets = await resolveProjectIds(client, path);
+      const targets = await resolveScopedTargets(client, path, opts.all, "resume");
       for (const t of targets) {
         await client.post("/api/watch/resume", { projectId: t.id });
         console.error(`[loctx resume] ${t.name} (${t.id})`);
@@ -503,17 +599,27 @@ program
 program
   .command("recrawl [path]")
   .description(
-    "Re-index a project (or every project). Hits the running daemon when one is up; otherwise builds a one-shot runtime.",
+    "Re-index the project at PATH (or containing cwd). Use `--all` to recrawl every project. " +
+      "Hits the running daemon when one is up; otherwise builds a one-shot runtime.",
   )
-  .action(async (path?: string) => {
+  .option("--all", "Recrawl every project.", false)
+  .action(async (path: string | undefined, opts: { all: boolean }) => {
     const ctx = getCtx();
     const config = loadConfigOrFail(ctx);
+    const resolved = opts.all ? null : resolveCommandPath(path);
+    if (!opts.all && resolved === null) {
+      const start = path === undefined || path === "." ? process.cwd() : resolve(path);
+      console.error(
+        `[loctx recrawl] no project marker found at or above ${start}. Pass --all to recrawl every project.`,
+      );
+      process.exit(1);
+    }
     const lock = readActiveDaemon(config.paths.dataDir);
     if (lock !== null) {
       const client = daemonClient(config.paths.dataDir);
       const r = await client.post<{ summaries: Array<{ name: string; indexed: number }> }>(
         "/api/index",
-        path !== undefined ? { path: resolve(path) } : {},
+        resolved !== null ? { path: resolved.root } : {},
       );
       for (const s of r.summaries) {
         console.log(`recrawled ${s.name}: indexed=${s.indexed}`);
@@ -523,7 +629,7 @@ program
     // Fallback: same path as `loctx index`.
     const runtime = await buildRuntime(config);
     try {
-      const projects = path ? [makeProject(resolve(path))] : runtime.discovery.discoverProjects();
+      const projects = resolved !== null ? [resolved] : runtime.discovery.discoverProjects();
       for (const project of projects) {
         console.log(`Recrawling ${project.name} (${project.root}) ...`);
         const summary = await runtime.indexer.indexProject(project);
@@ -537,15 +643,23 @@ program
   });
 
 program
-  .command("purge <path>")
+  .command("purge [path]")
   .description(
-    "Delete the index data for a project (LanceDB + SQLite rows). Source files untouched. Hits the running daemon when one is up; otherwise builds a one-shot runtime.",
+    "Delete the index data for a project (LanceDB + SQLite rows). " +
+      "PATH may be omitted or `.` to use the project containing cwd. " +
+      "Source files untouched. Hits the running daemon when one is up; otherwise builds a one-shot runtime.",
   )
   .option("--force", "Skip confirmation.", false)
-  .action(async (path: string, opts: { force: boolean }) => {
+  .action(async (path: string | undefined, opts: { force: boolean }) => {
+    const project = resolveCommandPath(path);
+    if (project === null) {
+      const start = path === undefined || path === "." ? process.cwd() : resolve(path);
+      console.error(`[loctx purge] no project marker found at or above ${start}.`);
+      process.exit(1);
+    }
     if (!opts.force) {
       console.error(
-        `[loctx purge] refusing without --force.\n  This deletes every chunk + vector row for the project at\n  ${resolve(path)}. Source files are untouched.`,
+        `[loctx purge] refusing without --force.\n  This deletes every chunk + vector row for ${project.name} at\n  ${project.root}. Source files are untouched.`,
       );
       process.exit(1);
     }
@@ -556,13 +670,12 @@ program
       const client = daemonClient(config.paths.dataDir);
       const r = await client.post<{ project: { name: string; root: string } }>(
         "/api/reset/project",
-        { path: resolve(path) },
+        { path: project.root },
       );
       console.error(`[loctx purge] cleared ${r.project.name} (${r.project.root}) via daemon.`);
       return;
     }
     // Fallback: same path as `loctx reset project --force`.
-    const project = makeProject(resolve(path));
     const runtime = await buildRuntime(config);
     try {
       await runtime.vectors.deleteProjectChunks(project.id);
@@ -590,20 +703,33 @@ async function withDaemonClient(
   }
 }
 
-async function resolveProjectIds(
+/**
+ * Resolve a path/--all pair to a list of target projects for the
+ * pause/resume verbs. With `--all`, asks the daemon for every active
+ * watcher. Otherwise walks up from `path` (or cwd) and errors if no
+ * project marker is found.
+ */
+async function resolveScopedTargets(
   client: ReturnType<typeof daemonClient>,
   path: string | undefined,
+  all: boolean,
+  verb: string,
 ): Promise<Array<{ id: string; name: string }>> {
-  if (path !== undefined) {
-    // Compute the deterministic project id locally; cheaper than asking
-    // the daemon to resolve a path.
-    const project = makeProject(resolve(path));
-    return [{ id: project.id, name: project.name }];
+  if (all) {
+    const list = await client.get<{ entries: Array<{ projectId: string; projectName: string }> }>(
+      "/api/watchers",
+    );
+    return list.entries.map((e) => ({ id: e.projectId, name: e.projectName }));
   }
-  const list = await client.get<{ entries: Array<{ projectId: string; projectName: string }> }>(
-    "/api/watchers",
-  );
-  return list.entries.map((e) => ({ id: e.projectId, name: e.projectName }));
+  const project = resolveCommandPath(path);
+  if (project === null) {
+    const start = path === undefined || path === "." ? process.cwd() : resolve(path);
+    console.error(
+      `[loctx ${verb}] no project marker found at or above ${start}. Pass --all to ${verb} every project.`,
+    );
+    process.exit(1);
+  }
+  return [{ id: project.id, name: project.name }];
 }
 
 // ---- init (interactive first-run wizard) -------------------------------
@@ -915,16 +1041,23 @@ reset
   });
 
 reset
-  .command("project <path>")
+  .command("project [path]")
   .description(
     "Delete index entries for a single project (LanceDB + SQLite). " +
+      "PATH may be omitted or `.` to use the project containing cwd. " +
       "Requires --force; refuses while a daemon is running.",
   )
   .option("--force", "Skip confirmation.", false)
-  .action(async (path: string, opts: { force: boolean }) => {
+  .action(async (path: string | undefined, opts: { force: boolean }) => {
+    const project = resolveCommandPath(path);
+    if (project === null) {
+      const start = path === undefined || path === "." ? process.cwd() : resolve(path);
+      console.error(`[loctx reset project] no project marker found at or above ${start}.`);
+      process.exit(1);
+    }
     if (!opts.force) {
       console.error(
-        `[loctx reset project] refusing without --force.\n  This deletes every chunk + vector row for the project at\n  ${resolve(path)}. Source files are untouched.`,
+        `[loctx reset project] refusing without --force.\n  This deletes every chunk + vector row for ${project.name} at\n  ${project.root}. Source files are untouched.`,
       );
       process.exit(1);
     }
@@ -939,7 +1072,6 @@ reset
       process.exit(1);
     }
 
-    const project = makeProject(resolve(path));
     const runtime = await buildRuntime(config);
     try {
       await runtime.vectors.deleteProjectChunks(project.id);
