@@ -82,7 +82,10 @@ export class ProjectIndexer {
 
   // ---- public --------------------------------------------------------
 
-  async indexProject(project: Project): Promise<IndexSummary> {
+  async indexProject(
+    project: Project,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<IndexSummary> {
     // Indexing implies activation: if the caller is invoking indexProject,
     // the project should appear in the active inventory bucket so future
     // daemon runs include it. Preserves active=true for projects that were
@@ -95,8 +98,20 @@ export class ProjectIndexer {
     // amplify GPU/CPU pressure without bounding it. Collect results first,
     // then tally — counters drop out of pure filters over the discriminated
     // union, no mutation.
+    //
+    // Cancellation: check `options.signal` between files so a user who
+    // activates → immediately deactivates a project doesn't burn the
+    // remaining files through the embedder (closes #217). We check
+    // *between* files rather than mid-file so each file either fully
+    // indexes (with its atomic SQLite + LanceDB write) or doesn't index
+    // at all — partial state would surface as stale chunks in the index.
     const results: FileIndexResult[] = [];
+    let aborted = false;
     for (const absPath of iterFiles(project.root, filter.rules.ignoredDirs)) {
+      if (options.signal?.aborted) {
+        aborted = true;
+        break;
+      }
       results.push(await this.indexFile(project, absPath, { filter }));
     }
 
@@ -104,7 +119,10 @@ export class ProjectIndexer {
     const skipped = results.filter((r) => r.kind === "skipped").length;
     const failures = results.filter((r) => r.kind === "error");
 
-    this.state.markProjectIndexed(project.id);
+    // Stamp last_indexed_at only on a complete pass. An aborted pass
+    // produces a partial summary the caller can inspect; the reconciler
+    // will pick up the unindexed files on its next run.
+    if (!aborted) this.state.markProjectIndexed(project.id);
     return Object.freeze({
       project,
       indexed,
