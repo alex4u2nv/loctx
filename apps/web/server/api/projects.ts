@@ -30,6 +30,15 @@ import type {
  */
 const inFlightActivation = new Map<string, AbortController>();
 
+/**
+ * Project IDs whose `/api/projects/activate` request is currently
+ * mid-handler. Two near-simultaneous activate POSTs for the same
+ * project would otherwise both pass the `watcherRegistry.get(...) === null`
+ * check and attach a second watcher. We hold this guard across the
+ * await on the runtime + watcher attach + index kickoff. See #191.
+ */
+const activating = new Set<string>();
+
 export function mountProjects(
   app: Hono,
   config: Config,
@@ -130,45 +139,65 @@ export function mountProjects(
       return c.json({ error: "path is not under any configured workspace_root" }, 403);
     }
     const project = makeProject(confined);
-    const rt = await getRuntime();
-    rt.state.upsertProjectWithActive(project, true);
-
-    // Attach a watcher live so the newly-active project gets indexed
-    // incrementally without a daemon restart. Idempotent — if a watcher
-    // already exists (re-activate after deactivate), we leave it alone.
-    if (watcherRegistry !== undefined && watcherRegistry.get(project.id as ProjectId) === null) {
-      await attachWatcher(project, rt, config, watcherRegistry);
+    // De-dupe near-simultaneous activate POSTs for the same project so
+    // we don't attach two watchers or kick off two background indexers
+    // on top of each other. The guard is released as soon as the
+    // synchronous setup finishes; the background indexer is allowed
+    // to keep running across the boundary because it carries its own
+    // AbortController (see below).
+    if (activating.has(project.id)) {
+      return c.json(
+        { error: "activate already in progress for this project" },
+        409,
+      );
     }
+    activating.add(project.id);
+    try {
+      const rt = await getRuntime();
+      rt.state.upsertProjectWithActive(project, true);
 
-    // Kick off an initial index pass in the background. For a real-world
-    // project this can take minutes; awaiting it here would stall the
-    // POST until the embedder finishes and the UI would look frozen.
-    // Errors land in stderr; the watcher (above) covers live changes in
-    // the meantime.
-    //
-    // Abort plumbing: stash a per-project controller. If the user calls
-    // deactivate before this finishes, we trip the signal — the
-    // indexer's between-file check sees it and returns early, sparing
-    // the remaining files (and embedding work) on a project the user
-    // already changed their mind about (#217).
-    const previous = inFlightActivation.get(project.id);
-    if (previous !== undefined) previous.abort();
-    const controller = new AbortController();
-    inFlightActivation.set(project.id, controller);
-    const indexPass = rt.indexer.indexProject(project, { signal: controller.signal });
-    void indexPass
-      .catch((err) => {
-        console.error(
-          `[activate] initial index failed for ${project.name}: ${(err as Error).message}`,
-        );
-      })
-      .finally(() => {
-        // Only clear if this controller is still the current one (a
-        // racing activate could have replaced it).
-        if (inFlightActivation.get(project.id) === controller) {
-          inFlightActivation.delete(project.id);
-        }
-      });
+      // Attach a watcher live so the newly-active project gets indexed
+      // incrementally without a daemon restart. Idempotent — if a watcher
+      // already exists (re-activate after deactivate), we leave it alone.
+      if (
+        watcherRegistry !== undefined &&
+        watcherRegistry.get(project.id as ProjectId) === null
+      ) {
+        await attachWatcher(project, rt, config, watcherRegistry);
+      }
+
+      // Kick off an initial index pass in the background. For a real-world
+      // project this can take minutes; awaiting it here would stall the
+      // POST until the embedder finishes and the UI would look frozen.
+      // Errors land in stderr; the watcher (above) covers live changes in
+      // the meantime.
+      //
+      // Abort plumbing: stash a per-project controller. If the user calls
+      // deactivate before this finishes, we trip the signal — the
+      // indexer's between-file check sees it and returns early, sparing
+      // the remaining files (and embedding work) on a project the user
+      // already changed their mind about (#217).
+      const previous = inFlightActivation.get(project.id);
+      if (previous !== undefined) previous.abort();
+      const controller = new AbortController();
+      inFlightActivation.set(project.id, controller);
+      const indexPass = rt.indexer.indexProject(project, { signal: controller.signal });
+      void indexPass
+        .catch((err) => {
+          console.error(
+            `[activate] initial index failed for ${project.name}: ${(err as Error).message}`,
+          );
+        })
+        .finally(() => {
+          // Only clear if this controller is still the current one (a
+          // racing activate could have replaced it).
+          if (inFlightActivation.get(project.id) === controller) {
+            inFlightActivation.delete(project.id);
+          }
+        });
+    } finally {
+      activating.delete(project.id);
+    }
 
     return c.json({
       ok: true,

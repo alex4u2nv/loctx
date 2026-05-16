@@ -45,11 +45,14 @@ export interface StartOptions {
 const ROOT_RELATIVE_WEB_DIR = "../../web";
 
 export async function start(config: Config, options: StartOptions): Promise<void> {
-  warnOnLegacyProjectConfig();
   // Single-instance lock keyed on the data dir. Two daemons sharing the same
   // SQLite + LanceDB would race on writes; the lock keeps one alive at a time
   // regardless of how the second was launched (workspace, npm link, -g).
   const lock = await acquireOrReplaceLock(config, options);
+  // Emit the legacy-project-config warning only after the lock is
+  // ours. Two racing daemons would otherwise both print the warning
+  // before the loser even discovers the conflict (#195).
+  warnOnLegacyProjectConfig();
 
   let runtime: Runtime;
   try {

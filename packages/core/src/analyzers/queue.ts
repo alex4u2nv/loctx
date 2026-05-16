@@ -200,7 +200,17 @@ export class EnrichmentQueue {
     try {
       this.onResult(result);
     } catch (err) {
-      console.error(`[enrichment] result sink threw: ${(err as Error).message}`);
+      // Sink failed (typically a state.upsertFileEnrichment error —
+      // disk full, locked DB). Log with enough detail (task id +
+      // analyzer + content hash) for the operator to correlate the
+      // loss; do NOT retry inline because that would compound the
+      // failure. The next watcher event or reconciler pass will
+      // re-enqueue the task, giving us at-least-eventually delivery.
+      // See #199.
+      console.error(
+        `[enrichment] result sink threw for task=${task.id} analyzer=${task.analyzer} ` +
+          `contentSha=${task.contentSha.slice(0, 12)}: ${(err as Error).message}`,
+      );
     }
   }
 
