@@ -143,6 +143,25 @@ describe("ProjectIndexer concurrent persist (#188, #193)", () => {
     }
   });
 
+  it("indexProject honors AbortSignal between files (#217)", async () => {
+    // Drop enough files for the loop to actually pause between them.
+    // The signal is set BEFORE the first iteration so the indexer
+    // should produce an empty result rather than walking the tree.
+    writeFileSync(join(projectRoot, "src", "a.ts"), "export const a = 1;\n");
+    writeFileSync(join(projectRoot, "src", "b.ts"), "export const b = 2;\n");
+    writeFileSync(join(projectRoot, "src", "c.ts"), "export const c = 3;\n");
+    const p = project();
+
+    const controller = new AbortController();
+    controller.abort();
+    const summary = await indexer.indexProject(p, { signal: controller.signal });
+    expect(summary.indexed).toBe(0);
+    expect(summary.total).toBe(0);
+    // Aborted pass should NOT stamp last_indexed_at.
+    const recorded = state.listProjects().find((x) => x.id === p.id);
+    expect(recorded?.lastIndexedAt).toBeNull();
+  });
+
   it("concurrent persists on different files run in parallel (different mutex chains)", async () => {
     // Per-fileId mutex must not block work on other files. We can't
     // assert wall-clock parallelism deterministically, but we can

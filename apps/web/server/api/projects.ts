@@ -22,6 +22,14 @@ import type {
   WatcherState,
 } from "../../shared/contracts.js";
 
+/**
+ * Per-project AbortControllers for the background `indexProject` pass
+ * we kick off on activate. Scoped to this module so deactivate can
+ * abort the in-flight pass for the same project (#217). Entries clear
+ * themselves when the indexer settles.
+ */
+const inFlightActivation = new Map<string, AbortController>();
+
 export function mountProjects(
   app: Hono,
   config: Config,
@@ -137,11 +145,30 @@ export function mountProjects(
     // POST until the embedder finishes and the UI would look frozen.
     // Errors land in stderr; the watcher (above) covers live changes in
     // the meantime.
-    void rt.indexer.indexProject(project).catch((err) => {
-      console.error(
-        `[activate] initial index failed for ${project.name}: ${(err as Error).message}`,
-      );
-    });
+    //
+    // Abort plumbing: stash a per-project controller. If the user calls
+    // deactivate before this finishes, we trip the signal — the
+    // indexer's between-file check sees it and returns early, sparing
+    // the remaining files (and embedding work) on a project the user
+    // already changed their mind about (#217).
+    const previous = inFlightActivation.get(project.id);
+    if (previous !== undefined) previous.abort();
+    const controller = new AbortController();
+    inFlightActivation.set(project.id, controller);
+    const indexPass = rt.indexer.indexProject(project, { signal: controller.signal });
+    void indexPass
+      .catch((err) => {
+        console.error(
+          `[activate] initial index failed for ${project.name}: ${(err as Error).message}`,
+        );
+      })
+      .finally(() => {
+        // Only clear if this controller is still the current one (a
+        // racing activate could have replaced it).
+        if (inFlightActivation.get(project.id) === controller) {
+          inFlightActivation.delete(project.id);
+        }
+      });
 
     return c.json({
       ok: true,
@@ -162,6 +189,15 @@ export function mountProjects(
     const rt = await getRuntime();
     const ok = rt.state.setProjectActive(project.id, false);
     if (!ok) return c.json({ error: "no such project" }, 404);
+
+    // Abort any in-flight initial index pass kicked off by a prior
+    // activate. The indexer checks between files, so this stops further
+    // embedding work without leaving a partially-indexed file (#217).
+    const pending = inFlightActivation.get(project.id);
+    if (pending !== undefined) {
+      pending.abort();
+      inFlightActivation.delete(project.id);
+    }
 
     // Stop the live watcher so we're not still emitting events for a
     // deactivated project. The state row already flipped, but if the
