@@ -58,7 +58,7 @@ export type WatcherState = "active" | "paused" | "failed";
  *
  *   - `failed`        watcher errored — needs investigation
  *   - `paused`        watcher manually paused
- *   - `never-indexed` files=0 && lastIndexed=null — needs initial recrawl
+ *   - `never-indexed` files=0 && lastIndexed=null — needs initial rebuild
  *                     (the watcher only catches *changes*, not initial state)
  *   - `empty`         files=0 but lastIndexed!=null — filter excluded everything
  *   - `errors`        files>0 but some failed indexing
@@ -96,8 +96,24 @@ export interface ProjectsRow {
   readonly watcherFailure: string | null;
   /** Combined health signal — what the user should care about at a glance. */
   readonly health: ProjectHealth;
-  /** One-line hint matching `health` (e.g. "click recrawl to populate"). */
+  /** One-line hint matching `health` (e.g. "click rebuild to populate"). */
   readonly healthHint: string;
+  /**
+   * In-flight or recently-finished rebuild for this project. Null when
+   * no rebuild has been requested recently. Lives in the daemon's
+   * in-memory RebuildTracker; lost on daemon restart.
+   */
+  readonly rebuilding: RebuildProgress | null;
+}
+
+export interface RebuildProgress {
+  readonly status: "running" | "done" | "failed";
+  readonly indexed: number;
+  /** Null until the file walk completes (the indexer fires onProgress with total once known). */
+  readonly totalFiles: number | null;
+  readonly startedAt: number; // epoch ms
+  readonly completedAt: number | null;
+  readonly error: string | null;
 }
 
 export interface OrphanRow extends ProjectsRow {

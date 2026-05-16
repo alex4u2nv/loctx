@@ -84,6 +84,30 @@ export function createWebApp(opts: CreateWebAppOptions): Hono {
 
   if (opts.staticDir !== undefined && existsSync(opts.staticDir)) {
     const root = opts.staticDir;
+    // Cache-control pre-middleware. Without this, non-incognito browsers
+    // serve a previously-cached client bundle (heuristic freshness based
+    // on Last-Modified) and silently run old code against the latest
+    // daemon — symptom: rebuild click hangs because the cached bundle
+    // is using removed endpoint semantics. Two rules:
+    //
+    //   - /assets/<hash>.<ext>  → immutable, year-long. Vite hashes the
+    //     filename so the bytes never change for a given URL; revalidation
+    //     is pure overhead.
+    //   - everything else (index.html, the SPA fallback) → no-cache so
+    //     the browser always revalidates and picks up new asset URLs
+    //     after a deploy. ETag/Last-Modified still allow a 304.
+    app.use("/*", async (c, next) => {
+      await next();
+      const method = c.req.method;
+      if (method !== "GET" && method !== "HEAD") return;
+      const path = c.req.path;
+      if (path.startsWith("/api/") || path.startsWith("/mcp")) return;
+      if (path.startsWith("/assets/")) {
+        c.header("Cache-Control", "public, max-age=31536000, immutable");
+      } else {
+        c.header("Cache-Control", "no-cache");
+      }
+    });
     app.use(
       "/*",
       serveStatic({
@@ -108,7 +132,9 @@ export function createWebApp(opts: CreateWebAppOptions): Hono {
       const indexHtml = join(root, "index.html");
       const { readFileSync } = await import("node:fs");
       try {
-        return c.html(readFileSync(indexHtml, "utf-8"));
+        return c.html(readFileSync(indexHtml, "utf-8"), 200, {
+          "Cache-Control": "no-cache",
+        });
       } catch {
         return c.text("client bundle missing", 503);
       }

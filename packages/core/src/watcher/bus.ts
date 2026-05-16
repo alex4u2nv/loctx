@@ -1,27 +1,50 @@
 /**
- * Process-wide event bus for filesystem watcher events.
+ * Process-wide event bus for control-plane events the admin UI tails:
+ * filesystem watcher events plus rebuild-job progress.
  *
  * The integrated daemon (loctx start) runs the WatcherService and the
- * Next.js admin UI in the same Node process. The watcher publishes
- * events to this singleton bus; the admin UI subscribes via an SSE
+ * admin UI in the same Node process. Publishers (watcher, rebuild
+ * tracker) push events here; the admin UI subscribes via an SSE
  * endpoint and refreshes affected pages.
  *
  * For separate-process deployments (where the watcher runs apart from
- * the web UI), the bus is a no-op — the UI just relies on the
- * `force-dynamic` pages to refetch StateStore on each request.
+ * the web UI), the bus is a no-op — the UI just relies on its
+ * route-level reload paths to refetch StateStore on each request.
  */
 
 import { EventEmitter } from "node:events";
 
 export type WatcherEventKind = "add" | "change" | "unlink";
 
-export interface WatcherEvent {
+export interface WatcherFsEvent {
+  readonly type: "fs";
   readonly projectId: string;
   readonly projectName: string;
   readonly relPath: string;
   readonly kind: WatcherEventKind;
   readonly at: number; // epoch ms
 }
+
+/**
+ * Emitted by the rebuild tracker as a project's rebuild job starts,
+ * makes progress, or terminates. The client uses this to refresh
+ * /api/projects without polling and to render per-row progress text.
+ */
+export interface RebuildBusEvent {
+  readonly type: "rebuild";
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly status: "running" | "done" | "failed";
+  /** Files written so far. Always populated, including on terminal events. */
+  readonly indexed: number;
+  /** Total file count once the walk completes; null while still discovering. */
+  readonly totalFiles: number | null;
+  /** Present when status is "failed". */
+  readonly error?: string;
+  readonly at: number; // epoch ms
+}
+
+export type WatcherEvent = WatcherFsEvent | RebuildBusEvent;
 
 /**
  * Closure-bound bus over a private EventEmitter. Exposes a typed

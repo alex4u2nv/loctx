@@ -25,6 +25,7 @@ import {
   buildRuntime,
   checkNofile,
   findLegacyProjectConfig,
+  inspectDaemonLockfile,
   inventoryProjects,
   looksLikeFdExhaustion,
   nofileBumpHint,
@@ -415,13 +416,39 @@ async function startWeb(
   });
   const handle = app.fetch;
 
-  const server = serve({ fetch: handle, port, hostname });
+  // Dual-stack loopback bind. `hostname: localhost` resolves to a single
+  // address (on macOS, usually `::1`), which means browsers configured
+  // to prefer IPv4 silently fail with no fallback. Listen on both
+  // `127.0.0.1` and `::1` whenever the user's intent is loopback —
+  // matches what they expect from "localhost" without exposing the
+  // daemon on other interfaces. Custom hostnames bind unchanged.
+  const servers = startListeners({ serve, handle, port, hostname });
 
   return async () => {
-    await new Promise<void>((resolveClose, reject) => {
-      server.close((err) => (err ? reject(err) : resolveClose()));
-    });
+    await Promise.all(
+      servers.map(
+        (server) =>
+          new Promise<void>((resolveClose, reject) => {
+            server.close((err) => (err ? reject(err) : resolveClose()));
+          }),
+      ),
+    );
   };
+}
+
+function startListeners(args: {
+  readonly serve: (opts: {
+    fetch: (req: Request) => Promise<Response>;
+    port?: number;
+    hostname?: string;
+  }) => { close(cb: (err?: Error) => void): void };
+  readonly handle: (req: Request) => Promise<Response>;
+  readonly port: number;
+  readonly hostname: string;
+}): Array<{ close(cb: (err?: Error) => void): void }> {
+  const { serve, handle, port, hostname } = args;
+  const targets = hostname === "localhost" ? ["127.0.0.1", "::1"] : [hostname];
+  return targets.map((h) => serve({ fetch: handle, port, hostname: h }));
 }
 
 // ---- helpers -----------------------------------------------------------
@@ -469,6 +496,23 @@ async function acquireOrReplaceLock(config: Config, options: StartOptions): Prom
     startedAt: new Date().toISOString(),
     version: DAEMON_VERSION,
   };
+
+  // Diagnose what we're walking into before acquiring. `acquireDaemonLock`
+  // reclaims stale lockfiles silently, which is the right behavior but
+  // hides a useful signal: when a previous daemon crashed or was
+  // SIGKILL'd, users hit "I restarted and nothing happened" mysteries.
+  // Surfacing the reclaim as a visible log line on stderr makes that
+  // class of incident self-diagnosing.
+  const status = inspectDaemonLockfile(config.paths.dataDir);
+  if (status.kind === "stale") {
+    console.error(
+      `[loctx start] reclaiming stale lockfile (PID ${status.info.pid} from ${status.info.startedAt} is no longer running)`,
+    );
+  } else if (status.kind === "corrupt") {
+    console.error(
+      "[loctx start] previous lockfile was corrupt; replacing it. (Possible cause: filesystem crash mid-write.)",
+    );
+  }
 
   try {
     return acquireDaemonLock(config.paths.dataDir, info);

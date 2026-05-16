@@ -26,6 +26,7 @@ let source: EventSource | null = null;
 let connectionState: ConnectionState = "connecting";
 let lastEventAt: number | null = null;
 const eventListeners = new Set<() => void>();
+const dataListeners = new Set<(event: unknown) => void>();
 const stateListeners = new Set<(s: ConnectionState, at: number | null) => void>();
 
 function ensureSource(): void {
@@ -40,16 +41,20 @@ function ensureSource(): void {
     for (const l of stateListeners) l(connectionState, lastEventAt);
   };
   source.onmessage = (msg) => {
+    let parsed: unknown = null;
     try {
-      const parsed = JSON.parse(msg.data) as { at?: number };
-      if (typeof parsed.at === "number") {
-        lastEventAt = parsed.at;
+      parsed = JSON.parse(msg.data);
+      const candidate = parsed as { at?: number };
+      if (typeof candidate.at === "number") {
+        lastEventAt = candidate.at;
         for (const l of stateListeners) l(connectionState, lastEventAt);
       }
     } catch {
-      /* ignore malformed events */
+      /* ignore malformed events — still tick the connection-indicator side below */
+      return;
     }
     for (const l of eventListeners) l();
+    for (const l of dataListeners) l(parsed);
   };
 }
 
@@ -65,6 +70,28 @@ export function useLiveRefreshEvent(onEvent: () => void): void {
     eventListeners.add(onEvent);
     return () => {
       eventListeners.delete(onEvent);
+    };
+  }, [onEvent]);
+}
+
+/**
+ * Subscribe to the parsed event payload from the module-level
+ * EventSource. Use this when you actually need the event fields
+ * (kind, projectName, …); `useLiveRefreshEvent` is enough when you
+ * just want a refresh tick.
+ *
+ * Sharing the single module-level connection matters: every separate
+ * `new EventSource()` counts toward Chrome's 6-connection per-origin
+ * limit and starves later document/API requests when several admin
+ * tabs are open (#TODO-issue).
+ */
+export function useLiveRefreshData<T>(onEvent: (event: T) => void): void {
+  useEffect(() => {
+    ensureSource();
+    const wrapped = (e: unknown): void => onEvent(e as T);
+    dataListeners.add(wrapped);
+    return () => {
+      dataListeners.delete(wrapped);
     };
   }, [onEvent]);
 }

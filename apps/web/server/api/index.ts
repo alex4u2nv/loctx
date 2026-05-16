@@ -6,6 +6,7 @@
 
 import type { Config, Runtime, WatcherRegistry } from "@loctx/core";
 import type { Hono } from "hono";
+import { createRebuildTracker } from "../lib/rebuild-tracker.js";
 import { mountConfig } from "./config.js";
 import { mountDoctor } from "./doctor.js";
 import { mountEvents } from "./events.js";
@@ -23,14 +24,18 @@ export function mountApi(
   getRuntime: () => Promise<Runtime>,
   watcherRegistry?: WatcherRegistry,
 ): void {
+  // Shared between /api/rebuild (writes) and /api/projects (reads). One
+  // tracker per daemon process so all UIs hitting the same daemon see
+  // the same rebuild progress.
+  const rebuildTracker = createRebuildTracker();
   mountStatus(app, config, getRuntime);
-  mountProjects(app, config, watcherRegistry, getRuntime);
+  mountProjects(app, config, watcherRegistry, getRuntime, rebuildTracker);
   mountSearch(app, config, getRuntime);
   mountEvents(app);
   mountDoctor(app, config, watcherRegistry);
   mountConfig(app, config);
   mountModels(app, config);
   mountFindUsages(app, config, getRuntime);
-  mountOps(app, config, getRuntime);
+  mountOps(app, config, getRuntime, rebuildTracker);
   mountWatchers(app, watcherRegistry);
 }

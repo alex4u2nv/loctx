@@ -5,13 +5,13 @@
  */
 
 import {
-  faArrowsRotate,
   faBan,
   faBolt,
   faCheckCircle,
   faCircleXmark,
   faCopy,
   faEraser,
+  faHammer,
   faMagnifyingGlass,
   faPause,
   faPlay,
@@ -25,7 +25,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 const ICONS = {
   pause: faPause,
   play: faPlay,
-  recrawl: faArrowsRotate,
+  rebuild: faHammer,
   refresh: faRotateRight,
   purge: faEraser,
   reset: faBan,

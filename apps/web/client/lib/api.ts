@@ -102,6 +102,12 @@ export const api = {
       "/api/reset/project",
       { path },
     ),
+  rebuild: (path?: string) =>
+    postJson<{
+      ok: true;
+      accepted: Array<{ projectId: string; name: string }>;
+      rejected?: Array<{ projectId: string; name: string; reason: string }>;
+    }>("/api/rebuild", path !== undefined ? { path } : {}),
   activateProject: (path: string) =>
     postJson<{
       ok: true;

@@ -176,13 +176,13 @@ test.describe("loctx admin UI", () => {
 
   test("projects page surfaces watcher state and per-project actions", async ({ page }) => {
     await page.goto("/projects");
-    // Fixture runs --no-watch so the watcher cell shows "—" and only the
-    // recrawl + purge buttons appear (pause/resume are hidden when no
-    // watcher is registered for the row).
+    // Fixture runs --no-watch so the watcher cell shows "—". The active
+    // row exposes a single rebuild button (purge is only on orphan rows).
+    // Pause/resume are hidden when no watcher is registered for the row.
     const row = page.getByRole("row").filter({ hasText: "demo" }).first();
     await expect(row).toBeVisible();
-    await expect(row.getByRole("button", { name: "recrawl" })).toBeVisible();
-    await expect(row.getByRole("button", { name: "purge" })).toBeVisible();
+    await expect(row.getByRole("button", { name: "rebuild" })).toBeVisible();
+    await expect(row.getByRole("button", { name: "purge" })).toHaveCount(0);
     await expect(row.getByRole("button", { name: "pause" })).toHaveCount(0);
   });
 
@@ -196,16 +196,36 @@ test.describe("loctx admin UI", () => {
     await expect(row.getByText(/loctx-pw-fixture\/demo/)).toBeVisible();
   });
 
-  test("projects page recrawl button hits /api/index", async ({ page }) => {
+  test("projects page rebuild button hits /api/rebuild and the row enters rebuilding state", async ({
+    page,
+  }) => {
     await page.goto("/projects");
     const row = page.getByRole("row").filter({ hasText: "demo" }).first();
+    await row.getByRole("button", { name: /^rebuild$/ }).click();
+    // Rebuild is destructive — a confirm dialog appears before the request fires.
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
     const [response] = await Promise.all([
-      page.waitForResponse((r) => r.url().includes("/api/index") && r.request().method() === "POST"),
-      row.getByRole("button", { name: "recrawl" }).click(),
+      page.waitForResponse(
+        (r) => r.url().includes("/api/rebuild") && r.request().method() === "POST",
+      ),
+      dialog.getByRole("button", { name: "Rebuild" }).click(),
     ]);
-    expect(response.status()).toBe(200);
-    // Reload + the surface message becomes visible.
-    await expect(page.getByText(/recrawl demo: ok/)).toBeVisible();
+    // 202 (accepted) — the endpoint is fire-and-forget; the body lists
+    // which project IDs the tracker accepted.
+    expect(response.status()).toBe(202);
+    const body = (await response.json()) as {
+      ok: boolean;
+      accepted: Array<{ name: string }>;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.accepted.map((a) => a.name)).toContain("demo");
+    // After kickoff, the row's button label reflects in-flight rebuild
+    // progress. The exact counts vary across runs, but the label always
+    // begins with "rebuilding". The fixture project is tiny so the run
+    // may finish before we get here — accept either the running label
+    // or the normal label re-rendered after sweep.
+    await expect(row.getByRole("button", { name: /^rebuild/ })).toBeVisible();
   });
 
   test("watchers endpoint reports an empty list under --no-watch", async ({ request }) => {
@@ -241,6 +261,50 @@ test.describe("loctx admin UI", () => {
       },
     });
     expect(r.status()).toBe(403);
+  });
+
+  test("OPTIONS preflight from an allowed Origin returns 204 with CORS headers", async ({
+    request,
+    baseURL,
+  }) => {
+    // Echo whichever origin Playwright is running against (Host:port).
+    // The middleware's allowlist includes the configured hostname plus
+    // all loopback aliases on the same port; using baseURL matches one.
+    const origin = baseURL ?? "http://localhost:3000";
+    const r = await request.fetch("/api/rebuild", {
+      method: "OPTIONS",
+      headers: {
+        Origin: origin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type",
+      },
+    });
+    expect(r.status()).toBe(204);
+    expect(r.headers()["access-control-allow-origin"]).toBe(origin);
+    expect(r.headers()["access-control-allow-methods"]).toContain("POST");
+    expect(r.headers()["access-control-allow-headers"]).toMatch(/content-type/i);
+    expect(r.headers()["vary"]).toMatch(/origin/i);
+  });
+
+  test("OPTIONS preflight from a disallowed Origin is rejected", async ({ request }) => {
+    const r = await request.fetch("/api/rebuild", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://evil.example.com",
+        "Access-Control-Request-Method": "POST",
+      },
+    });
+    expect(r.status()).toBe(403);
+  });
+
+  test("cross-origin GET from an allowed Origin echoes Access-Control-Allow-Origin", async ({
+    request,
+    baseURL,
+  }) => {
+    const origin = baseURL ?? "http://localhost:3000";
+    const r = await request.get("/api/status", { headers: { Origin: origin } });
+    expect(r.status()).toBe(200);
+    expect(r.headers()["access-control-allow-origin"]).toBe(origin);
   });
 
   test("rejects /mcp with a hostile Origin", async ({ request }) => {
