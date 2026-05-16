@@ -4,8 +4,8 @@
  *
  * d3-sankey scales link widths to fill the available height, which
  * looks great for many parallel flows but absurd for 2 (each link
- * eats half the hero). We use d3-shape's linkHorizontal to draw
- * smooth curves and compute thickness ourselves as a log-scale
+ * eats half the hero). We draw cubic-bezier links by hand (see
+ * `linkPath`) and compute thickness ourselves as a log-scale
  * function of chunk count, so a workspace with 19 projects fans
  * into thin separated threads and a workspace with 2 projects gets
  * two clean lines instead of a solid blob.
@@ -16,7 +16,6 @@
  */
 
 import type { WatcherState } from "@shared/contracts";
-import { linkHorizontal } from "d3-shape";
 
 export interface FlowProject {
   readonly id: string;
@@ -39,6 +38,7 @@ const MAX_LINK_WIDTH = 16;
 // right edge, so the link visibly anchors onto the rect rather than
 // just touching its boundary.
 const LINK_OVERLAP = 8;
+const OUTPUT_LINK_OVERLAP = OUTPUT_NODE_WIDTH / 2;
 // Vertical spacing between adjacent source-side endpoints. Small enough
 // to feel like the lines branch out of one node, big enough that a flat
 // middle link doesn't disappear underneath the row above it.
@@ -114,20 +114,6 @@ export function FlowChart({
     kind: classify(r.watcher, r.chunks, r.hiddenCount),
   }));
 
-  interface Point {
-    readonly x: number;
-    readonly y: number;
-  }
-  interface LinkInput {
-    readonly source: Point;
-    readonly target: Point;
-  }
-  const path = linkHorizontal<LinkInput, Point>()
-    .source((d) => d.source)
-    .target((d) => d.target)
-    .x((d) => d.x)
-    .y((d) => d.y);
-
   // Source bar — vertically centred, height proportional to total chunks
   // capped so a tiny workspace doesn't show a sliver.
   const sourceCy = HEIGHT / 2;
@@ -198,15 +184,19 @@ export function FlowChart({
         const srcY = sourceFanY(i, outputs.length, sourceCy);
         const linkClass =
           o.kind === "indexing" ? "flow-chart-link indexing" : "flow-chart-link";
-        const link = path({
-          source: { x: SOURCE_X + SOURCE_WIDTH - LINK_OVERLAP, y: srcY },
-          target: { x: OUTPUT_X, y: o.cy },
+        const link = linkPath({
+          sourceX: SOURCE_X + SOURCE_WIDTH - LINK_OVERLAP,
+          sourceY: srcY,
+          targetX: OUTPUT_X + OUTPUT_LINK_OVERLAP,
+          targetY: o.cy,
+          index: i,
+          total: outputs.length,
         });
         return (
           <path
             key={`link-${o.key}`}
             className={linkClass}
-            d={link ?? ""}
+            d={link}
             stroke={linkGradient(o)}
             strokeWidth={o.thickness}
             fill="none"
@@ -368,6 +358,32 @@ function sourceFanY(i: number, n: number, cy: number): number {
   // Centre the spread on cy: positions go (i - (n-1)/2) * step.
   const offset = (i - (n - 1) / 2) * SOURCE_FAN_STEP;
   return cy + offset;
+}
+
+function linkPath({
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  index,
+  total,
+}: {
+  readonly sourceX: number;
+  readonly sourceY: number;
+  readonly targetX: number;
+  readonly targetY: number;
+  readonly index: number;
+  readonly total: number;
+}): string {
+  const dx = targetX - sourceX;
+  const midX = sourceX + dx * 0.5;
+  const middle = (total - 1) / 2;
+  const relative = total <= 1 ? 0 : index - middle;
+  const sign = relative === 0 ? 1 : Math.sign(relative);
+  const bend = Math.max(8, Math.abs(relative) * 10);
+  const sourceControlY = sourceY + sign * bend;
+  const targetControlY = targetY - sign * bend;
+  return `M${sourceX},${sourceY}C${midX},${sourceControlY},${midX},${targetControlY},${targetX},${targetY}`;
 }
 
 function truncate(name: string): string {
