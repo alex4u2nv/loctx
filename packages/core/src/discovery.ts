@@ -109,6 +109,53 @@ function pad(n: number): string {
   return n.toString().padStart(6, "0");
 }
 
+/**
+ * Walk upward from `start` looking for the nearest project marker.
+ * Standalone version of {@link WorkspaceDiscovery.resolveProject} —
+ * usable by callers (notably the CLI's `add`/`pause`/etc. commands)
+ * that need to map a cwd to a project without first building a full
+ * runtime. Always uses {@link DEFAULT_PROJECT_MARKERS}; callers that
+ * need custom markers should construct a WorkspaceDiscovery.
+ */
+export function findContainingProject(start: string): Project | null {
+  let current = resolveSafe(start);
+  if (current === null) return null;
+  if (existsSync(current) && lstatSync(current).isFile()) {
+    current = dirname(current);
+  }
+  let last = "";
+  while (current !== last) {
+    if (detectMarkerAt(current, DEFAULT_PROJECT_MARKERS) !== null) {
+      return makeProject(current);
+    }
+    last = current;
+    current = dirname(current);
+  }
+  return null;
+}
+
+function detectMarkerAt(directory: string, markers: ReadonlyArray<MarkerSpec>): MarkerSpec | null {
+  let entries: string[] | null = null;
+  let best: MarkerSpec | null = null;
+  for (const spec of markers) {
+    if (spec.kind === "dir") {
+      if (isDir(join(directory, spec.name))) best = bestOf(best, spec);
+    } else if (spec.kind === "file") {
+      if (isFile(join(directory, spec.name))) best = bestOf(best, spec);
+    } else if (spec.kind === "fileSuffix") {
+      if (entries === null) {
+        try {
+          entries = readdirSync(directory);
+        } catch {
+          entries = [];
+        }
+      }
+      if (entries.some((n) => n.endsWith(spec.name))) best = bestOf(best, spec);
+    }
+  }
+  return best;
+}
+
 export function makeProject(root: string): Project {
   // Realpath when possible — `discovery.resolveProject` walks via realpath,
   // and any symlink mismatch between the CLI's `--path` argument and the
@@ -246,31 +293,7 @@ export class WorkspaceDiscovery {
    * lower-ranked, regardless of declaration order.
    */
   private detectMarker(directory: string): MarkerSpec | null {
-    let entries: string[] | null = null;
-    let best: MarkerSpec | null = null;
-    for (const spec of this.markers) {
-      if (spec.kind === "dir") {
-        if (isDir(join(directory, spec.name))) {
-          best = bestOf(best, spec);
-        }
-      } else if (spec.kind === "file") {
-        if (isFile(join(directory, spec.name))) {
-          best = bestOf(best, spec);
-        }
-      } else if (spec.kind === "fileSuffix") {
-        if (entries === null) {
-          try {
-            entries = readdirSync(directory);
-          } catch {
-            entries = [];
-          }
-        }
-        if (entries.some((n) => n.endsWith(spec.name))) {
-          best = bestOf(best, spec);
-        }
-      }
-    }
-    return best;
+    return detectMarkerAt(directory, this.markers);
   }
 }
 

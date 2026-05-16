@@ -81,9 +81,14 @@ afterEach(() => {
 });
 
 /** Run the built CLI with isolated data + fake embeddings. Captures everything. */
-function runCli(args: ReadonlyArray<string>, extraEnv: Record<string, string> = {}): SpawnSyncReturns<string> {
+function runCli(
+  args: ReadonlyArray<string>,
+  extraEnv: Record<string, string> = {},
+  cwd?: string,
+): SpawnSyncReturns<string> {
   return spawnSync(process.execPath, [CLI_PATH, ...args], {
     encoding: "utf-8",
+    ...(cwd !== undefined ? { cwd } : {}),
     env: {
       ...process.env,
       LOCTX_DATA_DIR: ctx.data,
@@ -160,6 +165,34 @@ describe("loctx CLI: hermetic full-flow scenario", () => {
     // The template sets workspace_roots to ~/Workspaces; the env-isolated
     // cfg dir resolves the leaf source as 'global', not 'default'.
     expect(show.stdout).toMatch(/workspace_roots:/);
+  });
+
+  it("add -y from inside a project walks up to the root and activates", () => {
+    // Run from a nested directory; the walk-up logic must find the
+    // .git marker at ctx.project and activate that project.
+    const nested = join(ctx.project, "src");
+    const added = runCli(["add", "-y"], {}, nested);
+    expect(added.status).toBe(0);
+    expect(added.stderr).toContain("resolved project: demo");
+    expect(added.stderr).toContain("[loctx activate] demo");
+    expect(added.stderr).toMatch(/indexed=\d+/);
+  });
+
+  it("add fails clearly when no project marker is anywhere on the chain", () => {
+    // Run from a directory outside any project (the workspace tmp root
+    // has no marker — only its `demo/` child does).
+    const orphan = runCli(["add", "-y"], {}, ctx.workspace);
+    expect(orphan.status).not.toBe(0);
+    expect(orphan.stderr).toContain("no project marker found");
+  });
+
+  it("reset project . resolves cwd's project (no path required)", () => {
+    expect(runCli(["index", ctx.project]).status).toBe(0);
+
+    const nested = join(ctx.project, "src");
+    const reset = runCli(["reset", "project", ".", "--force"], {}, nested);
+    expect(reset.status).toBe(0);
+    expect(reset.stderr).toContain("cleared demo");
   });
 
   it("model-swap warns about reindex requirement (#99)", () => {
