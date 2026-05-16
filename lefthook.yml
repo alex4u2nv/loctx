@@ -1,0 +1,27 @@
+# Git hooks managed by lefthook. Install once after clone:
+#   npx lefthook install
+#
+# Mirrors the validation gates CI enforces so failures surface
+# locally rather than after a push round-trip. Recent CI breakages
+# (PRs #236, #246) were typecheck errors — both would have been
+# caught by `pre-push` here.
+
+pre-commit:
+  parallel: true
+  commands:
+    biome:
+      # Only check files actually staged. Auto-fixes and re-stages so
+      # the commit goes in clean. Matches `npm run lint` scope.
+      glob: "{apps,packages}/**/*.{ts,tsx,js,jsx,json}"
+      run: npx biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+      stage_fixed: true
+
+pre-push:
+  # Sequential: build outputs are inputs to typecheck/test, and the
+  # vitest workers already parallelize internally.
+  parallel: false
+  commands:
+    verify:
+      # Full CI gate: build → biome → typecheck → unit tests. Skips
+      # Playwright (too slow for a push hook; CI carries it).
+      run: npm run verify
