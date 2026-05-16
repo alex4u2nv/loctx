@@ -93,7 +93,18 @@ export function createWebApp(opts: CreateWebAppOptions): Hono {
     );
     // SPA fallback: any unmatched GET that didn't hit /api or /mcp gets
     // index.html so client-side routing works on hard reloads.
+    //
+    // Exception: requests that look like asset misses (have a file
+    // extension, e.g. `/assets/projects-OLDHASH.js`) get a real 404
+    // instead of HTML. Returning index.html for a stale chunk hash
+    // silently corrupts the browser's `import()` — devtools shows no
+    // error but navigation breaks. Surface those misses as a clear
+    // network failure so they're diagnosable (#249).
     app.get("*", async (c) => {
+      const path = c.req.path;
+      if (path.startsWith("/assets/") || /\.[a-zA-Z0-9]+$/.test(path)) {
+        return c.text("not found", 404);
+      }
       const indexHtml = join(root, "index.html");
       const { readFileSync } = await import("node:fs");
       try {

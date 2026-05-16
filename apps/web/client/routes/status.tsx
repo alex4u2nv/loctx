@@ -18,8 +18,9 @@
  */
 
 import type { StatusPayload } from "@shared/contracts";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { FlowChart, type FlowProject } from "../components/flow-chart";
+import { useLiveRefreshEvent } from "../components/live-refresh";
 import { SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
@@ -31,9 +32,14 @@ interface WatcherEvent {
   readonly kind: "add" | "change" | "unlink";
 }
 
-export function StatusPage({ refreshKey }: { refreshKey: number }) {
-  const statusReq = useFetch(() => api.status(), [refreshKey]);
-  const projectsReq = useFetch(() => api.projects(), [refreshKey]);
+export function StatusPage() {
+  const statusReq = useFetch(() => api.status(), []);
+  const projectsReq = useFetch(() => api.projects(), []);
+  const onRefresh = useCallback(() => {
+    statusReq.reload();
+    projectsReq.reload();
+  }, [statusReq.reload, projectsReq.reload]);
+  useLiveRefreshEvent(onRefresh);
   const events = useWatcherEvents(8);
 
   if (statusReq.loading && statusReq.data === null) {

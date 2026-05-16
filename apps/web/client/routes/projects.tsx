@@ -1,6 +1,8 @@
 import type { InactiveRow, OrphanRow, ProjectHealth, ProjectsRow } from "@shared/contracts";
+import { useCallback } from "react";
 import { confirm } from "../components/confirm";
 import { Icon, type IconName } from "../components/icon";
+import { useLiveRefreshEvent } from "../components/live-refresh";
 import { type NavSection, SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
 import { applyHomeAbbrev, compressPath, relativeTime } from "../lib/format";
@@ -9,9 +11,11 @@ import { useOpRunner } from "../lib/use-op-runner";
 
 type AnyRow = ProjectsRow | OrphanRow;
 
-export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
-  const fetched = useFetch(() => api.projects(), [refreshKey]);
+export function ProjectsPage() {
+  const fetched = useFetch(() => api.projects(), []);
   const ops = useOpRunner(() => fetched.reload());
+  const onRefresh = useCallback(() => fetched.reload(), [fetched.reload]);
+  useLiveRefreshEvent(onRefresh);
 
   if (fetched.loading && fetched.data === null) return <p className="pullquote">Loading…</p>;
   if (fetched.error !== null)

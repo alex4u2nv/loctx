@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState } from "react";
+import { lazy, Suspense } from "react";
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 import { ConfirmHost } from "./components/confirm";
 import { LiveRefresh } from "./components/live-refresh";
@@ -38,11 +38,11 @@ const AdminPage = lazy(() =>
 const ROUTE_FALLBACK = <p className="pullquote">Loading…</p>;
 
 export function App() {
-  // Force a child remount when the watcher SSE fires so the page
-  // re-fetches its data without a router round-trip.
-  const [tick, setTick] = useState(0);
-  const onEvent = useCallback(() => setTick((t) => t + 1), []);
-
+  // SSE subscription lives inside the routes that actually want
+  // refresh-on-event (StatusPage + ProjectsPage), via
+  // `useLiveRefreshEvent` from components/live-refresh. App no longer
+  // owns a `tick` prop — that pattern interrupted React Router v7's
+  // navigation transitions during reconciliation (#249).
   return (
     <BrowserRouter>
       <header className="nav">
@@ -60,7 +60,7 @@ export function App() {
           <NavLink to="/admin">admin</NavLink>
         </nav>
         <span className="nav-meta">
-          <LiveRefresh onEvent={onEvent} />
+          <LiveRefresh />
           <span>
             mcp <code>/mcp</code>
           </span>
@@ -69,8 +69,8 @@ export function App() {
       <main>
         <Suspense fallback={ROUTE_FALLBACK}>
           <Routes>
-            <Route path="/" element={<StatusPage refreshKey={tick} />} />
-            <Route path="/projects" element={<ProjectsPage refreshKey={tick} />} />
+            <Route path="/" element={<StatusPage />} />
+            <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/find-usages" element={<FindUsagesPage />} />
             <Route path="/doctor" element={<DoctorPage />} />
