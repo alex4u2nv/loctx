@@ -1,19 +1,47 @@
 import { type Config, type Runtime, resolveUnderWorkspaceRoots } from "@loctx/core";
 import type { Hono } from "hono";
-import type { SearchPayload, SearchRequestBody } from "../../shared/contracts.js";
+import type { SearchPayload } from "../../shared/contracts.js";
+import {
+  parseBool,
+  parseInt as parseBoundedInt,
+  parseString,
+  sanitizeError,
+} from "../lib/request-validation.js";
 
 export function mountSearch(app: Hono, config: Config, getRuntime: () => Promise<Runtime>): void {
   app.post("/api/search", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as SearchRequestBody | null;
-    if (body === null || typeof body.query !== "string" || body.query.trim() === "") {
-      return c.json({ error: "query required" }, 400);
+    const raw = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (raw === null) {
+      return c.json({ error: "invalid JSON body" }, 400);
     }
+
+    const query = parseString(raw["query"], { maxLength: 2048 });
+    if (query === null || query === "") {
+      return c.json({ error: "query required (non-empty string, ≤ 2048 chars)" }, 400);
+    }
+    const limit = parseBoundedInt(raw["limit"], { min: 1, max: 1000, default: 10 });
+    if (limit === null) {
+      return c.json({ error: "limit must be an integer in [1, 1000]" }, 400);
+    }
+    const language = parseString(raw["language"], { maxLength: 32 });
+    if (language === null && raw["language"] !== undefined) {
+      return c.json({ error: "language must be a string (≤ 32 chars)" }, 400);
+    }
+    const coverage = parseBool(raw["coverage"]);
+    if (coverage === null) {
+      return c.json({ error: "coverage must be a boolean" }, 400);
+    }
+    const pathField = parseString(raw["path"], { maxLength: 1024 });
+    if (pathField === null && raw["path"] !== undefined) {
+      return c.json({ error: "path must be a string (≤ 1024 chars)" }, 400);
+    }
+
     // Bound an optional path filter to configured workspace_roots so a
     // caller can't probe arbitrary filesystem locations via the search
     // surface.
     let scopedPath: string | undefined;
-    if (body.path !== undefined && body.path !== "") {
-      const confined = resolveUnderWorkspaceRoots(body.path, config.workspaceRoots);
+    if (pathField !== null && pathField !== "") {
+      const confined = resolveUnderWorkspaceRoots(pathField, config.workspaceRoots);
       if (confined === null) {
         return c.json({ error: "path is not under any configured workspace_root" }, 403);
       }
@@ -22,13 +50,11 @@ export function mountSearch(app: Hono, config: Config, getRuntime: () => Promise
     try {
       const rt = await getRuntime();
       const response = await rt.searcher.search({
-        query: body.query.trim(),
+        query,
         ...(scopedPath !== undefined ? { path: scopedPath } : {}),
-        ...(body.language !== undefined && body.language !== ""
-          ? { language: body.language }
-          : {}),
-        ...(body.coverage === true ? { coverage: true } : {}),
-        limit: typeof body.limit === "number" ? body.limit : 10,
+        ...(language !== null && language !== "" ? { language } : {}),
+        ...(coverage === true ? { coverage: true } : {}),
+        limit,
       });
       const payload: SearchPayload = {
         resolvedScope: {
@@ -83,7 +109,7 @@ export function mountSearch(app: Hono, config: Config, getRuntime: () => Promise
       };
       return c.json(payload);
     } catch (err) {
-      return c.json({ error: (err as Error).message }, 500);
+      return c.json(sanitizeError("search", err, "see daemon logs for details"), 500);
     }
   });
 }

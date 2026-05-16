@@ -17,6 +17,7 @@ import {
 } from "@loctx/core";
 import type { Hono } from "hono";
 import type { ModelInfo, ModelsPayload } from "../../shared/contracts.js";
+import { sanitizeError } from "../lib/request-validation.js";
 
 export function mountModels(app: Hono, config: Config): void {
   app.get("/api/models", (c) => {
@@ -72,7 +73,10 @@ export function mountModels(app: Hono, config: Config): void {
       markModelTrusted(config.paths.dataDir, info.name);
       return c.json({ ok: true, name: info.name });
     } catch (err) {
-      return c.json({ error: (err as Error).message }, 500);
+      return c.json(
+        sanitizeError("models/download", err, "model download failed; see daemon logs"),
+        500,
+      );
     } finally {
       await provider.dispose?.();
       // Restore the deny-all default — never leave outbound open past
