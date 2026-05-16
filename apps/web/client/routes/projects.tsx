@@ -494,10 +494,11 @@ function RebuildButton({
 }) {
   const job = row.rebuilding;
   if (job !== null && job.status === "running") {
+    const eta = estimateEta(job);
+    const counts =
+      job.totalFiles !== null ? `${job.indexed}/${job.totalFiles}` : "…";
     const label =
-      job.totalFiles !== null
-        ? `rebuilding ${job.indexed}/${job.totalFiles}…`
-        : "rebuilding…";
+      eta !== null ? `rebuilding ${counts} (~${eta} left)` : `rebuilding ${counts}`;
     return (
       <IconButton
         icon="rebuild"
@@ -523,4 +524,34 @@ function RebuildButton({
   return (
     <IconButton icon="rebuild" label="rebuild" onClick={onClick} disabled={disabled} />
   );
+}
+
+/**
+ * Linear extrapolation: ms-per-file from observed progress × files left.
+ * Returns null until we have enough data to be meaningful — first few
+ * files often have skewed timings (chunker warmup, embedder JIT) and a
+ * 10s "ETA: 2h" jolt is worse than no ETA.
+ */
+function estimateEta(job: {
+  readonly indexed: number;
+  readonly totalFiles: number | null;
+  readonly startedAt: number;
+}): string | null {
+  if (job.totalFiles === null || job.totalFiles === 0) return null;
+  if (job.indexed < 3) return null; // warmup window
+  if (job.indexed >= job.totalFiles) return null;
+  const elapsedMs = Date.now() - job.startedAt;
+  if (elapsedMs < 5_000) return null;
+  const msPerFile = elapsedMs / job.indexed;
+  const remaining = job.totalFiles - job.indexed;
+  return formatDuration(Math.round(msPerFile * remaining));
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 60_000) return "<1m";
+  const totalMinutes = Math.round(ms / 60_000);
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
 }
