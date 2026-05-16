@@ -281,27 +281,25 @@ export async function runDoctorChecks(
     });
   }
 
-  if (config.analyzers.lizard.enabled || config.analyzers.backgroundEnabled) {
+  // Only probe for lizard when the user actually has it enabled.
+  // Previously we also probed when `background_enabled` was on, which
+  // burned a 2s `execFile` even when lizard was never going to run —
+  // visible on every doctor call (CLI + admin UI). See #219.
+  if (config.analyzers.lizard.enabled) {
     const found = await detectLizard(config.analyzers.lizard.command);
-    if (config.analyzers.lizard.enabled && found === null) {
-      checks.push({
-        name: "analyzers.lizard",
-        status: "warn",
-        detail: `enabled but '${config.analyzers.lizard.command}' not found on PATH; install lizard or unset analyzers.lizard.enabled`,
-      });
-    } else if (config.analyzers.lizard.enabled && found !== null) {
-      checks.push({
-        name: "analyzers.lizard",
-        status: "ok",
-        detail: `enabled, command='${found}'`,
-      });
-    } else if (found !== null) {
-      checks.push({
-        name: "analyzers.lizard",
-        status: "ok",
-        detail: "available but disabled (set analyzers.lizard.enabled = true to opt in)",
-      });
-    }
+    checks.push(
+      found === null
+        ? {
+            name: "analyzers.lizard",
+            status: "warn",
+            detail: `enabled but '${config.analyzers.lizard.command}' not found on PATH; install lizard or unset analyzers.lizard.enabled`,
+          }
+        : {
+            name: "analyzers.lizard",
+            status: "ok",
+            detail: `enabled, command='${found}'`,
+          },
+    );
   }
 
   return checks;
