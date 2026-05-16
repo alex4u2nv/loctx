@@ -84,6 +84,30 @@ export function createWebApp(opts: CreateWebAppOptions): Hono {
 
   if (opts.staticDir !== undefined && existsSync(opts.staticDir)) {
     const root = opts.staticDir;
+    // Cache-control pre-middleware. Without this, non-incognito browsers
+    // serve a previously-cached client bundle (heuristic freshness based
+    // on Last-Modified) and silently run old code against the latest
+    // daemon — symptom: rebuild click hangs because the cached bundle
+    // is using removed endpoint semantics. Two rules:
+    //
+    //   - /assets/<hash>.<ext>  → immutable, year-long. Vite hashes the
+    //     filename so the bytes never change for a given URL; revalidation
+    //     is pure overhead.
+    //   - everything else (index.html, the SPA fallback) → no-cache so
+    //     the browser always revalidates and picks up new asset URLs
+    //     after a deploy. ETag/Last-Modified still allow a 304.
+    app.use("/*", async (c, next) => {
+      await next();
+      const method = c.req.method;
+      if (method !== "GET" && method !== "HEAD") return;
+      const path = c.req.path;
+      if (path.startsWith("/api/") || path.startsWith("/mcp")) return;
+      if (path.startsWith("/assets/")) {
+        c.header("Cache-Control", "public, max-age=31536000, immutable");
+      } else {
+        c.header("Cache-Control", "no-cache");
+      }
+    });
     app.use(
       "/*",
       serveStatic({
@@ -93,11 +117,24 @@ export function createWebApp(opts: CreateWebAppOptions): Hono {
     );
     // SPA fallback: any unmatched GET that didn't hit /api or /mcp gets
     // index.html so client-side routing works on hard reloads.
+    //
+    // Exception: requests that look like asset misses (have a file
+    // extension, e.g. `/assets/projects-OLDHASH.js`) get a real 404
+    // instead of HTML. Returning index.html for a stale chunk hash
+    // silently corrupts the browser's `import()` — devtools shows no
+    // error but navigation breaks. Surface those misses as a clear
+    // network failure so they're diagnosable (#249).
     app.get("*", async (c) => {
+      const path = c.req.path;
+      if (path.startsWith("/assets/") || /\.[a-zA-Z0-9]+$/.test(path)) {
+        return c.text("not found", 404);
+      }
       const indexHtml = join(root, "index.html");
       const { readFileSync } = await import("node:fs");
       try {
-        return c.html(readFileSync(indexHtml, "utf-8"));
+        return c.html(readFileSync(indexHtml, "utf-8"), 200, {
+          "Cache-Control": "no-cache",
+        });
       } catch {
         return c.text("client bundle missing", 503);
       }

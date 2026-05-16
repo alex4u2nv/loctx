@@ -18,8 +18,9 @@
  */
 
 import type { StatusPayload } from "@shared/contracts";
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { FlowChart, type FlowProject } from "../components/flow-chart";
+import { useLiveRefreshData, useLiveRefreshEvent } from "../components/live-refresh";
 import { SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
@@ -31,9 +32,14 @@ interface WatcherEvent {
   readonly kind: "add" | "change" | "unlink";
 }
 
-export function StatusPage({ refreshKey }: { refreshKey: number }) {
-  const statusReq = useFetch(() => api.status(), [refreshKey]);
-  const projectsReq = useFetch(() => api.projects(), [refreshKey]);
+export function StatusPage() {
+  const statusReq = useFetch(() => api.status(), []);
+  const projectsReq = useFetch(() => api.projects(), []);
+  const onRefresh = useCallback(() => {
+    statusReq.reload();
+    projectsReq.reload();
+  }, [statusReq.reload, projectsReq.reload]);
+  useLiveRefreshEvent(onRefresh);
   const events = useWatcherEvents(8);
 
   if (statusReq.loading && statusReq.data === null) {
@@ -61,10 +67,17 @@ export function StatusPage({ refreshKey }: { refreshKey: number }) {
   );
 
   const daemon = status.daemon;
+  // Fall back to the page's own origin when /api/status hasn't returned
+  // a hostname+port yet (transient boot state, daemon misconfig). The
+  // page can only have loaded from the daemon's address, so this is
+  // always the right value — no hardcoded port that drifts when the
+  // user picks a different `daemon.port` to dodge a collision.
   const baseUrl =
     daemon.running && daemon.port !== null
       ? `http://${daemon.hostname ?? "127.0.0.1"}:${daemon.port}`
-      : "http://127.0.0.1:3022";
+      : typeof window !== "undefined"
+        ? window.location.origin
+        : "";
 
   // Coverage: discovered projects that have *any* indexed content. We
   // base the gauge on chunks rather than live watcher state so a daemon
@@ -362,38 +375,44 @@ function McpTile({ baseUrl }: { baseUrl: string }) {
  */
 function useWatcherEvents(n: number): ReadonlyArray<WatcherEvent> {
   const [events, setEvents] = useState<WatcherEvent[]>([]);
-
-  useEffect(() => {
-    const source = new EventSource("/api/events");
-    source.onmessage = (msg) => {
-      try {
-        const parsed = JSON.parse(msg.data) as Partial<WatcherEvent> & {
-          at?: number;
-          projectName?: string;
-          relPath?: string;
-          kind?: string;
-        };
-        if (
-          typeof parsed.at !== "number" ||
-          typeof parsed.projectName !== "string" ||
-          typeof parsed.relPath !== "string" ||
-          (parsed.kind !== "add" && parsed.kind !== "change" && parsed.kind !== "unlink")
-        ) {
-          return;
-        }
-        const event: WatcherEvent = {
-          at: parsed.at,
-          projectName: parsed.projectName,
-          relPath: parsed.relPath,
-          kind: parsed.kind,
-        };
-        setEvents((prev) => [event, ...prev].slice(0, n));
-      } catch {
-        /* malformed */
+  // Subscribe to the shared module-level EventSource via the
+  // live-refresh hook. Opening a second `new EventSource()` here used
+  // to double the daemon's SSE footprint per tab and exhausted
+  // Chrome's 6-connection per-origin pool after a few tabs were open,
+  // queueing the next tab's document load forever.
+  const onMessage = useCallback(
+    (parsed: unknown) => {
+      const candidate = parsed as {
+        at?: number;
+        projectName?: string;
+        relPath?: string;
+        kind?: string;
+        type?: string;
+      };
+      // Drop non-fs events (e.g. rebuild progress) — only filesystem
+      // events make sense in the watcher activity feed.
+      if (candidate.type !== undefined && candidate.type !== "fs") return;
+      if (
+        typeof candidate.at !== "number" ||
+        typeof candidate.projectName !== "string" ||
+        typeof candidate.relPath !== "string" ||
+        (candidate.kind !== "add" &&
+          candidate.kind !== "change" &&
+          candidate.kind !== "unlink")
+      ) {
+        return;
       }
-    };
-    return () => source.close();
-  }, [n]);
+      const event: WatcherEvent = {
+        at: candidate.at,
+        projectName: candidate.projectName,
+        relPath: candidate.relPath,
+        kind: candidate.kind,
+      };
+      setEvents((prev) => [event, ...prev].slice(0, n));
+    },
+    [n],
+  );
+  useLiveRefreshData(onMessage);
 
   return events;
 }

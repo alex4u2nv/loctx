@@ -263,6 +263,7 @@ export class WatcherService {
         );
         for (const relPath of summary.prunedRelPaths) {
           watcherBus.publish({
+            type: "fs",
             projectId: this.project.id,
             projectName: this.project.name,
             relPath,
@@ -320,6 +321,7 @@ export class WatcherService {
         await this.indexer.indexFile(this.project, absPath);
       }
       watcherBus.publish({
+        type: "fs",
         projectId: this.project.id,
         projectName: this.project.name,
         relPath,

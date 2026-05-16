@@ -1,6 +1,8 @@
 import type { InactiveRow, OrphanRow, ProjectHealth, ProjectsRow } from "@shared/contracts";
+import { useCallback } from "react";
 import { confirm } from "../components/confirm";
 import { Icon, type IconName } from "../components/icon";
+import { useLiveRefreshEvent } from "../components/live-refresh";
 import { type NavSection, SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
 import { applyHomeAbbrev, compressPath, relativeTime } from "../lib/format";
@@ -9,9 +11,11 @@ import { useOpRunner } from "../lib/use-op-runner";
 
 type AnyRow = ProjectsRow | OrphanRow;
 
-export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
-  const fetched = useFetch(() => api.projects(), [refreshKey]);
+export function ProjectsPage() {
+  const fetched = useFetch(() => api.projects(), []);
   const ops = useOpRunner(() => fetched.reload());
+  const onRefresh = useCallback(() => fetched.reload(), [fetched.reload]);
+  useLiveRefreshEvent(onRefresh);
 
   if (fetched.loading && fetched.data === null) return <p className="pullquote">Loading…</p>;
   if (fetched.error !== null)
@@ -37,8 +41,31 @@ export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
       ops.run(`pause ${name}`, () => api.watchPause(id)).then(() => undefined),
     resume: (id: string, name: string) =>
       ops.run(`resume ${name}`, () => api.watchResume(id)).then(() => undefined),
-    recrawl: (root: string, name: string) =>
-      ops.run(`recrawl ${name}`, () => api.index(root)).then(() => undefined),
+    rebuild: async (root: string, name: string): Promise<void> => {
+      const ok = await confirm({
+        title: `Rebuild ${name}?`,
+        message:
+          "Clears the project's index and re-indexes from scratch. " +
+          "Re-runs all enabled analyzers (lizard, duplicates, semgrep, ast-grep). " +
+          "Source files are untouched. Runs in the background — embeddings can take a few minutes.",
+        confirmLabel: "Rebuild",
+        danger: true,
+      });
+      if (!ok) return;
+      // Rebuild is async: the endpoint returns 202 immediately and the
+      // tracker drives progress via SSE. We do NOT use ops.run here
+      // because that would set the global busy flag and grey out every
+      // button until the server-side work finished — which can be
+      // minutes on a CPU-only embedder.
+      try {
+        await api.rebuild(root);
+        fetched.reload();
+      } catch (err) {
+        // Surface failures in the same banner ops.run uses, but without
+        // taking the page-wide busy slot.
+        ops.surfaceError(`rebuild ${name}`, err);
+      }
+    },
     purge: async (root: string, name: string): Promise<void> => {
       const ok = await confirm({
         title: `Purge ${name}?`,
@@ -111,7 +138,12 @@ export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
             ? "No projects activated yet — see Inactive below."
             : "No projects discovered under current workspace_roots."
         }
-        actions={handlers}
+        actions={{
+          pause: handlers.pause,
+          resume: handlers.resume,
+          rebuild: handlers.rebuild,
+          deactivate: handlers.deactivate,
+        }}
         busy={ops.busy}
       />
 
@@ -158,7 +190,7 @@ export function ProjectsPage({ refreshKey }: { refreshKey: number }) {
 interface RowActions {
   readonly pause?: (id: string, name: string) => Promise<void>;
   readonly resume?: (id: string, name: string) => Promise<void>;
-  readonly recrawl?: (root: string, name: string) => Promise<void>;
+  readonly rebuild?: (root: string, name: string) => Promise<void>;
   readonly purge?: (root: string, name: string) => Promise<void>;
   readonly deactivate?: (root: string, name: string) => Promise<void>;
 }
@@ -323,11 +355,10 @@ function RowActionButtons({
           disabled={isBusy}
         />
       ) : null}
-      {actions.recrawl ? (
-        <IconButton
-          icon="recrawl"
-          label="recrawl"
-          onClick={() => void actions.recrawl?.(row.root, row.name)}
+      {actions.rebuild ? (
+        <RebuildButton
+          row={row}
+          onClick={() => void actions.rebuild?.(row.root, row.name)}
           disabled={isBusy}
         />
       ) : null}
@@ -424,15 +455,72 @@ function IconButton({
   label,
   onClick,
   disabled,
+  title,
 }: {
   icon: IconName;
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  title?: string;
 }) {
   return (
-    <button type="button" className="btn" onClick={onClick} disabled={disabled}>
+    <button
+      type="button"
+      className="btn"
+      onClick={onClick}
+      disabled={disabled}
+      {...(title !== undefined ? { title } : {})}
+    >
       <Icon name={icon} /> {label}
     </button>
+  );
+}
+
+/**
+ * Rebuild action button that reflects the per-row tracker state from
+ * `/api/projects`. When a rebuild is in flight, the button shows
+ * progress text and self-disables so the user doesn't double-fire.
+ * Other rows' buttons stay enabled — the page is never globally greyed
+ * for a rebuild (#XYZ).
+ */
+function RebuildButton({
+  row,
+  onClick,
+  disabled,
+}: {
+  row: AnyRow;
+  onClick: () => void;
+  disabled: boolean;
+}) {
+  const job = row.rebuilding;
+  if (job !== null && job.status === "running") {
+    const label =
+      job.totalFiles !== null
+        ? `rebuilding ${job.indexed}/${job.totalFiles}…`
+        : "rebuilding…";
+    return (
+      <IconButton
+        icon="rebuild"
+        label={label}
+        onClick={onClick}
+        disabled
+        title="Rebuild in progress — runs in the background; the page will refresh as the indexer makes progress."
+      />
+    );
+  }
+  if (job !== null && job.status === "failed") {
+    return (
+      <IconButton
+        icon="warn"
+        label="rebuild failed"
+        onClick={onClick}
+        disabled={disabled}
+        title={job.error ?? "Rebuild failed. Click to retry."}
+      />
+    );
+  }
+  // status === "done" briefly lingers; render the normal button.
+  return (
+    <IconButton icon="rebuild" label="rebuild" onClick={onClick} disabled={disabled} />
   );
 }

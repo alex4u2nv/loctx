@@ -76,7 +76,7 @@ function getCtx(): CliContext {
 /**
  * Resolve the user's PATH argument to a concrete project root. Used by
  * every command that operates on "a project" — `add`, `activate`,
- * `deactivate`, `pause`, `resume`, `recrawl`, `purge`, `reset project`.
+ * `deactivate`, `pause`, `resume`, `rebuild`, `purge`.
  *
  *   - `undefined` (no arg) or `"."` → walk up from `process.cwd()`
  *   - any other value             → walk up from `resolve(value)`
@@ -560,7 +560,7 @@ program
     }
   });
 
-// ---- pause / resume / recrawl / purge (daemon-aware project ops) -------
+// ---- pause / resume / rebuild / purge (daemon-aware project ops) -------
 
 program
   .command("pause [path]")
@@ -597,20 +597,32 @@ program
   });
 
 program
-  .command("recrawl [path]")
+  .command("rebuild [path]")
   .description(
-    "Re-index the project at PATH (or containing cwd). Use `--all` to recrawl every project. " +
-      "Hits the running daemon when one is up; otherwise builds a one-shot runtime.",
+    "Wipe and re-index the project at PATH (or containing cwd). Use `--all` to rebuild every project. " +
+      "This clears the project's vectors + SQLite rows first so every file is re-indexed from scratch — " +
+      "the only path that re-fires the analyzer queue (lizard, duplicates, semgrep, ast-grep) for " +
+      "already-indexed files. Requires --force. Daemon-aware: hits the running daemon when one is up.",
   )
-  .option("--all", "Recrawl every project.", false)
-  .action(async (path: string | undefined, opts: { all: boolean }) => {
+  .option("--all", "Rebuild every project.", false)
+  .option("--force", "Skip confirmation.", false)
+  .action(async (path: string | undefined, opts: { all: boolean; force: boolean }) => {
     const ctx = getCtx();
     const config = loadConfigOrFail(ctx);
     const resolved = opts.all ? null : resolveCommandPath(path);
     if (!opts.all && resolved === null) {
       const start = path === undefined || path === "." ? process.cwd() : resolve(path);
       console.error(
-        `[loctx recrawl] no project marker found at or above ${start}. Pass --all to recrawl every project.`,
+        `[loctx rebuild] no project marker found at or above ${start}. Pass --all to rebuild every project.`,
+      );
+      process.exit(1);
+    }
+    if (!opts.force) {
+      const target = opts.all
+        ? "EVERY project"
+        : `${resolved?.name ?? ""} at ${resolved?.root ?? ""}`;
+      console.error(
+        `[loctx rebuild] refusing without --force.\n  This deletes every chunk + vector row for ${target}\n  and re-indexes from scratch. Source files are untouched.`,
       );
       process.exit(1);
     }
@@ -618,21 +630,27 @@ program
     if (lock !== null) {
       const client = daemonClient(config.paths.dataDir);
       const r = await client.post<{ summaries: Array<{ name: string; indexed: number }> }>(
-        "/api/index",
+        "/api/rebuild",
         resolved !== null ? { path: resolved.root } : {},
       );
       for (const s of r.summaries) {
-        console.log(`recrawled ${s.name}: indexed=${s.indexed}`);
+        console.log(`rebuilt ${s.name}: indexed=${s.indexed}`);
       }
       return;
     }
-    // Fallback: same path as `loctx index`.
+    // No-daemon fallback: same purge-then-index sequence the daemon endpoint runs.
     const runtime = await buildRuntime(config);
     try {
       const projects = resolved !== null ? [resolved] : runtime.discovery.discoverProjects();
       for (const project of projects) {
-        console.log(`Recrawling ${project.name} (${project.root}) ...`);
+        console.log(`Rebuilding ${project.name} (${project.root}) ...`);
+        await runtime.vectors.deleteProjectChunks(project.id);
+        runtime.state.deleteProject(project.id);
         const summary = await runtime.indexer.indexProject(project);
+        // Rebuild is a strict superset of a reconcile pass — stamp
+        // last_reconciled_at so doctor + the projects page don't show
+        // a stale "reconciled —" right after.
+        runtime.state.markProjectReconciled(project.id);
         console.log(
           `  indexed=${summary.indexed} skipped=${summary.skipped} failed=${summary.failed} (${summary.elapsedSeconds.toFixed(2)}s)`,
         );
@@ -675,7 +693,7 @@ program
       console.error(`[loctx purge] cleared ${r.project.name} (${r.project.root}) via daemon.`);
       return;
     }
-    // Fallback: same path as `loctx reset project --force`.
+    // No-daemon fallback: drop the project's vectors + state in-process.
     const runtime = await buildRuntime(config);
     try {
       await runtime.vectors.deleteProjectChunks(project.id);
@@ -1040,51 +1058,10 @@ reset
     console.error("[loctx reset index] run 'loctx index' to rebuild.");
   });
 
-reset
-  .command("project [path]")
-  .description(
-    "Delete index entries for a single project (LanceDB + SQLite). " +
-      "PATH may be omitted or `.` to use the project containing cwd. " +
-      "Requires --force; refuses while a daemon is running.",
-  )
-  .option("--force", "Skip confirmation.", false)
-  .action(async (path: string | undefined, opts: { force: boolean }) => {
-    const project = resolveCommandPath(path);
-    if (project === null) {
-      const start = path === undefined || path === "." ? process.cwd() : resolve(path);
-      console.error(`[loctx reset project] no project marker found at or above ${start}.`);
-      process.exit(1);
-    }
-    if (!opts.force) {
-      console.error(
-        `[loctx reset project] refusing without --force.\n  This deletes every chunk + vector row for ${project.name} at\n  ${project.root}. Source files are untouched.`,
-      );
-      process.exit(1);
-    }
-    const ctx = getCtx();
-    const config = loadConfigOrFail(ctx);
-
-    const lock = readActiveDaemon(config.paths.dataDir);
-    if (lock !== null) {
-      console.error(
-        `[loctx reset project] daemon is running (PID ${lock.pid}). Stop it first with 'loctx stop'.`,
-      );
-      process.exit(1);
-    }
-
-    const runtime = await buildRuntime(config);
-    try {
-      await runtime.vectors.deleteProjectChunks(project.id);
-      runtime.state.deleteProject(project.id);
-      console.error(`[loctx reset project] cleared ${project.name} (${project.root}).`);
-    } finally {
-      await runtime.close();
-    }
-  });
-
 reset.action(() => {
-  console.log("loctx reset: specify a subcommand (e.g. 'index' or 'project').");
-  console.log("No destructive default. Use --help for options.");
+  console.log("loctx reset: specify a subcommand (e.g. 'index').");
+  console.log("For per-project cleanup, use `loctx purge`. To wipe and re-index a project,");
+  console.log("use `loctx rebuild`. No destructive default. Use --help for options.");
 });
 
 // ---- run ----------------------------------------------------------------

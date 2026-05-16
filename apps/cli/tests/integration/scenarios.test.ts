@@ -136,12 +136,12 @@ describe("loctx CLI: hermetic full-flow scenario", () => {
     expect(doc.stdout).toContain("Xenova/bge-small-en-v1.5");
   });
 
-  it("reset project --force clears the index after a re-index", () => {
+  it("purge --force clears the index after a re-index", () => {
     expect(runCli(["index", ctx.project]).status).toBe(0);
 
-    const reset = runCli(["reset", "project", ctx.project, "--force"]);
-    expect(reset.status).toBe(0);
-    expect(reset.stderr).toContain("cleared");
+    const purged = runCli(["purge", ctx.project, "--force"]);
+    expect(purged.status).toBe(0);
+    expect(purged.stderr).toContain("cleared");
 
     // Search now returns nothing for that project.
     const searched = runCli(["search", "authentication", "--path", ctx.project]);
@@ -186,13 +186,13 @@ describe("loctx CLI: hermetic full-flow scenario", () => {
     expect(orphan.stderr).toContain("no project marker found");
   });
 
-  it("reset project . resolves cwd's project (no path required)", () => {
+  it("purge . resolves cwd's project (no path required)", () => {
     expect(runCli(["index", ctx.project]).status).toBe(0);
 
     const nested = join(ctx.project, "src");
-    const reset = runCli(["reset", "project", ".", "--force"], {}, nested);
-    expect(reset.status).toBe(0);
-    expect(reset.stderr).toContain("cleared demo");
+    const purged = runCli(["purge", ".", "--force"], {}, nested);
+    expect(purged.status).toBe(0);
+    expect(purged.stderr).toContain("cleared demo");
   });
 
   it("model-swap warns about reindex requirement (#99)", () => {

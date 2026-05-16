@@ -51,7 +51,7 @@ export function AdminPage() {
       <span className="eyebrow">Operations</span>
       <h1 className="display">Admin</h1>
       <p className="subtitle">
-        Workspace-wide controls. Per-project actions (pause / recrawl / purge) live on{" "}
+        Workspace-wide controls. Per-project actions (pause / rebuild / purge) live on{" "}
         <Link to="/projects">projects</Link>.
       </p>
 

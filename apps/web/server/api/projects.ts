@@ -19,8 +19,10 @@ import type {
   ProjectHealth,
   ProjectsPayload,
   ProjectsRow,
+  RebuildProgress,
   WatcherState,
 } from "../../shared/contracts.js";
+import type { RebuildJob, RebuildTracker } from "../lib/rebuild-tracker.js";
 
 /**
  * Per-project AbortControllers for the background `indexProject` pass
@@ -44,6 +46,7 @@ export function mountProjects(
   config: Config,
   watcherRegistry: WatcherRegistry | undefined,
   getRuntime: () => Promise<Runtime>,
+  rebuildTracker: RebuildTracker,
 ): void {
   app.get("/api/projects", (c) => {
     const discovery = new WorkspaceDiscovery(config.workspaceRoots);
@@ -51,6 +54,7 @@ export function mountProjects(
     try {
       const inventory = inventoryProjects(discovery, state);
       const chunkCounts = chunkCountsByProject(state);
+      const rebuilds = rebuildTracker.snapshot();
 
       const buildRow = (
         project: Project,
@@ -91,6 +95,7 @@ export function mountProjects(
           watcherFailure: watcherEntry !== null ? watcherEntry.failureReason : null,
           health,
           healthHint,
+          rebuilding: toRebuildProgress(rebuilds.get(project.id)),
         };
       };
 
@@ -322,7 +327,7 @@ function computeHealth(input: {
     return {
       health: "never-indexed",
       healthHint:
-        "watcher only catches changes — click recrawl to populate the index from existing files",
+        "watcher only catches changes — click rebuild to populate the index from existing files",
     };
   }
   if (input.files === 0) {
@@ -334,7 +339,7 @@ function computeHealth(input: {
   if (input.errors > 0) {
     return {
       health: "errors",
-      healthHint: `${input.errors} file(s) failed to index — recrawl to retry`,
+      healthHint: `${input.errors} file(s) failed to index — rebuild to retry`,
     };
   }
   if (input.watcherState === "active") {
@@ -362,6 +367,18 @@ function longestCommonPrefix(paths: ReadonlyArray<string>): string {
 }
 
 /** Per-project chunk count via one SQL aggregate. */
+function toRebuildProgress(job: RebuildJob | undefined): RebuildProgress | null {
+  if (job === undefined) return null;
+  return {
+    status: job.status,
+    indexed: job.indexed,
+    totalFiles: job.totalFiles,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt,
+    error: job.error,
+  };
+}
+
 function chunkCountsByProject(state: StateStore): Map<string, number> {
   const db = (state as unknown as { db: { prepare(sql: string): { all(): Array<unknown> } } })[
     "db"

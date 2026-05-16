@@ -84,7 +84,18 @@ export class ProjectIndexer {
 
   async indexProject(
     project: Project,
-    options: { signal?: AbortSignal; concurrency?: number } = {},
+    options: {
+      signal?: AbortSignal;
+      concurrency?: number;
+      /**
+       * Per-file progress callback. Fires once before the first file
+       * (indexed=0, total=N) so callers can render a determinate UI as
+       * soon as the walk completes, then again after each file. The
+       * indexer doesn't throttle — callers that care about emit volume
+       * (e.g. SSE forwarders) should debounce themselves.
+       */
+      onProgress?: (event: { readonly indexed: number; readonly total: number }) => void;
+    } = {},
   ): Promise<IndexSummary> {
     // Indexing implies activation: if the caller is invoking indexProject,
     // the project should appear in the active inventory bucket so future
@@ -116,6 +127,8 @@ export class ProjectIndexer {
     let aborted = false;
     const concurrency = Math.max(1, options.concurrency ?? 1);
     let cursor = 0;
+    const { onProgress } = options;
+    onProgress?.({ indexed: 0, total: paths.length });
     const worker = async (): Promise<void> => {
       while (true) {
         if (options.signal?.aborted) {
@@ -128,6 +141,10 @@ export class ProjectIndexer {
         const absPath = paths[i];
         if (absPath === undefined) return;
         results.push(await this.indexFile(project, absPath, { filter }));
+        // Length-based progress is monotonically increasing under any
+        // concurrency since results.push is serial within the worker
+        // pool's awaited microtask.
+        onProgress?.({ indexed: results.length, total: paths.length });
       }
     };
     await Promise.all(Array.from({ length: concurrency }, () => worker()));

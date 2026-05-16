@@ -117,6 +117,35 @@ export function readActiveDaemon(dataDir: string): DaemonInfo | null {
 }
 
 /**
+ * Peek at the lockfile without acquiring. Used by `loctx start` to give
+ * users visibility when a previous daemon left a stale lockfile behind
+ * (e.g. killed with SIGKILL, OS crash). Returns `{ kind: "stale", info }`
+ * when the file exists but the recorded PID is no longer running —
+ * acquireDaemonLock will reclaim it silently otherwise.
+ */
+export type LockfileStatus =
+  | { readonly kind: "absent" }
+  | { readonly kind: "active"; readonly info: DaemonInfo }
+  | { readonly kind: "stale"; readonly info: DaemonInfo }
+  | { readonly kind: "corrupt" };
+
+export function inspectDaemonLockfile(dataDir: string): LockfileStatus {
+  const path = join(dataDir, LOCK_FILENAME);
+  const info = readDaemonInfoFromPath(path);
+  if (info === null) {
+    // File may be missing OR garbled. Distinguish so callers can tell
+    // "fresh start" from "previous daemon wrote junk."
+    try {
+      readFileSync(path, "utf-8");
+      return { kind: "corrupt" };
+    } catch {
+      return { kind: "absent" };
+    }
+  }
+  return isProcessAlive(info.pid) ? { kind: "active", info } : { kind: "stale", info };
+}
+
+/**
  * Send SIGTERM to the daemon if one is running for ``dataDir``, then poll
  * until the lock file disappears (the daemon's signal handler removes it
  * before exit). Returns the info of the terminated daemon, or null if
