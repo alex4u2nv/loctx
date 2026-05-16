@@ -666,7 +666,9 @@ watcher:
 
 daemon:
   port: 3000
-  hostname: localhost
+  # 127.0.0.1 (literal loopback IP) blocks browser DNS-rebinding attacks.
+  # Use \`localhost\` only if you understand and accept that trade-off.
+  hostname: 127.0.0.1
 
 retrieval:
   # hybrid (default) | vector | lexical

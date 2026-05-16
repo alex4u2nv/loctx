@@ -1,5 +1,4 @@
 import { homedir } from "node:os";
-import { resolve } from "node:path";
 import {
   type Config,
   type Project,
@@ -11,6 +10,7 @@ import {
   WorkspaceDiscovery,
   inventoryProjects,
   makeProject,
+  resolveUnderWorkspaceRoots,
 } from "@loctx/core";
 import type { Hono } from "hono";
 import type {
@@ -114,7 +114,14 @@ export function mountProjects(
     const body = (await c.req.json().catch(() => null)) as { path?: string } | null;
     const path = body?.path?.trim() ?? "";
     if (path === "") return c.json({ error: "path required" }, 400);
-    const project = makeProject(resolve(path));
+    // Confine the resolved path to configured workspace_roots — a local
+    // attacker on loopback could otherwise activate `/etc` or another
+    // user's home and trigger watcher + indexer work against it.
+    const confined = resolveUnderWorkspaceRoots(path, config.workspaceRoots);
+    if (confined === null) {
+      return c.json({ error: "path is not under any configured workspace_root" }, 403);
+    }
+    const project = makeProject(confined);
     const rt = await getRuntime();
     rt.state.upsertProjectWithActive(project, true);
 
@@ -147,7 +154,11 @@ export function mountProjects(
     const body = (await c.req.json().catch(() => null)) as { path?: string } | null;
     const path = body?.path?.trim() ?? "";
     if (path === "") return c.json({ error: "path required" }, 400);
-    const project = makeProject(resolve(path));
+    const confined = resolveUnderWorkspaceRoots(path, config.workspaceRoots);
+    if (confined === null) {
+      return c.json({ error: "path is not under any configured workspace_root" }, 403);
+    }
+    const project = makeProject(confined);
     const rt = await getRuntime();
     const ok = rt.state.setProjectActive(project.id, false);
     if (!ok) return c.json({ error: "no such project" }, 404);

@@ -399,6 +399,42 @@ export function inventoryProjects(
   });
 }
 
+// ---- workspace containment ---------------------------------------------
+
+/**
+ * Resolve `path` and verify it is a descendant of (or equal to) one of
+ * the configured `workspaceRoots`. Returns the canonical resolved path
+ * on success, null on failure.
+ *
+ * Used by HTTP/MCP handlers that accept a `path` parameter to prevent a
+ * local attacker (on loopback) from triggering work against arbitrary
+ * filesystem paths like `/etc`, `~/Library`, or another user's home.
+ *
+ * - Resolves both the input and each root via `realpathSync` when they
+ *   exist; falls back to `resolve()` otherwise. This catches symlink
+ *   escapes (`~/Workspaces/escape -> /etc`).
+ * - Containment is a strict path-prefix check on the canonical form, so
+ *   `~/Workspaces/foo` containing `~/Workspaces/foobar` correctly
+ *   rejects the latter (no partial-prefix matches).
+ * - Path equality counts as "under" — a workspace root itself is a
+ *   valid project path.
+ */
+export function resolveUnderWorkspaceRoots(
+  path: string,
+  workspaceRoots: ReadonlyArray<string>,
+): string | null {
+  const target = resolveSafe(path);
+  if (target === null) return null;
+  for (const root of workspaceRoots) {
+    const canonicalRoot = resolveSafe(root);
+    if (canonicalRoot === null) continue;
+    if (target === canonicalRoot) return target;
+    // Append `sep` so `/foo/barbaz` is not considered under `/foo/bar`.
+    if (target.startsWith(canonicalRoot + sep)) return target;
+  }
+  return null;
+}
+
 // ---- helpers -----------------------------------------------------------
 
 function resolveSafe(path: string): string | null {
