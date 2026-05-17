@@ -20,10 +20,11 @@ import type {
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BarChart, type BarRow } from "../components/bar-chart";
-import { DataTable } from "../components/data-table";
+import { type Column, DataTable } from "../components/data-table";
 import { useLiveRefreshEvent } from "../components/live-refresh";
 import { SnippetModal } from "../components/snippet-modal";
 import { SurfaceCard } from "../components/surface-card";
+import { useSnippetSelection } from "../lib/use-snippet-selection";
 import { api } from "../lib/api";
 import { compressPath, relativeTime } from "../lib/format";
 import { useFetch } from "../lib/use-fetch";
@@ -154,64 +155,55 @@ function topFileRows(rows: ProjectDetailPayload["stats"]["topFiles"]): BarRow[] 
   }));
 }
 
-// ---- recent / failing tables (kept as tables) --------------------------
+// ---- recent / failing tables -------------------------------------------
+
+type FileRow =
+  | ProjectDetailPayload["stats"]["topFiles"][number]
+  | ProjectDetailPayload["stats"]["recentFiles"][number];
 
 function FilesTable({
   rows,
   kind,
 }: {
-  rows:
-    | ProjectDetailPayload["stats"]["topFiles"]
-    | ProjectDetailPayload["stats"]["recentFiles"];
+  rows: ReadonlyArray<FileRow>;
   kind: "top" | "recent";
 }) {
   if (rows.length === 0) return <p className="pullquote">—</p>;
-  return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th>file</th>
-          {kind === "top" ? <th className="num">chunks</th> : null}
-          <th className="dim">indexed</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.relPath}>
-            <td>
-              <code>{r.relPath}</code>
-            </td>
-            {kind === "top" && "chunks" in r ? <td className="num">{r.chunks}</td> : null}
-            <td className="dim" title={r.indexedAt ?? ""}>
-              {relativeTime(r.indexedAt)}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
+  const columns: Column<FileRow>[] = [
+    { key: "file", header: "file", cell: (r) => <code>{r.relPath}</code> },
+  ];
+  if (kind === "top") {
+    columns.push({
+      key: "chunks",
+      header: "chunks",
+      numeric: true,
+      cell: (r) => ("chunks" in r ? r.chunks : ""),
+    });
+  }
+  columns.push({
+    key: "indexed",
+    header: "indexed",
+    dim: true,
+    headerClassName: "dim",
+    cell: (r) => <span title={r.indexedAt ?? ""}>{relativeTime(r.indexedAt)}</span>,
+  });
+  return <DataTable rows={rows} rowKey={(r) => r.relPath} columns={columns} />;
 }
 
 function FailingTable({ rows }: { rows: ProjectDetailPayload["stats"]["failingFiles"] }) {
   return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th>file</th>
-          <th>error</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.relPath}>
-            <td>
-              <code>{r.relPath}</code>
-            </td>
-            <td className="err">{r.error}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <DataTable
+      rows={rows}
+      rowKey={(r) => r.relPath}
+      columns={[
+        { key: "file", header: "file", cell: (r) => <code>{r.relPath}</code> },
+        {
+          key: "error",
+          header: "error",
+          cell: (r) => <span className="err">{r.error}</span>,
+        },
+      ]}
+    />
   );
 }
 
@@ -322,7 +314,7 @@ function ScopedSearch({ projectRoot }: { projectRoot: string }) {
 }
 
 function SearchResults({ hits }: { hits: ReadonlyArray<SearchHit> }) {
-  const [open, setOpen] = useState<SearchHit | null>(null);
+  const { selected, open, close } = useSnippetSelection<SearchHit>();
   if (hits.length === 0) return <p className="pullquote">No matches.</p>;
   return (
     <>
@@ -332,7 +324,7 @@ function SearchResults({ hits }: { hits: ReadonlyArray<SearchHit> }) {
       <DataTable
         rows={hits}
         rowKey={(h, i) => `${h.relPath}-${h.startLine}-${i}`}
-        onRowClick={(h) => setOpen(h)}
+        onRowClick={open}
         columns={[
           { key: "file", header: "file", cell: (h) => <code>{h.relPath}</code> },
           {
@@ -350,13 +342,13 @@ function SearchResults({ hits }: { hits: ReadonlyArray<SearchHit> }) {
           },
         ]}
       />
-      {open !== null ? (
+      {selected !== null ? (
         <SnippetModal
-          title={open.relPath}
-          snippet={open.snippet}
-          onClose={() => setOpen(null)}
-          meta={<SearchHitMeta hit={open} />}
-          {...(open.language !== "" ? { language: open.language } : {})}
+          title={selected.relPath}
+          snippet={selected.snippet}
+          onClose={close}
+          meta={<SearchHitMeta hit={selected} />}
+          {...(selected.language !== "" ? { language: selected.language } : {})}
         />
       ) : null}
     </>
@@ -467,55 +459,35 @@ function UsageResults({
 }
 
 function UsageTable({ hits }: { hits: ReadonlyArray<UsageHit> }) {
-  const [open, setOpen] = useState<UsageHit | null>(null);
+  const { selected, open, close } = useSnippetSelection<UsageHit>();
   if (hits.length === 0) return <p className="pullquote">none</p>;
   return (
     <>
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>file</th>
-            <th>kind</th>
-            <th className="num">lines</th>
-          </tr>
-        </thead>
-        <tbody>
-          {hits.map((h, i) => (
-            <tr
-              // biome-ignore lint/suspicious/noArrayIndexKey: composite key would be (projectId+relPath+startLine), index is fine here
-              key={`${h.projectId}-${h.relPath}-${h.chunkStartLine}-${i}`}
-              onClick={() => setOpen(h)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setOpen(h);
-                }
-              }}
-              tabIndex={0}
-              role="button"
-              style={{ cursor: "pointer" }}
-            >
-              <td>
-                <code>{h.relPath}</code>
-              </td>
-              <td className="dim">{h.kind}</td>
-              <td className="num">
-                {h.chunkStartLine}-{h.chunkEndLine}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {open !== null ? (
+      <DataTable
+        rows={hits}
+        rowKey={(h, i) => `${h.projectId}-${h.relPath}-${h.chunkStartLine}-${i}`}
+        onRowClick={open}
+        columns={[
+          { key: "file", header: "file", cell: (h) => <code>{h.relPath}</code> },
+          { key: "kind", header: "kind", dim: true, cell: (h) => h.kind },
+          {
+            key: "lines",
+            header: "lines",
+            numeric: true,
+            cell: (h) => `${h.chunkStartLine}-${h.chunkEndLine}`,
+          },
+        ]}
+      />
+      {selected !== null ? (
         <SnippetModal
-          title={open.relPath}
-          snippet={open.snippet}
-          onClose={() => setOpen(null)}
+          title={selected.relPath}
+          snippet={selected.snippet}
+          onClose={close}
           meta={
             <span className="dim">
-              lines {open.chunkStartLine}-{open.chunkEndLine}
+              lines {selected.chunkStartLine}-{selected.chunkEndLine}
               <span className="sep">·</span>
-              kind: {open.kind}
+              kind: {selected.kind}
             </span>
           }
         />
