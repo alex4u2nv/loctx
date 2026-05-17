@@ -25,6 +25,8 @@ export interface QueryFormField {
   /** Helpful text shown after the label when this field can be left blank. */
   readonly optional?: boolean;
   readonly autoFocus?: boolean;
+  /** Initial value (e.g. from URL params on first render). Uncontrolled. */
+  readonly defaultValue?: string;
 }
 
 export interface QueryFormProps {
@@ -66,6 +68,7 @@ export function QueryForm({
             className="input"
             {...(f.placeholder !== undefined ? { placeholder: f.placeholder } : {})}
             {...(f.autoFocus === true ? { autoFocus: true } : {})}
+            {...(f.defaultValue !== undefined ? { defaultValue: f.defaultValue } : {})}
           />
         </div>
       ))}

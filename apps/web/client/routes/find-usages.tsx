@@ -1,5 +1,6 @@
 import type { FindUsagesPayload, UsageHit } from "@shared/contracts";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { DataTable } from "../components/data-table";
 import { QueryForm } from "../components/query-form";
 import { SnippetModal } from "../components/snippet-modal";
@@ -7,23 +8,46 @@ import { api } from "../lib/api";
 import { useSnippetSelection } from "../lib/use-snippet-selection";
 
 export function FindUsagesPage() {
+  const [params, setParams] = useSearchParams();
+  const urlSymbol = params.get("symbol") ?? "";
+  const urlPath = params.get("path") ?? "";
   const [response, setResponse] = useState<FindUsagesPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const submit = async (symbol: string, path: string): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await api.findUsages({ symbol, ...(path ? { path } : {}) });
-      setResponse(r);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setResponse(null);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const submit = useCallback(
+    async (symbol: string, path: string): Promise<void> => {
+      // Mirror submission into the URL so back/forward and deep-link from
+      // /search both work. Skip the URL push when nothing changed.
+      const next = new URLSearchParams();
+      if (symbol) next.set("symbol", symbol);
+      if (path) next.set("path", path);
+      if (next.toString() !== params.toString()) setParams(next);
+      if (!symbol) {
+        setResponse(null);
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        const r = await api.findUsages({ symbol, ...(path ? { path } : {}) });
+        setResponse(r);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        setResponse(null);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [params, setParams],
+  );
+
+  // Auto-fire when a deep-link arrives with ?symbol=... (e.g. clicking a
+  // symbol on /search). Only on the initial URL value to avoid loops.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — fire once per URL change
+  useEffect(() => {
+    if (urlSymbol) void submit(urlSymbol, urlPath);
+  }, [urlSymbol, urlPath]);
 
   return (
     <section>
@@ -35,6 +59,9 @@ export function FindUsagesPage() {
       </p>
 
       <QueryForm
+        // Re-mount the form when URL params change so the inputs pick up
+        // fresh defaultValues. Cheap; the form is uncontrolled.
+        key={`${urlSymbol}|${urlPath}`}
         busy={busy}
         submitLabel="Find"
         fields={[
@@ -44,6 +71,7 @@ export function FindUsagesPage() {
             label: "symbol",
             placeholder: "e.g. authenticate",
             autoFocus: true,
+            defaultValue: urlSymbol,
           },
           {
             id: "path",
@@ -51,6 +79,7 @@ export function FindUsagesPage() {
             label: "path",
             placeholder: "scope to one project",
             optional: true,
+            defaultValue: urlPath,
           },
         ]}
         onSubmit={(values) => void submit(values["symbol"] ?? "", values["path"] ?? "")}
