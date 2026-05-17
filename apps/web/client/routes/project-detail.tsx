@@ -20,6 +20,7 @@ import type {
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BarChart, type BarRow } from "../components/bar-chart";
+import { DataTable } from "../components/data-table";
 import { useLiveRefreshEvent } from "../components/live-refresh";
 import { SnippetModal } from "../components/snippet-modal";
 import { SurfaceCard } from "../components/surface-card";
@@ -328,43 +329,27 @@ function SearchResults({ hits }: { hits: ReadonlyArray<SearchHit> }) {
       <p className="summary dim">
         {hits.length} {hits.length === 1 ? "result" : "results"}. Click a row for the snippet.
       </p>
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>file</th>
-            <th>lines</th>
-            <th>kind</th>
-            <th className="num">score</th>
-          </tr>
-        </thead>
-        <tbody>
-          {hits.map((h, i) => (
-            <tr
-              // biome-ignore lint/suspicious/noArrayIndexKey: composite key would be (relPath+startLine+score), index is fine for ranked results
-              key={`${h.relPath}-${h.startLine}-${i}`}
-              onClick={() => setOpen(h)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setOpen(h);
-                }
-              }}
-              tabIndex={0}
-              role="button"
-              style={{ cursor: "pointer" }}
-            >
-              <td>
-                <code>{h.relPath}</code>
-              </td>
-              <td className="num">
-                {h.startLine}-{h.endLine}
-              </td>
-              <td className="dim">{h.kind}</td>
-              <td className="num">{h.score.toFixed(3)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable
+        rows={hits}
+        rowKey={(h, i) => `${h.relPath}-${h.startLine}-${i}`}
+        onRowClick={(h) => setOpen(h)}
+        columns={[
+          { key: "file", header: "file", cell: (h) => <code>{h.relPath}</code> },
+          {
+            key: "lines",
+            header: "lines",
+            numeric: true,
+            cell: (h) => `${h.startLine}-${h.endLine}`,
+          },
+          { key: "kind", header: "kind", dim: true, cell: (h) => h.kind },
+          {
+            key: "score",
+            header: "score",
+            numeric: true,
+            cell: (h) => h.score.toFixed(3),
+          },
+        ]}
+      />
       {open !== null ? (
         <SnippetModal
           title={open.relPath}
