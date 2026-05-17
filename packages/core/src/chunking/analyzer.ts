@@ -79,6 +79,14 @@ interface LanguageProfile {
   readonly nestingNodes: ReadonlySet<string>;
   /** Node type that holds the parameter list under `field('parameters')`. */
   readonly parameterFields: ReadonlyArray<string>;
+  /**
+   * Node types that represent a class member. When the chunk root is a
+   * class (or wraps one via `export class`), the walk emits a `def`
+   * symbol_ref for each such member nested at depth > 0. Without this,
+   * `find_usages` for class methods returned zero defs (#278) even
+   * when the class itself was correctly recognised.
+   */
+  readonly methodDefNodes: ReadonlySet<string>;
 }
 
 const PROFILES: Readonly<Record<string, LanguageProfile>> = Object.freeze({
@@ -97,6 +105,10 @@ const PROFILES: Readonly<Record<string, LanguageProfile>> = Object.freeze({
       "try_statement",
     ]),
     parameterFields: ["parameters"],
+    // In Python a method is just a function_definition inside a class
+    // body. depth>0 ensures the chunk root (which findDefName handles)
+    // isn't double-emitted.
+    methodDefNodes: new Set(["function_definition", "async_function_definition"]),
   },
   javascript: {
     importNodes: new Set(["import_statement"]),
@@ -121,6 +133,7 @@ const PROFILES: Readonly<Record<string, LanguageProfile>> = Object.freeze({
       "try_statement",
     ]),
     parameterFields: ["parameters"],
+    methodDefNodes: new Set(["method_definition"]),
   },
   typescript: {
     importNodes: new Set(["import_statement"]),
@@ -140,6 +153,7 @@ const PROFILES: Readonly<Record<string, LanguageProfile>> = Object.freeze({
       "try_statement",
     ]),
     parameterFields: ["parameters"],
+    methodDefNodes: new Set(["method_definition"]),
   },
   tsx: {
     importNodes: new Set(["import_statement"]),
@@ -159,6 +173,7 @@ const PROFILES: Readonly<Record<string, LanguageProfile>> = Object.freeze({
       "try_statement",
     ]),
     parameterFields: ["parameters"],
+    methodDefNodes: new Set(["method_definition"]),
   },
   go: {
     importNodes: new Set(["import_declaration", "import_spec"]),
@@ -172,6 +187,9 @@ const PROFILES: Readonly<Record<string, LanguageProfile>> = Object.freeze({
       "for_statement",
     ]),
     parameterFields: ["parameters"],
+    // Go methods are top-level (`func (r *Foo) Bar()`), already
+    // chunked by the chunker — no nested case to handle here.
+    methodDefNodes: new Set([]),
   },
   rust: {
     importNodes: new Set(["use_declaration"]),
@@ -186,6 +204,9 @@ const PROFILES: Readonly<Record<string, LanguageProfile>> = Object.freeze({
       "while_expression",
     ]),
     parameterFields: ["parameters"],
+    // Rust impl blocks chunk separately. Methods inside an `impl` are
+    // `function_item` at depth 1 — emit defs for them.
+    methodDefNodes: new Set(["function_item"]),
   },
   java: {
     importNodes: new Set(["import_declaration"]),
@@ -206,6 +227,7 @@ const PROFILES: Readonly<Record<string, LanguageProfile>> = Object.freeze({
       "try_statement",
     ]),
     parameterFields: ["parameters", "formal_parameters"],
+    methodDefNodes: new Set(["method_declaration"]),
   },
 });
 
@@ -480,7 +502,12 @@ function findDefName(node: TreeSitterNode): string | null {
   return null;
 }
 
-function walkRefs(node: TreeSitterNode, profile: LanguageProfile, out: SymbolRefExtract[]): void {
+function walkRefs(
+  node: TreeSitterNode,
+  profile: LanguageProfile,
+  out: SymbolRefExtract[],
+  depth = 0,
+): void {
   if (profile.importNodes.has(node.type)) {
     const target = importTargetText(node);
     if (target !== null && target !== "") {
@@ -492,8 +519,18 @@ function walkRefs(node: TreeSitterNode, profile: LanguageProfile, out: SymbolRef
       out.push({ symbol: callee, kind: "call", line: node.startPosition.row + 1 });
     }
   }
+  // Class-member / impl-block methods (#278): findDefName already
+  // covered the chunk root's primary symbol. depth>0 ensures we don't
+  // double-emit a def for the root itself when it's a function-shaped
+  // node that also appears in methodDefNodes (Python, Rust).
+  if (depth > 0 && profile.methodDefNodes.has(node.type)) {
+    const name = node.childForFieldName("name")?.text;
+    if (name !== undefined && name.length > 0) {
+      out.push({ symbol: name, kind: "def", line: node.startPosition.row + 1 });
+    }
+  }
   for (const child of node.namedChildren) {
-    walkRefs(child, profile, out);
+    walkRefs(child, profile, out, depth + 1);
   }
 }
 

@@ -213,6 +213,53 @@ describe("Symbol cross-reference extraction (#96)", () => {
     );
   });
 
+  it("records class-method defs from a TS class chunk (#278)", () => {
+    const ts = [
+      "export class ProjectIndexer {",
+      "  async indexProject(project: { id: string }) {",
+      "    return { indexed: 0 };",
+      "  }",
+      "  indexFile(rel: string) {",
+      "    return rel;",
+      "  }",
+      "  static fromConfig(c: unknown) {",
+      "    return new ProjectIndexer();",
+      "  }",
+      "}",
+    ].join("\n");
+    const chunks = chunkFile("src/indexer.ts", ts);
+    const classChunk = chunks.find((c) => c.symbolRefs !== undefined);
+    expect(classChunk).toBeDefined();
+    const refs = classChunk?.symbolRefs ?? [];
+    const defs = refs.filter((r) => r.kind === "def").map((r) => r.symbol);
+    // The class itself + each method should surface as defs.
+    expect(defs).toContain("ProjectIndexer");
+    expect(defs).toContain("indexProject");
+    expect(defs).toContain("indexFile");
+    expect(defs).toContain("fromConfig");
+  });
+
+  it("records class-method defs from a Python class chunk (#278)", () => {
+    const py = [
+      "class Reconciler:",
+      "    def __init__(self, state):",
+      "        self.state = state",
+      "    async def reconcile_project(self, project):",
+      "        return True",
+      "    def reconcile_all(self, projects):",
+      "        return [self.reconcile_project(p) for p in projects]",
+    ].join("\n");
+    const chunks = chunkFile("src/reconciler.py", py);
+    const cls = chunks.find((c) => c.kind === "class");
+    expect(cls).toBeDefined();
+    const refs = cls?.symbolRefs ?? [];
+    const defs = refs.filter((r) => r.kind === "def").map((r) => r.symbol);
+    expect(defs).toContain("Reconciler");
+    expect(defs).toContain("__init__");
+    expect(defs).toContain("reconcile_project");
+    expect(defs).toContain("reconcile_all");
+  });
+
   it("populates analyzer.riskyCalls when a chunk calls a category token (#277)", () => {
     const ts = [
       "import { execFile } from 'node:child_process';",
