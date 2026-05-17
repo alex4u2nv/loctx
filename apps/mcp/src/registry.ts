@@ -62,6 +62,25 @@ export interface ProjectStatusEntry {
   readonly markerKind?: "git" | "ide" | "build";
 }
 
+/**
+ * Liveness signal for the index state at the moment a tool call ran.
+ * Surfaced on every tool response so agents can disambiguate "symbol
+ * doesn't exist" from "symbol not yet (re-)indexed because the
+ * daemon is mid-pass." See #43.
+ *
+ * `reconciling=true` means search / find_usages results may be
+ * partial — particularly for the project named in `currentProject`.
+ * Idle calls return `reconciling=false` and the other fields stay
+ * informational (e.g. `total=0`).
+ */
+export interface IndexHealth {
+  readonly reconciling: boolean;
+  readonly startedAt: string | null;
+  readonly currentProject: string | null;
+  readonly completed: number;
+  readonly total: number;
+}
+
 export interface StatusOutput {
   readonly configPath: string | null;
   readonly paths: Runtime["config"]["paths"];
@@ -69,6 +88,7 @@ export interface StatusOutput {
   readonly workspaceRoots: ReadonlyArray<string>;
   readonly projects: ReadonlyArray<ProjectStatusEntry>;
   readonly indexedFileCounts?: Readonly<Record<string, number>>;
+  readonly indexHealth: IndexHealth;
 }
 
 export interface RefreshOutput {
@@ -100,6 +120,7 @@ export interface FindUsagesOutput {
     readonly defs: ReadonlyArray<SymbolRefHit>;
     readonly refs: ReadonlyArray<SymbolRefHit>;
   }>;
+  readonly indexHealth: IndexHealth;
 }
 
 export interface FindDuplicatesInput {
@@ -109,21 +130,41 @@ export interface FindDuplicatesInput {
 
 export interface FindDuplicatesOutput {
   readonly groups: ReadonlyArray<DuplicateGroup>;
+  readonly indexHealth: IndexHealth;
+}
+
+export interface SearchOutput extends SearchResponse {
+  readonly indexHealth: IndexHealth;
+}
+
+export interface RefreshOutputWithHealth extends RefreshOutput {
+  readonly indexHealth: IndexHealth;
 }
 
 export class ToolError extends Error {}
 
+function currentIndexHealth(runtime: Runtime): IndexHealth {
+  const s = runtime.reconciler.status();
+  return Object.freeze({
+    reconciling: s.running,
+    startedAt: s.startedAt,
+    currentProject: s.currentProjectName,
+    completed: s.completed,
+    total: s.total,
+  });
+}
+
 // ---- pure handlers -----------------------------------------------------
 
 export const tools = {
-  async search(runtime: Runtime, input: unknown): Promise<SearchResponse> {
+  async search(runtime: Runtime, input: unknown): Promise<SearchOutput> {
     const v = new Validator(ToolError, "search_workspace");
     const data = v.requireRecord(input ?? {}, "arguments");
 
     const query = v.getStr(data, "query");
     if (!query) throw new ToolError("query is required and must be a non-empty string");
 
-    return runtime.searcher.search({
+    const response = await runtime.searcher.search({
       query,
       ...(v.getStr(data, "path") !== undefined ? { path: v.getStr(data, "path") as string } : {}),
       limit: v.getInt(data, "limit", { nonNegative: true }) ?? 10,
@@ -132,6 +173,7 @@ export const tools = {
         : {}),
       ...(v.getBool(data, "coverage") === true ? { coverage: true } : {}),
     });
+    return Object.freeze({ ...response, indexHealth: currentIndexHealth(runtime) });
   },
 
   async status(runtime: Runtime, input: unknown): Promise<StatusOutput> {
@@ -177,12 +219,14 @@ export const tools = {
         }),
       ),
     ];
+    const indexHealth = currentIndexHealth(runtime);
     const baseline: StatusOutput = {
       configPath: runtime.config.source ?? null,
       paths: runtime.config.paths,
       embedding: runtime.config.embedding,
       workspaceRoots: runtime.config.workspaceRoots,
       projects: entries,
+      indexHealth,
     };
     if (!includeCounts) return baseline;
 
@@ -226,7 +270,11 @@ export const tools = {
       if (defs.length === 0 && refs.length === 0) continue;
       out.push({ projectId: project.id, projectName: project.name, defs, refs });
     }
-    return Object.freeze({ symbol, projects: Object.freeze(out) });
+    return Object.freeze({
+      symbol,
+      projects: Object.freeze(out),
+      indexHealth: currentIndexHealth(runtime),
+    });
   },
 
   async findDuplicates(runtime: Runtime, input: unknown): Promise<FindDuplicatesOutput> {
@@ -234,10 +282,13 @@ export const tools = {
     const data = v.requireRecord(input ?? {}, "arguments");
     const minMembers = v.getInt(data, "min_members", { nonNegative: true }) ?? 2;
     const groups = runtime.state.findDuplicateGroups(Math.max(2, minMembers));
-    return Object.freeze({ groups: Object.freeze(groups) });
+    return Object.freeze({
+      groups: Object.freeze(groups),
+      indexHealth: currentIndexHealth(runtime),
+    });
   },
 
-  async refresh(runtime: Runtime, input: unknown): Promise<RefreshOutput> {
+  async refresh(runtime: Runtime, input: unknown): Promise<RefreshOutputWithHealth> {
     const v = new Validator(ToolError, "refresh_workspace");
     const data = v.requireRecord(input ?? {}, "arguments");
     const path = v.getStr(data, "path");
@@ -257,7 +308,10 @@ export const tools = {
         elapsedSeconds: summary.elapsedSeconds,
       });
     }
-    return { summaries: Object.freeze(summaries) };
+    return Object.freeze({
+      summaries: Object.freeze(summaries),
+      indexHealth: currentIndexHealth(runtime),
+    });
   },
 } as const;
 
@@ -267,7 +321,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "search_workspace",
     description:
-      "Semantic search over the locally-indexed workspace. Returns ranked code chunks. Each result includes `absPath` (absolute path on disk), `relPath` (relative to project root), `projectRoot`, `projectName`, line range, score, snippet, `matchReasons` (e.g. symbol_match, import_match, call_match, risky_call_category, complexity_signal, async_match) and `analyzer` (cheap AST metadata: imports, exports, calls, complexity, risky-call categories). `analyzer` is null for non-code chunks. Pass `path` to scope the search; omit it to search every indexed project.",
+      "Semantic search over the locally-indexed workspace. Returns ranked code chunks. Each result includes `absPath` (absolute path on disk), `relPath` (relative to project root), `projectRoot`, `projectName`, line range, score, snippet, `matchReasons` (e.g. symbol_match, import_match, call_match, risky_call_category, complexity_signal, async_match) and `analyzer` (cheap AST metadata: imports, exports, calls, complexity, risky-call categories). `analyzer` is null for non-code chunks. Pass `path` to scope the search; omit it to search every indexed project. Every response carries an `indexHealth` field — when `indexHealth.reconciling` is true, results may be partial (particularly for the project named in `indexHealth.currentProject`).",
     inputSchema: {
       type: "object",
       required: ["query"],
@@ -306,7 +360,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_usages",
     description:
-      "Cross-reference lookup for a symbol: returns its definitions and every callsite/import. Distinct from `search_workspace` because it is exact-match by name, not ranked retrieval. Each hit carries `relPath`, `line` (the exact reference), `chunkStartLine`/`chunkEndLine` (surrounding chunk), and `kind` (`def`|`call`|`import`|`reference`). Pass `path` to scope to one project; omit to search every project that knows the symbol.",
+      "Cross-reference lookup for a symbol: returns its definitions and every callsite/import. Distinct from `search_workspace` because it is exact-match by name, not ranked retrieval. Each hit carries `relPath`, `line` (the exact reference), `chunkStartLine`/`chunkEndLine` (surrounding chunk), and `kind` (`def`|`call`|`import`|`reference`). Pass `path` to scope to one project; omit to search every project that knows the symbol. The response carries an `indexHealth` field — when `indexHealth.reconciling` is true a symbol may be missing because its file hasn't been re-indexed yet, not because the symbol is undefined; retry after the pass completes (`indexHealth.reconciling=false`).",
     inputSchema: {
       type: "object",
       required: ["symbol"],

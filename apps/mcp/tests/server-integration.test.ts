@@ -67,6 +67,15 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
         }) satisfies SearchResponse,
     },
     indexer: { indexProject: async () => ({ project: projects[0]!, indexed: 0, skipped: 0, failed: 0, elapsedSeconds: 0, failures: [], total: 0 }) },
+    reconciler: {
+      status: () => ({
+        running: false,
+        startedAt: null,
+        currentProjectName: null,
+        completed: 0,
+        total: 0,
+      }),
+    },
     rules: {},
     embeddings: {},
     vectors: {},
