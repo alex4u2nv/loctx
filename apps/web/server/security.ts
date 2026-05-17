@@ -70,7 +70,17 @@ export function localDaemonGuard(opts: SecurityMiddlewareOptions): MiddlewareHan
     const originValue =
       origin !== undefined && origin !== "" && origin !== "null" ? origin : null;
     if (originValue !== null && !allowedOrigins.has(originValue.toLowerCase())) {
-      return c.text(`forbidden: unexpected Origin ${originValue}`, 403);
+      // MCP clients (Claude Code, Cursor, Windsurf, …) connect with
+      // their own identifier as Origin (e.g. "claude-code"). They are
+      // not browsers, so the CSRF/DNS-rebinding rationale behind the
+      // Origin allowlist doesn't apply. Accept non-browser-shaped
+      // Origins on /mcp paths only; the Host check above still gates
+      // DNS-rebinding regardless. The strict /api/* check stays.
+      if (c.req.path.startsWith("/mcp") && !isBrowserOrigin(originValue)) {
+        // fall through to next()
+      } else {
+        return c.text(`forbidden: unexpected Origin ${originValue}`, 403);
+      }
     }
 
     // CORS preflight: same allowlist as the real request, plus the
@@ -107,4 +117,21 @@ export function localDaemonGuard(opts: SecurityMiddlewareOptions): MiddlewareHan
  */
 function isProtectedPath(path: string): boolean {
   return path === "/mcp" || path.startsWith("/mcp/") || path.startsWith("/api/");
+}
+
+/**
+ * True when `value` looks like a browser-style Origin header — i.e.
+ * `<scheme>://<host>[:<port>]` with an http(s) scheme. Anything else
+ * (a bare token, an IDE-specific scheme like `vscode-webview://`, or
+ * an MCP client identifier like `claude-code`) is treated as a
+ * non-browser caller. We use this only to relax the /mcp Origin
+ * allowlist for those clients; the Host header check above still runs.
+ */
+function isBrowserOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
