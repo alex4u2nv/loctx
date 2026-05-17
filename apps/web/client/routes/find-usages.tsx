@@ -103,7 +103,9 @@ function UsageTable({ hits }: { hits: ReadonlyArray<UsageHit> }) {
         {hits.map((h, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: composite key would be (projectId+relPath+startLine), index is fine here
           <tr key={`${h.projectId}-${h.relPath}-${h.chunkStartLine}-${i}`}>
-            <td className="dim">{h.projectId}</td>
+            <td className="dim" title={h.projectId}>
+              {h.projectName}
+            </td>
             <td>{h.relPath}</td>
             <td className="dim">{h.kind}</td>
             <td className="num">
