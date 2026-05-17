@@ -53,7 +53,13 @@ export function mountFindUsages(app: Hono, config: Config, getRuntime: () => Pro
 function toHit(
   projectId: string,
   projectName: string,
-  h: { relPath: string; chunkStartLine: number; chunkEndLine: number; kind: string },
+  h: {
+    relPath: string;
+    chunkStartLine: number;
+    chunkEndLine: number;
+    kind: string;
+    document: string;
+  },
 ): UsageHit {
   return {
     projectId,
@@ -62,5 +68,6 @@ function toHit(
     chunkStartLine: h.chunkStartLine,
     chunkEndLine: h.chunkEndLine,
     kind: h.kind,
+    snippet: h.document,
   };
 }

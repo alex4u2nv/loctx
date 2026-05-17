@@ -12,6 +12,7 @@ import type {
   FindUsagesPayload,
   FindUsagesRequest,
   ModelsPayload,
+  ProjectDetailPayload,
   ProjectsPayload,
   SearchPayload,
   SearchRequestBody,
@@ -108,6 +109,7 @@ export const api = {
       accepted: Array<{ projectId: string; name: string }>;
       rejected?: Array<{ projectId: string; name: string; reason: string }>;
     }>("/api/rebuild", path !== undefined ? { path } : {}),
+  projectDetail: (id: string) => getJson<ProjectDetailPayload>(`/api/projects/${encodeURIComponent(id)}`),
   activateProject: (path: string) =>
     postJson<{
       ok: true;

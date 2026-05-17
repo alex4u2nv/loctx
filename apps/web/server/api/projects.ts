@@ -16,7 +16,9 @@ import type { Hono } from "hono";
 import type {
   InactiveRow,
   OrphanRow,
+  ProjectDetailPayload,
   ProjectHealth,
+  ProjectStats,
   ProjectsPayload,
   ProjectsRow,
   RebuildProgress,
@@ -134,6 +136,71 @@ export function mountProjects(
         ]),
         homeDir: homedir(),
       };
+      return c.json(payload);
+    } finally {
+      state.close();
+    }
+  });
+
+  app.get("/api/projects/:id", (c) => {
+    const id = c.req.param("id");
+    const discovery = new WorkspaceDiscovery(config.workspaceRoots);
+    const state = new StateStore(config.paths.stateDb);
+    try {
+      const inventory = inventoryProjects(discovery, state);
+      // The inspect view spans active + orphaned. Inactive projects
+      // have no indexed content yet, so detail is pointless — surface
+      // a 404 and let the UI offer "activate" from the list view.
+      const found =
+        inventory.active.find((a) => a.project.id === id) ??
+        inventory.orphaned.find((o) => o.project.id === id) ??
+        null;
+      if (found === null) {
+        return c.json({ error: "project not found or not yet activated" }, 404);
+      }
+      const isOrphan = "rootExists" in found;
+      const project = found.project;
+      const files = state.listFiles(project.id);
+      const errors = files.filter((f) => f.error !== null).length;
+      const lastIndexed = files
+        .map((f) => f.indexedAt)
+        .sort()
+        .at(-1);
+      const watcherEntry =
+        watcherRegistry !== undefined ? watcherRegistry.get(project.id) : null;
+      const watcherState = watcherEntry !== null ? watcherEntry.state : null;
+      const { health, healthHint } = computeHealth({
+        isOrphaned: isOrphan,
+        watcherState,
+        files: files.length,
+        errors,
+        lastIndexed: lastIndexed ?? null,
+      });
+      const chunkCounts = chunkCountsByProject(state);
+      const rebuild = rebuildTracker.get(project.id);
+      const pendingMap = new Map(
+        state.listProjectsWithRebuildPending().map((p) => [p.id, p.rebuildPendingAt]),
+      );
+      const row: ProjectsRow = {
+        id: project.id,
+        name: project.name,
+        root: project.root,
+        marker: "marker" in found ? (found.marker as string | null) : null,
+        markerKind: "markerKind" in found ? (found.markerKind as string | null) : null,
+        files: files.length,
+        chunks: chunkCounts.get(project.id) ?? 0,
+        errors,
+        lastIndexed: lastIndexed ?? null,
+        lastReconciled: found.lastReconciledAt ?? null,
+        watcher: watcherState,
+        watcherFailure: watcherEntry !== null ? watcherEntry.failureReason : null,
+        health,
+        healthHint,
+        rebuilding: toRebuildProgress(rebuild ?? undefined),
+        rebuildPendingAt: pendingMap.get(project.id) ?? null,
+      };
+      const stats = projectStats(state, project.id);
+      const payload: ProjectDetailPayload = { project: row, stats };
       return c.json(payload);
     } finally {
       state.close();
@@ -385,6 +452,90 @@ function toRebuildProgress(job: RebuildJob | undefined): RebuildProgress | null 
     completedAt: job.completedAt,
     error: job.error,
   };
+}
+
+function projectStats(state: StateStore, projectId: string): ProjectStats {
+  // Reach for the raw better-sqlite handle the same way chunkCountsByProject
+  // does. The state store doesn't expose these custom aggregates yet —
+  // if we end up needing them in other places, promote them to
+  // `:name` queries in state.sql.
+  type Db = { prepare(sql: string): { all(...args: unknown[]): Array<unknown> } };
+  const db = (state as unknown as { db: Db })["db"];
+
+  // One row per indexed file with its chunk count + indexed timestamp.
+  // We aggregate byExtension + topFiles + recentFiles from this single
+  // pass in JS rather than doing three SQL queries. SQLite has no
+  // last-character search primitive (no `reverse()`), and even if it
+  // did, doing the extension-extraction in JS is more readable and
+  // handles dotfiles + multi-dot names predictably.
+  const fileRows = db
+    .prepare(
+      "SELECT files.rel_path AS rel_path, files.indexed_at AS indexed_at, " +
+        "COUNT(chunks.chunk_id) AS chunks " +
+        "FROM files LEFT JOIN chunks ON chunks.file_id = files.file_id " +
+        "WHERE files.project_id = ? AND files.error IS NULL " +
+        "GROUP BY files.file_id",
+    )
+    .all(projectId) as Array<{ rel_path: string; indexed_at: string | null; chunks: number }>;
+
+  const byExtMap = new Map<string, { files: number; chunks: number }>();
+  for (const r of fileRows) {
+    const ext = extensionOf(r.rel_path);
+    const entry = byExtMap.get(ext) ?? { files: 0, chunks: 0 };
+    entry.files += 1;
+    entry.chunks += Number(r.chunks);
+    byExtMap.set(ext, entry);
+  }
+  const byExtension = Array.from(byExtMap.entries())
+    .map(([ext, v]) => ({ ext, files: v.files, chunks: v.chunks }))
+    .sort((a, b) => b.chunks - a.chunks || a.ext.localeCompare(b.ext));
+
+  const TOP_LIMIT = 10;
+  const topFiles = [...fileRows]
+    .sort((a, b) => Number(b.chunks) - Number(a.chunks) || a.rel_path.localeCompare(b.rel_path))
+    .slice(0, TOP_LIMIT)
+    .map((r) => ({
+      relPath: r.rel_path,
+      chunks: Number(r.chunks),
+      indexedAt: r.indexed_at,
+    }));
+  const recentFiles = [...fileRows]
+    .sort((a, b) => {
+      const aTs = a.indexed_at ?? "";
+      const bTs = b.indexed_at ?? "";
+      return bTs.localeCompare(aTs) || a.rel_path.localeCompare(b.rel_path);
+    })
+    .slice(0, TOP_LIMIT)
+    .map((r) => ({ relPath: r.rel_path, indexedAt: r.indexed_at }));
+
+  const failingFileRows = db
+    .prepare(
+      "SELECT rel_path, error FROM files " +
+        "WHERE project_id = ? AND error IS NOT NULL " +
+        "ORDER BY rel_path",
+    )
+    .all(projectId) as Array<{ rel_path: string; error: string }>;
+
+  return {
+    byExtension,
+    topFiles,
+    recentFiles,
+    failingFiles: failingFileRows.map((r) => ({
+      relPath: r.rel_path,
+      error: r.error,
+    })),
+  };
+}
+
+function extensionOf(relPath: string): string {
+  const lastSlash = relPath.lastIndexOf("/");
+  const lastDot = relPath.lastIndexOf(".");
+  // A leading dot (".gitignore") or no-dot file ("Dockerfile") both
+  // count as "<none>" rather than the whole basename. A dot inside a
+  // directory above the filename ("path.to/file") shouldn't count
+  // either; require the dot to appear AFTER the last slash.
+  if (lastDot <= lastSlash + 1) return "<none>";
+  return relPath.slice(lastDot);
 }
 
 function chunkCountsByProject(state: StateStore): Map<string, number> {
