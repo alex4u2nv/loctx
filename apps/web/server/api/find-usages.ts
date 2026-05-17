@@ -39,10 +39,10 @@ export function mountFindUsages(app: Hono, config: Config, getRuntime: () => Pro
     for (const project of projects) {
       const r = rt.state.findSymbol(project.id, symbol);
       for (const hit of r.defs) {
-        defs.push(toHit(project.id, hit));
+        defs.push(toHit(project.id, project.name, hit));
       }
       for (const hit of r.refs) {
-        refs.push(toHit(project.id, hit));
+        refs.push(toHit(project.id, project.name, hit));
       }
     }
     const payload: FindUsagesPayload = { symbol, defs, refs };
@@ -52,10 +52,12 @@ export function mountFindUsages(app: Hono, config: Config, getRuntime: () => Pro
 
 function toHit(
   projectId: string,
+  projectName: string,
   h: { relPath: string; chunkStartLine: number; chunkEndLine: number; kind: string },
 ): UsageHit {
   return {
     projectId,
+    projectName,
     relPath: h.relPath,
     chunkStartLine: h.chunkStartLine,
     chunkEndLine: h.chunkEndLine,

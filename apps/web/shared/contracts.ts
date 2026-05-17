@@ -292,6 +292,7 @@ export interface FindUsagesPayload {
 
 export interface UsageHit {
   readonly projectId: string;
+  readonly projectName: string;
   readonly relPath: string;
   readonly chunkStartLine: number;
   readonly chunkEndLine: number;
