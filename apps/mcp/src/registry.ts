@@ -79,6 +79,9 @@ export interface IndexHealth {
   readonly currentProject: string | null;
   readonly completed: number;
   readonly total: number;
+  /** Files indexed so far inside `currentProject`. Null when idle. */
+  readonly currentProjectIndexed: number | null;
+  readonly currentProjectTotal: number | null;
 }
 
 export interface StatusOutput {
@@ -151,6 +154,8 @@ function currentIndexHealth(runtime: Runtime): IndexHealth {
     currentProject: s.currentProjectName,
     completed: s.completed,
     total: s.total,
+    currentProjectIndexed: s.currentProjectIndexed,
+    currentProjectTotal: s.currentProjectTotal,
   });
 }
 

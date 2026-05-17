@@ -56,6 +56,15 @@ export interface ReconciliationStatus {
   readonly completed: number;
   /** Total projects in the current batch. */
   readonly total: number;
+  /**
+   * Files indexed so far inside `currentProjectName`. Null when idle or
+   * when the indexer hasn't reported progress yet (pre-walk). Pairs with
+   * `currentProjectTotal` to power "loctx: 86 / 219 files" UI text instead
+   * of the misleading "completed: 0/7 projects" that hides per-file
+   * progress on a large project (#44).
+   */
+  readonly currentProjectIndexed: number | null;
+  readonly currentProjectTotal: number | null;
 }
 
 export class Reconciler {
@@ -64,6 +73,8 @@ export class Reconciler {
   private _currentProjectName: string | null = null;
   private _completed = 0;
   private _total = 0;
+  private _currentProjectIndexed: number | null = null;
+  private _currentProjectTotal: number | null = null;
 
   constructor(
     private readonly state: StateStore,
@@ -77,6 +88,8 @@ export class Reconciler {
       currentProjectName: this._currentProjectName,
       completed: this._completed,
       total: this._total,
+      currentProjectIndexed: this._currentProjectIndexed,
+      currentProjectTotal: this._currentProjectTotal,
     });
   }
 
@@ -111,7 +124,19 @@ export class Reconciler {
     // Run the indexer pass; if it throws, do NOT stamp last_reconciled_at
     // because the project's state is partial. Doctor + workspace_status
     // surface the (now-stale) timestamp to tell the operator drift exists.
-    const indexSummary = await this.indexer.indexProject(project);
+    // onProgress fires once before the first file (indexed=0, total=N) and
+    // again after each file — feed it into the live status so the admin
+    // UI can show "loctx: 86 / 219 files" mid-pass.
+    this._currentProjectIndexed = 0;
+    this._currentProjectTotal = null;
+    const indexSummary = await this.indexer.indexProject(project, {
+      onProgress: (e) => {
+        this._currentProjectIndexed = e.indexed;
+        this._currentProjectTotal = e.total;
+      },
+    });
+    this._currentProjectIndexed = null;
+    this._currentProjectTotal = null;
     // Stamp only on full success — a partially-failed reconcile must not
     // mark the project as up-to-date (see #194).
     this.state.markProjectReconciled(project.id);
@@ -165,6 +190,8 @@ export class Reconciler {
     } finally {
       this._running = false;
       this._currentProjectName = null;
+      this._currentProjectIndexed = null;
+      this._currentProjectTotal = null;
     }
     // (#210: ANN-index trigger temporarily disabled — touching the
     // LanceDB table mid-boot via `countRows()` interacts badly with

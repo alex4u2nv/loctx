@@ -22,6 +22,8 @@ export function mountStatus(
       currentProjectName: null as string | null,
       completed: 0,
       total: 0,
+      currentProjectIndexed: null as number | null,
+      currentProjectTotal: null as number | null,
     };
     try {
       const rt = await getRuntime();

@@ -43,6 +43,13 @@ export interface StatusPayload {
     readonly currentProjectName: string | null;
     readonly completed: number;
     readonly total: number;
+    /**
+     * Files indexed so far inside `currentProjectName` (#44). Null until
+     * the indexer reports progress or when idle. Pairs with
+     * `currentProjectTotal` for "loctx: 86 / 219 files" mid-pass.
+     */
+    readonly currentProjectIndexed: number | null;
+    readonly currentProjectTotal: number | null;
   };
   readonly projects: ReadonlyArray<{
     readonly id: string;

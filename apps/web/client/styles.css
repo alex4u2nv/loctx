@@ -483,6 +483,21 @@ h3 {
   color: var(--bad);
 }
 
+/* In-flight reconcile banner on /status (#44) */
+.reconcile-banner {
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--warn);
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  font-size: 0.875rem;
+}
+.reconcile-banner code {
+  background: var(--surface-2);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
 /* Absorbed-markers pill on projects rows (#286) */
 .absorbed-pill {
   display: inline-block;
