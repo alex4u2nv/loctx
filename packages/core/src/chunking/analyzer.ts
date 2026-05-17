@@ -19,6 +19,36 @@ import type { AnalyzerMetadata, SymbolRefKind } from "../models.js";
 export const ANALYZER_VERSION = 1;
 
 /**
+ * Lowercased identifier tokens that flag a chunk as performing a
+ * potentially risky operation (subprocess, dynamic eval, raw HTML
+ * injection). Used twice:
+ *   - **Extract time:** intersect a chunk's `calls` to populate
+ *     `analyzer.riskyCalls` so search-time scoring can read them
+ *     cheaply (#277).
+ *   - **Query time:** the searcher matches the same token list
+ *     against incoming query text to figure out when to fire the
+ *     `risky_call_category` match reason.
+ *
+ * Lives here (chunking layer) so the searcher can depend on it; the
+ * reverse direction would couple chunking to retrieval.
+ */
+export const RISKY_CATEGORY_TOKENS: ReadonlyArray<string> = Object.freeze([
+  "eval",
+  "exec",
+  "system",
+  "child_process",
+  "subprocess",
+  "shell",
+  "spawn",
+  "execfile",
+  "execsync",
+  "spawnsync",
+  "dangerouslysetinnerhtml",
+]);
+
+const RISKY_TOKEN_SET = new Set<string>(RISKY_CATEGORY_TOKENS);
+
+/**
  * One identifier reference inside a chunk. Coordinates are absolute file
  * lines (1-based) so consumers can jump straight to the source. The
  * indexer assigns chunk_id/file_id/project_id when persisting; the
@@ -222,19 +252,43 @@ export function extractAnalyzer(node: TreeSitterNode, language: string): Analyze
     },
   });
 
+  const dedupedCalls = dedupe(calls);
+  // Surface any call whose lowercased name (or any dot-separated
+  // suffix of it) matches a known risky category. This catches
+  // `child_process.exec`, `subprocess.run`, plain `exec`, and the
+  // React/JS-specific `dangerouslySetInnerHTML` JSX attribute.
+  // Match-time scoring (see retrieval/searcher.ts) only fires the
+  // `risky_call_category` reason when both query AND chunk mention
+  // the same category, so a non-empty `riskyCalls` here is what
+  // actually lights up the signal at query time. (#277)
+  const riskyCalls = dedupedCalls.filter((c) => isRiskyCall(c));
+
   return Object.freeze({
     imports: Object.freeze(dedupe(imports)),
     exports: Object.freeze(dedupe(exports)),
-    calls: Object.freeze(dedupe(calls)),
+    calls: Object.freeze(dedupedCalls),
     maxNestingDepth,
     maxLoopDepth,
     paramCount,
     hasAsync,
     hasRecursionHint: false,
-    riskyCalls: Object.freeze([]),
+    riskyCalls: Object.freeze(riskyCalls),
     analysisSource: "tree-sitter",
     analysisVersion: ANALYZER_VERSION,
   });
+}
+
+function isRiskyCall(callee: string): boolean {
+  const lower = callee.toLowerCase();
+  if (RISKY_TOKEN_SET.has(lower)) return true;
+  // Member-access form (e.g. `child_process.exec`): each dotted
+  // component is a chance to match. The chunker's `calleeText` already
+  // strips to the rightmost segment, but a defensive split here covers
+  // raw names that slip through.
+  for (const part of lower.split(".")) {
+    if (RISKY_TOKEN_SET.has(part)) return true;
+  }
+  return false;
 }
 
 interface WalkAcc {
