@@ -82,6 +82,23 @@ export function createWebApp(opts: CreateWebAppOptions): Hono {
   mountApi(app, opts.config, getRuntime, opts.watcherRegistry);
   mountMcp(app, getRuntime);
 
+  // OAuth discovery probes — Claude Code's MCP HTTP client (and others
+  // following the MCP spec) GET these well-known paths to detect
+  // whether the server requires OAuth before sending `initialize`.
+  // loctx is local-first and unauthenticated, so the correct response
+  // is a clean 404 JSON. Without this, the SPA fallback returns
+  // index.html, the client tries to JSON.parse the HTML, and we get
+  // "SDK auth failed: Failed to parse JSON" with no useful diagnostic.
+  // Must register BEFORE the SPA fallback below.
+  const oauthNotSupported = (c: import("hono").Context) =>
+    c.json(
+      { error: "not_supported", error_description: "loctx is local-first; no auth required" },
+      404,
+    );
+  app.get("/.well-known/oauth-protected-resource", oauthNotSupported);
+  app.get("/.well-known/oauth-protected-resource/mcp", oauthNotSupported);
+  app.get("/.well-known/oauth-authorization-server", oauthNotSupported);
+
   if (opts.staticDir !== undefined && existsSync(opts.staticDir)) {
     const root = opts.staticDir;
     // Cache-control pre-middleware. Without this, non-incognito browsers
