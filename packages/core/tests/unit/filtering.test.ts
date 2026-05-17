@@ -117,6 +117,34 @@ describe("ProjectFilter", () => {
     expect(freshFilter().shouldIndex(outside).reason).toBe(FilterReason.OUTSIDE_PROJECT);
   });
 
+  it("skips lockfiles via noise_globs by default", () => {
+    const f = write(join(projectRoot, "package-lock.json"), '{"lockfileVersion": 3}');
+    expect(freshFilter().shouldIndex(f).reason).toBe(FilterReason.NOISE);
+  });
+
+  it("noise_globs covers the canonical lockfile basenames", () => {
+    const names = [
+      "package-lock.json",
+      "npm-shrinkwrap.json",
+      "yarn.lock",
+      "pnpm-lock.yaml",
+      "composer.lock",
+      "Gemfile.lock",
+      ".terraform.lock.hcl",
+    ];
+    for (const name of names) {
+      const f = write(join(projectRoot, name), "x");
+      expect(freshFilter().shouldIndex(f).reason).toBe(FilterReason.NOISE);
+    }
+  });
+
+  it("allowed_named_files wins over noise_globs (Pipfile.lock stays indexed)", () => {
+    // Pipfile.lock is explicitly opted-in via allowed_named_files; the
+    // opt-in must beat noise_globs so users keep their curated coverage.
+    const f = write(join(projectRoot, "Pipfile.lock"), "[meta]\n");
+    expect(freshFilter().shouldIndex(f).shouldIndex).toBe(true);
+  });
+
   it("accepts a normal Python file", () => {
     const f = write(join(projectRoot, "src", "app.py"), "def hi():\n    return 1\n");
     const decision = freshFilter().shouldIndex(f);
