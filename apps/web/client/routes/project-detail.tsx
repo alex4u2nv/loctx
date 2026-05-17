@@ -22,6 +22,7 @@ import { Link, useParams } from "react-router-dom";
 import { BarChart, type BarRow } from "../components/bar-chart";
 import { useLiveRefreshEvent } from "../components/live-refresh";
 import { SnippetModal } from "../components/snippet-modal";
+import { SurfaceCard } from "../components/surface-card";
 import { api } from "../lib/api";
 import { compressPath, relativeTime } from "../lib/format";
 import { useFetch } from "../lib/use-fetch";
@@ -101,18 +102,18 @@ export function ProjectDetailPage() {
             gap: "var(--space-3)",
           }}
         >
-          <ChartCard
-            title="Composition"
+          <SurfaceCard
+            eyebrow="Composition"
             subtitle={`chunks by extension${stats.byExtension.length > TOP_N ? ` (top ${TOP_N} of ${stats.byExtension.length})` : ""}`}
           >
             <BarChart rows={byExtensionRows(compactByExt)} />
-          </ChartCard>
-          <ChartCard
-            title="Top files"
+          </SurfaceCard>
+          <SurfaceCard
+            eyebrow="Top files"
             subtitle={`by chunk count${stats.topFiles.length > TOP_N ? ` (top ${TOP_N})` : ""}`}
           >
             <BarChart rows={topFileRows(compactTopFiles)} />
-          </ChartCard>
+          </SurfaceCard>
         </div>
       </div>
 
@@ -128,43 +129,6 @@ export function ProjectDetailPage() {
         </>
       ) : null}
     </section>
-  );
-}
-
-// ---- compact chart card ------------------------------------------------
-
-function ChartCard({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      style={{
-        background: "var(--surface)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-card)",
-        padding: "var(--space-3)",
-      }}
-    >
-      <p
-        className="eyebrow"
-        style={{ margin: 0, fontSize: "0.7rem" }}
-      >
-        {title}
-      </p>
-      <p
-        className="dim"
-        style={{ margin: "0 0 var(--space-2)", fontSize: "0.75rem" }}
-      >
-        {subtitle}
-      </p>
-      {children}
-    </div>
   );
 }
 
