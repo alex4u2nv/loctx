@@ -489,6 +489,14 @@ export function extractSymbolRefs(
 function findDefName(node: TreeSitterNode): string | null {
   const named = node.childForFieldName("name");
   if (named !== null && named.text.length > 0) return named.text;
+  // Variable declarations carry their name on the inner variable_declarator
+  // (e.g. `const X = ...` → lexical_declaration > variable_declarator >
+  // name(X)). Without this, top-level `const`-shaped chunk roots produce
+  // no symbol_refs def row and become invisible to find_usages.
+  if (node.type === "lexical_declaration" || node.type === "variable_declaration") {
+    const declName = firstDeclaratorName(node);
+    if (declName !== null) return declName;
+  }
   const WRAPPER_TYPES = new Set([
     "export_statement",
     "decorated_definition",
@@ -498,6 +506,22 @@ function findDefName(node: TreeSitterNode): string | null {
   for (const child of node.namedChildren) {
     const inner = child.childForFieldName("name");
     if (inner !== null && inner.text.length > 0) return inner.text;
+    // Wrapped variable declarations: `export const X = ...` → export_statement
+    // > lexical_declaration > variable_declarator > name(X). Drill one more
+    // level when the wrapped child has no own name field.
+    if (child.type === "lexical_declaration" || child.type === "variable_declaration") {
+      const declName = firstDeclaratorName(child);
+      if (declName !== null) return declName;
+    }
+  }
+  return null;
+}
+
+function firstDeclaratorName(decl: TreeSitterNode): string | null {
+  for (const child of decl.namedChildren) {
+    if (child.type !== "variable_declarator") continue;
+    const name = child.childForFieldName("name");
+    if (name !== null && name.text.length > 0) return name.text;
   }
   return null;
 }
