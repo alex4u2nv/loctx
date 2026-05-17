@@ -68,9 +68,7 @@ export function ModelsPage() {
               <tr key={m.id}>
                 <td>{m.id}</td>
                 <td className="dim">
-                  {m.current ? "active" : ""}
-                  {m.current && m.downloaded ? " · " : ""}
-                  {m.downloaded ? "downloaded" : "not downloaded"}
+                  <ModelState current={m.current} downloaded={m.downloaded} />
                 </td>
                 <td>
                   <button
@@ -97,4 +95,26 @@ export function ModelsPage() {
       )}
     </section>
   );
+}
+
+/**
+ * `current` and `downloaded` come from independent sources (config vs.
+ * HF cache existsSync), so all four combinations are reachable. The
+ * surprising one is `current=true, downloaded=false` — the user picked
+ * the model but the daemon hasn't pulled the weights yet. The daemon
+ * will fetch lazily on first embed, but until then it literally can't
+ * index. Surface that as a distinct, mildly-warning state rather than
+ * shoving "active" and "not downloaded" together as if they're
+ * compatible.
+ */
+function ModelState({ current, downloaded }: { current: boolean; downloaded: boolean }) {
+  if (current && downloaded) return <>active · downloaded</>;
+  if (current && !downloaded)
+    return (
+      <span className="warn" title="The daemon will fetch this on first embed. Click 'download' to pre-fetch.">
+        active · pending download
+      </span>
+    );
+  if (downloaded) return <>downloaded</>;
+  return <>not downloaded</>;
 }
