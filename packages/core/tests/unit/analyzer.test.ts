@@ -195,6 +195,34 @@ describe("Symbol cross-reference extraction (#96)", () => {
     expect(chunks.every((c) => c.kind !== "import")).toBe(true);
   });
 
+  it("emits def for top-level const X = [...] and export const X = [...]", () => {
+    // MCP find_usages on TOOL_DEFINITIONS / TOOL_HANDLERS in
+    // apps/mcp/src/registry.ts surfaced zero defs even though both are
+    // clearly defined there. Cause: findDefName didn't drill into
+    // lexical_declaration > variable_declarator > name. With the fix,
+    // both shapes (with and without `export`) produce a def row that
+    // find_usages can pick up.
+    const ts = [
+      "export const TOOL_DEFINITIONS = [",
+      "  { name: 'a' },",
+      "  { name: 'b' },",
+      "] as const;",
+      "",
+      "const TOOL_HANDLERS = {",
+      "  a: handlerA,",
+      "  b: handlerB,",
+      "} as const;",
+      "",
+    ].join("\n");
+    const chunks = chunkFile("src/registry.ts", ts);
+
+    const defs = chunks.flatMap((c) =>
+      (c.symbolRefs ?? []).filter((r) => r.kind === "def").map((r) => r.symbol),
+    );
+    expect(defs).toContain("TOOL_DEFINITIONS");
+    expect(defs).toContain("TOOL_HANDLERS");
+  });
+
   it("populates analyzer.exports for export_statement chunks (#274)", () => {
     const ts = [
       "export function alpha(x: number) { return x + 1; }",
