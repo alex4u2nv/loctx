@@ -2,7 +2,9 @@ import type { FindUsagesPayload, UsageHit } from "@shared/contracts";
 import { useState } from "react";
 import { DataTable } from "../components/data-table";
 import { QueryForm } from "../components/query-form";
+import { SnippetModal } from "../components/snippet-modal";
 import { api } from "../lib/api";
+import { useSnippetSelection } from "../lib/use-snippet-selection";
 
 export function FindUsagesPage() {
   const [response, setResponse] = useState<FindUsagesPayload | null>(null);
@@ -66,28 +68,46 @@ export function FindUsagesPage() {
 }
 
 function Results({ r }: { r: FindUsagesPayload }) {
-  if (r.defs.length === 0 && r.refs.length === 0)
-    return <p className="pullquote">No matches for {r.symbol}.</p>;
+  const warnings = r.warnings ?? [];
+  const empty = r.defs.length === 0 && r.refs.length === 0;
   return (
     <>
-      <h2>Definitions ({r.defs.length})</h2>
-      <UsageTable hits={r.defs} />
-      <h2>References ({r.refs.length})</h2>
-      <UsageTable hits={r.refs} />
+      {warnings.map((w) => (
+        <p
+          key={w}
+          className="pullquote"
+          style={{ borderLeftColor: "var(--warn)", color: "var(--warn)" }}
+        >
+          {w}
+        </p>
+      ))}
+      {empty ? (
+        <p className="pullquote">No matches for {r.symbol}.</p>
+      ) : (
+        <>
+          <h2>Definitions ({r.defs.length})</h2>
+          <UsageTable hits={r.defs} />
+          <h2>References ({r.refs.length})</h2>
+          <UsageTable hits={r.refs} />
+        </>
+      )}
     </>
   );
 }
 
 function UsageTable({ hits }: { hits: ReadonlyArray<UsageHit> }) {
+  const { selected, open, close } = useSnippetSelection<UsageHit>();
   if (hits.length === 0) return <p className="pullquote">none</p>;
   // Fixed column widths via .usage-table .col-* in styles.css so the
   // Definitions and References tables line up across the page — two
   // independent <table>s would otherwise auto-size per their content.
   return (
+    <>
     <DataTable
       className="usage-table"
       rows={hits}
       rowKey={(h, i) => `${h.projectId}-${h.relPath}-${h.chunkStartLine}-${i}`}
+      onRowClick={open}
       columns={[
         {
           key: "project",
@@ -118,5 +138,22 @@ function UsageTable({ hits }: { hits: ReadonlyArray<UsageHit> }) {
         },
       ]}
     />
+    {selected !== null ? (
+      <SnippetModal
+        title={selected.relPath}
+        snippet={selected.snippet}
+        onClose={close}
+        meta={
+          <span className="dim">
+            lines {selected.chunkStartLine}-{selected.chunkEndLine}
+            <span className="sep">·</span>
+            kind: {selected.kind}
+            <span className="sep">·</span>
+            project: {selected.projectName}
+          </span>
+        }
+      />
+    ) : null}
+    </>
   );
 }

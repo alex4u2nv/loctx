@@ -1,8 +1,10 @@
-import type { SearchPayload } from "@shared/contracts";
+import type { SearchHit, SearchPayload } from "@shared/contracts";
 import { useCallback, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { SnippetModal } from "../components/snippet-modal";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
+import { useSnippetSelection } from "../lib/use-snippet-selection";
 
 export function SearchPage() {
   const [params, setParams] = useSearchParams();
@@ -149,6 +151,7 @@ export function SearchPage() {
 }
 
 function Results({ response }: { response: SearchPayload }) {
+  const { selected, open, close } = useSnippetSelection<SearchHit>();
   if (response.results.length === 0) return <p className="pullquote">No results.</p>;
   return (
     <>
@@ -178,9 +181,14 @@ function Results({ response }: { response: SearchPayload }) {
           <li key={`${r.relPath}:${r.startLine}`} className="result">
             <div className="result-meta">
               <span className="result-score">{r.score.toFixed(3)}</span>
-              <span className="result-path">
+              <button
+                type="button"
+                className="result-path btn-link"
+                onClick={() => open(r)}
+                title="Click to view full snippet"
+              >
                 {r.absPath ?? r.relPath}:{r.startLine}-{r.endLine}
-              </span>
+              </button>
               <span className="result-tag">[{r.kind}]</span>
               {r.symbols.length > 0 ? (
                 <span className="dim">{r.symbols.join(", ")}</span>
@@ -212,6 +220,27 @@ function Results({ response }: { response: SearchPayload }) {
           </li>
         ))}
       </ul>
+      {selected !== null ? (
+        <SnippetModal
+          title={selected.absPath ?? selected.relPath}
+          snippet={selected.snippet}
+          language={selected.language}
+          onClose={close}
+          meta={
+            <span className="dim">
+              lines {selected.startLine}-{selected.endLine}
+              <span className="sep">·</span>
+              {selected.kind}
+              {selected.symbols.length > 0 ? (
+                <>
+                  <span className="sep">·</span>
+                  {selected.symbols.join(", ")}
+                </>
+              ) : null}
+            </span>
+          }
+        />
+      ) : null}
     </>
   );
 }

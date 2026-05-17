@@ -316,6 +316,12 @@ export interface FindUsagesPayload {
   readonly symbol: string;
   readonly defs: ReadonlyArray<UsageHit>;
   readonly refs: ReadonlyArray<UsageHit>;
+  /**
+   * Surface-level warnings the daemon attaches to the response — mainly
+   * the "index is reconciling, hits may be partial" signal (#44) so the
+   * UI can warn before the user assumes the symbol is undefined.
+   */
+  readonly warnings: ReadonlyArray<string>;
 }
 
 export interface UsageHit {
