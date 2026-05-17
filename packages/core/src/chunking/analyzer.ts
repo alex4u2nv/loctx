@@ -262,8 +262,11 @@ function walk(node: TreeSitterNode, profile: LanguageProfile, acc: WalkAcc): voi
     const target = importTargetText(node);
     if (target !== null) acc.imports.push(target);
   } else if (profile.exportNodes.has(node.type)) {
-    const exportName = node.childForFieldName("name")?.text;
-    if (exportName !== undefined) acc.exports.push(exportName);
+    // `export_statement` wraps the actual declaration; the name lives
+    // on the inner function_declaration / class_declaration /
+    // lexical_declaration node. Walk down to find it. Without this,
+    // analyzer.exports was always empty for TS/JS chunks (#274).
+    for (const name of exportedNames(node)) acc.exports.push(name);
   } else if (profile.callNodes.has(node.type)) {
     const callee = calleeText(node);
     if (callee !== null) acc.calls.push(callee);
@@ -275,6 +278,55 @@ function walk(node: TreeSitterNode, profile: LanguageProfile, acc: WalkAcc): voi
 
   if (isLoop) acc.loopDepth -= 1;
   if (isNesting) acc.nestingDepth -= 1;
+}
+
+/**
+ * Pull every exported identifier out of an export_statement subtree.
+ * Handles all the common shapes:
+ *   - `export function foo() {}`              → ["foo"]
+ *   - `export class Foo {}`                   → ["Foo"]
+ *   - `export const x = …, y = …`             → ["x", "y"]
+ *   - `export interface Foo {}`               → ["Foo"]
+ *   - `export type Foo = …`                   → ["Foo"]
+ *   - `export { Foo, Bar as Baz }`            → ["Foo", "Bar"]
+ *   - `export default function foo() {}`      → ["foo"] (default name preserved)
+ */
+function exportedNames(node: TreeSitterNode): string[] {
+  const out: string[] = [];
+  // Try the wrapped declaration first.
+  const decl = node.childForFieldName("declaration");
+  if (decl !== null) {
+    // Single named declaration (function, class, interface, type alias).
+    const named = decl.childForFieldName("name");
+    if (named !== null && named.text.length > 0) {
+      out.push(named.text);
+    }
+    // Variable declarations have multiple declarators, each with its own name.
+    if (decl.type === "lexical_declaration" || decl.type === "variable_declaration") {
+      for (const declarator of decl.namedChildren) {
+        const dn = declarator.childForFieldName("name");
+        if (dn !== null && dn.text.length > 0 && !out.includes(dn.text)) {
+          out.push(dn.text);
+        }
+      }
+    }
+  }
+  // `export { Foo, Bar as Baz }` — walk for export_specifier children.
+  walkForExportSpecifiers(node, out);
+  return out;
+}
+
+function walkForExportSpecifiers(node: TreeSitterNode, out: string[]): void {
+  if (node.type === "export_specifier") {
+    const named = node.childForFieldName("name");
+    if (named !== null && named.text.length > 0 && !out.includes(named.text)) {
+      out.push(named.text);
+    }
+    return;
+  }
+  for (const child of node.namedChildren) {
+    walkForExportSpecifiers(child, out);
+  }
 }
 
 function importTargetText(node: TreeSitterNode): string | null {

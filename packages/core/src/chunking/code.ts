@@ -223,7 +223,23 @@ export class TreeSitterCodeChunker implements Chunker {
       if (!chunkable.has(node.type)) continue;
       chunks.push(chunkFromNode(node, document.content, language));
     }
-    return chunks.length > 0 ? chunks : this.fallback.chunk(document);
+    if (chunks.length === 0) return this.fallback.chunk(document);
+
+    // #274/#273: top-level imports aren't chunked (avoids retrieval
+    // noise — every import line becoming its own chunk would let
+    // lexical hits on imported names outrank real definitions). But
+    // we still need their analyzer.imports + symbol_refs so find_usages
+    // can answer "who imports this?". Solution: walk the file's root
+    // children for import-shaped nodes, collect modules + named
+    // identifiers, and bolt them onto the FIRST chunk's payload.
+    const fileImports = extractFileLevelImports(tree.rootNode, language);
+    if (fileImports.modules.length > 0 || fileImports.refs.length > 0) {
+      const first = chunks[0];
+      if (first !== undefined) {
+        chunks[0] = withFileImports(first, fileImports);
+      }
+    }
+    return chunks;
   }
 }
 
@@ -243,6 +259,167 @@ function chunkFromNode(node: TreeSitterNode, source: string, language: string): 
     chunkSha: chunkShaFor(body),
     ...(analyzer !== null ? { analyzer } : {}),
     ...(symbolRefs.length > 0 ? { symbolRefs } : {}),
+  };
+}
+
+// ---- file-level imports (#274/#273) ------------------------------------
+
+interface FileImports {
+  /** Module specifiers (e.g. "./snippet-modal", "node:fs"). */
+  readonly modules: ReadonlyArray<string>;
+  /** One symbol_refs row per named import, with `kind: "import"`. */
+  readonly refs: ReadonlyArray<{ symbol: string; kind: "import"; line: number }>;
+}
+
+/** Per-language node types that wrap a top-level import statement. */
+const IMPORT_NODES_BY_LANGUAGE: Readonly<Record<string, ReadonlySet<string>>> = Object.freeze({
+  javascript: new Set(["import_statement"]),
+  typescript: new Set(["import_statement"]),
+  tsx: new Set(["import_statement"]),
+  python: new Set(["import_statement", "import_from_statement"]),
+  go: new Set(["import_declaration"]),
+  rust: new Set(["use_declaration"]),
+  java: new Set(["import_declaration"]),
+});
+
+function extractFileLevelImports(root: TreeSitterNode, language: string): FileImports {
+  const importNodes = IMPORT_NODES_BY_LANGUAGE[language];
+  if (importNodes === undefined) return { modules: [], refs: [] };
+
+  const modules: string[] = [];
+  const refs: { symbol: string; kind: "import"; line: number }[] = [];
+
+  for (const node of root.namedChildren) {
+    if (!importNodes.has(node.type)) continue;
+    const line = node.startPosition.row + 1;
+    const target = importModuleText(node);
+    if (target !== null && target !== "") modules.push(target);
+    for (const name of extractNamedImports(node)) {
+      refs.push({ symbol: name, kind: "import", line });
+    }
+  }
+
+  return { modules: dedupeStrings(modules), refs };
+}
+
+/**
+ * Pull the module specifier out of an import-shape node. Matches the
+ * heuristics in analyzer.ts's importTargetText, but kept local so this
+ * file owns its imports surface end-to-end.
+ */
+function importModuleText(node: TreeSitterNode): string | null {
+  for (const field of ["source", "module", "argument", "name"]) {
+    const child = node.childForFieldName(field);
+    if (child !== null && child.text.length > 0) return stripImportQuotes(child.text);
+  }
+  for (const child of node.namedChildren) {
+    if (
+      child.type === "string" ||
+      child.type === "string_literal" ||
+      child.type === "raw_string_literal"
+    ) {
+      return stripImportQuotes(child.text);
+    }
+  }
+  return null;
+}
+
+/**
+ * Pull every named imported identifier out of an import-shape node.
+ *   - JS/TS `import { A, B as C } from "x"` → ["A", "B"]
+ *   - JS/TS `import D from "x"` (default)   → ["D"]
+ *   - JS/TS `import * as ns from "x"`       → ["ns"]
+ *   - Python `from x import A, B`           → ["A", "B"]
+ *   - Python `import x` / `import x as y`   → ["x"] / ["y"]
+ *   - Go/Java/Rust currently return [] — the module specifier alone is
+ *     useful for analyzer.imports, but the named-symbol shape varies
+ *     enough that we extend per-language in follow-ups.
+ */
+function extractNamedImports(node: TreeSitterNode): string[] {
+  const names: string[] = [];
+  collectIdentifiers(node, names);
+  return dedupeStrings(names);
+}
+
+const IMPORT_SUBNODES_TO_DESCEND = new Set([
+  "import_clause",
+  "named_imports",
+  "namespace_import",
+  "import_specifier",
+  "default_import",
+  "dotted_name",
+  "aliased_import",
+  "import_list",
+]);
+
+function collectIdentifiers(node: TreeSitterNode, out: string[]): void {
+  if (node.type === "identifier" || node.type === "type_identifier") {
+    if (node.text.length > 0) out.push(node.text);
+    return;
+  }
+  if (
+    node.type === "import_specifier" ||
+    node.type === "aliased_import" ||
+    node.type === "namespace_import"
+  ) {
+    // Prefer the "name" field when present (handles `B as C` → "B").
+    const named = node.childForFieldName("name");
+    if (named !== null && named.text.length > 0) {
+      out.push(named.text);
+      return;
+    }
+  }
+  if (
+    !IMPORT_SUBNODES_TO_DESCEND.has(node.type) &&
+    node.type !== "import_statement" &&
+    node.type !== "import_from_statement"
+  ) {
+    // Don't descend into arbitrary nodes — keep the walk tight to
+    // the import-clause subtree.
+    if (node.namedChildren.length > 0 && node.namedChildren[0]?.type === "identifier") {
+      // shallow fallthrough — top-level imports in TS land here for
+      // the default-import + namespace-import shapes that don't have
+      // a dedicated wrapper.
+    } else {
+      return;
+    }
+  }
+  for (const child of node.namedChildren) {
+    collectIdentifiers(child, out);
+  }
+}
+
+function stripImportQuotes(s: string): string {
+  if (s.length >= 2 && (s[0] === '"' || s[0] === "'") && s[s.length - 1] === s[0]) {
+    return s.slice(1, -1);
+  }
+  return s;
+}
+
+function dedupeStrings(items: ReadonlyArray<string>): string[] {
+  return [...new Set(items)];
+}
+
+/**
+ * Merge file-level import data into the chunk we picked (the first
+ * one). The chunk's content/lines stay unchanged so the embedding is
+ * unaffected; only the analyzer.imports + symbolRefs metadata gains
+ * the file's import information.
+ */
+function withFileImports(chunk: CodeChunk, fileImports: FileImports): CodeChunk {
+  const analyzer = chunk.analyzer;
+  const mergedAnalyzer =
+    analyzer !== undefined
+      ? {
+          ...analyzer,
+          imports: Object.freeze(dedupeStrings([...analyzer.imports, ...fileImports.modules])),
+        }
+      : undefined;
+  const mergedSymbolRefs = [...(chunk.symbolRefs ?? []), ...fileImports.refs];
+  return {
+    ...chunk,
+    ...(mergedAnalyzer !== undefined ? { analyzer: mergedAnalyzer } : {}),
+    ...(mergedSymbolRefs.length > 0 ? { symbolRefs: mergedSymbolRefs } : {}),
   };
 }
 

@@ -147,9 +147,8 @@ describe("Symbol cross-reference extraction (#96)", () => {
   });
 
   it("records imports inside a chunk as kind=import", () => {
-    // Top-level imports aren't part of any chunkable node, so they don't
-    // land in symbol_refs. Imports DECLARED INSIDE a function (legal in
-    // Python) do — they live inside the function chunk's subtree.
+    // Imports DECLARED INSIDE a function (legal in Python) live inside
+    // the function chunk's subtree and surface naturally.
     const py = [
       "def load_config(path):",
       "    import tomllib",
@@ -160,6 +159,70 @@ describe("Symbol cross-reference extraction (#96)", () => {
     const fn = chunks.find((c) => c.kind === "function");
     const imports = (fn?.symbolRefs ?? []).filter((r) => r.kind === "import").map((r) => r.symbol);
     expect(imports.length).toBeGreaterThan(0);
+  });
+
+  it("attaches file-level imports' refs to the first chunk (#274/#273)", () => {
+    // Top-level imports aren't their own chunks (would add retrieval
+    // noise — see eval gate in #274 commit). Instead, the chunker
+    // walks the file's root for import statements and attaches each
+    // named identifier as a `kind: import` ref to the first chunk.
+    const ts = [
+      "import { SnippetModal } from '../components/snippet-modal';",
+      "import { highlightCode } from '../lib/highlight';",
+      "import * as React from 'react';",
+      "",
+      "export function ProjectDetailPage() {",
+      "  return <SnippetModal title='x' snippet='y' onClose={() => {}} />;",
+      "}",
+      "",
+    ].join("\n");
+    const chunks = chunkFile("apps/web/client/routes/project-detail.tsx", ts);
+    expect(chunks.length).toBeGreaterThan(0);
+    const first = chunks[0];
+    expect(first).toBeDefined();
+    const imports = (first?.symbolRefs ?? [])
+      .filter((r) => r.kind === "import")
+      .map((r) => r.symbol);
+    // Every named identifier should be captured — both braced imports
+    // and namespace imports. The line each points at is the import
+    // statement's line in the file.
+    expect(imports).toContain("SnippetModal");
+    expect(imports).toContain("highlightCode");
+    expect(imports).toContain("React");
+    // The chunker should NOT have created its own import chunk —
+    // imports stay attached to the first real chunk to avoid
+    // retrieval-noise regressions.
+    expect(chunks.every((c) => c.kind !== "import")).toBe(true);
+  });
+
+  it("populates analyzer.exports for export_statement chunks (#274)", () => {
+    const ts = [
+      "export function alpha(x: number) { return x + 1; }",
+      "",
+      "export class Beta { run() {} }",
+      "",
+      "export const gamma = 1, delta = 2;",
+      "",
+      "export interface Epsilon { id: number; }",
+    ].join("\n");
+    const chunks = chunkFile("src/x.ts", ts);
+    // Collect every export name across every chunk.
+    const allExports = chunks.flatMap((c) => c.analyzer?.exports ?? []);
+    expect(allExports).toEqual(
+      expect.arrayContaining(["alpha", "Beta", "gamma", "delta", "Epsilon"]),
+    );
+  });
+
+  it("attaches imported module specifiers to the first chunk's analyzer.imports", () => {
+    const ts = [
+      "import { Foo } from './foo';",
+      "import { Bar } from 'node:fs';",
+      "",
+      "export const baz = 1;",
+    ].join("\n");
+    const chunks = chunkFile("src/x.ts", ts);
+    const first = chunks[0];
+    expect(first?.analyzer?.imports).toEqual(expect.arrayContaining(["./foo", "node:fs"]));
   });
 
   it("excludes parameters and local variables (call_match noise)", () => {
