@@ -1,6 +1,6 @@
 import type { SearchHit, SearchPayload } from "@shared/contracts";
 import { useCallback, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { SnippetModal } from "../components/snippet-modal";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
@@ -191,7 +191,20 @@ function Results({ response }: { response: SearchPayload }) {
               </button>
               <span className="result-tag">[{r.kind}]</span>
               {r.symbols.length > 0 ? (
-                <span className="dim">{r.symbols.join(", ")}</span>
+                <span className="dim">
+                  {r.symbols.map((s, i) => (
+                    <span key={s}>
+                      {i > 0 ? ", " : ""}
+                      <Link
+                        className="btn-link"
+                        to={`/find-usages?symbol=${encodeURIComponent(s)}`}
+                        title={`find usages of ${s}`}
+                      >
+                        {s}
+                      </Link>
+                    </span>
+                  ))}
+                </span>
               ) : null}
             </div>
             {r.matchReasons.length > 0 ? (
