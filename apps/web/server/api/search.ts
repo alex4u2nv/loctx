@@ -1,6 +1,7 @@
 import { type Config, type Runtime, resolveUnderWorkspaceRoots } from "@loctx/core";
 import type { Hono } from "hono";
 import type { SearchPayload } from "../../shared/contracts.js";
+import { reconcileWarnings } from "../lib/index-health-warnings.js";
 import {
   parseBool,
   parseInt as parseBoundedInt,
@@ -105,7 +106,7 @@ export function mountSearch(app: Hono, config: Config, getRuntime: () => Promise
             })),
           },
         })),
-        warnings: [...response.warnings],
+        warnings: [...reconcileWarnings(rt), ...response.warnings],
       };
       return c.json(payload);
     } catch (err) {

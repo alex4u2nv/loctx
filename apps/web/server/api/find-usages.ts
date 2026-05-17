@@ -1,6 +1,7 @@
 import { type Config, type Runtime, resolveUnderWorkspaceRoots } from "@loctx/core";
 import type { Hono } from "hono";
 import type { FindUsagesPayload, UsageHit } from "../../shared/contracts.js";
+import { reconcileWarnings } from "../lib/index-health-warnings.js";
 import { parseString } from "../lib/request-validation.js";
 
 export function mountFindUsages(app: Hono, config: Config, getRuntime: () => Promise<Runtime>): void {
@@ -45,7 +46,12 @@ export function mountFindUsages(app: Hono, config: Config, getRuntime: () => Pro
         refs.push(toHit(project.id, project.name, hit));
       }
     }
-    const payload: FindUsagesPayload = { symbol, defs, refs };
+    const payload: FindUsagesPayload = {
+      symbol,
+      defs,
+      refs,
+      warnings: reconcileWarnings(rt),
+    };
     return c.json(payload);
   });
 }
