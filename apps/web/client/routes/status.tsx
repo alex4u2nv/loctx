@@ -99,6 +99,9 @@ export function StatusPage() {
 
   return (
     <section className="dashboard">
+      {status.reconciliation.running ? (
+        <ReconcileBanner reconciliation={status.reconciliation} />
+      ) : null}
       <IndexFlowHero
         totals={totals}
         flowProjects={flowProjects}
@@ -281,6 +284,31 @@ function CoverageGauge({
         <span>100%</span>
       </div>
     </article>
+  );
+}
+
+// ---- reconcile banner (#44) --------------------------------------------
+
+function ReconcileBanner({
+  reconciliation,
+}: {
+  reconciliation: StatusPayload["reconciliation"];
+}) {
+  const projectLabel = reconciliation.currentProjectName ?? "—";
+  const fileLabel =
+    reconciliation.currentProjectIndexed !== null && reconciliation.currentProjectTotal !== null
+      ? ` — ${reconciliation.currentProjectIndexed} / ${reconciliation.currentProjectTotal} files`
+      : "";
+  const projectProgress = `project ${reconciliation.completed + 1} of ${reconciliation.total}`;
+  return (
+    <div className="reconcile-banner" role="status">
+      <strong>Reconciling</strong> <code>{projectLabel}</code>
+      <span className="dim">
+        {" "}
+        ({projectProgress}
+        {fileLabel}). Search and find_usages may return partial results until the pass finishes.
+      </span>
+    </div>
   );
 }
 
