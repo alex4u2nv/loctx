@@ -152,7 +152,27 @@ export function SearchPage() {
 
 function Results({ response }: { response: SearchPayload }) {
   const { selected, open, close } = useSnippetSelection<SearchHit>();
-  if (response.results.length === 0) return <p className="pullquote">No results.</p>;
+  const warnings = (
+    <>
+      {response.warnings.map((w) => (
+        <p
+          key={w}
+          className="pullquote"
+          style={{ borderLeftColor: "var(--warn)", color: "var(--warn)" }}
+        >
+          {w}
+        </p>
+      ))}
+    </>
+  );
+  if (response.results.length === 0) {
+    return (
+      <>
+        {warnings}
+        <NoResults response={response} />
+      </>
+    );
+  }
   return (
     <>
       <p className="summary">
@@ -167,15 +187,7 @@ function Results({ response }: { response: SearchPayload }) {
           </>
         ) : null}
       </p>
-      {response.warnings.map((w) => (
-        <p
-          key={w}
-          className="pullquote"
-          style={{ borderLeftColor: "var(--warn)", color: "var(--warn)" }}
-        >
-          {w}
-        </p>
-      ))}
+      {warnings}
       <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
         {response.results.map((r) => (
           <li key={`${r.relPath}:${r.startLine}`} className="result">
@@ -255,6 +267,39 @@ function Results({ response }: { response: SearchPayload }) {
         />
       ) : null}
     </>
+  );
+}
+
+/**
+ * Zero-result explainer (#45). The original UI said only "No results"
+ * which left the user unable to distinguish "query is bad" from "scope
+ * is too narrow." When the resolver narrowed to a specific project or
+ * subtree, surface the active scope and offer a one-click broaden.
+ */
+function NoResults({ response }: { response: SearchPayload }) {
+  const scope = response.resolvedScope;
+  // Warnings (including any reconcile note) are already rendered above
+  // this empty state by the parent; don't duplicate them.
+  if (scope.mode === "all") {
+    return (
+      <p className="pullquote">
+        No results across every indexed project. The query may be too specific, or the term may
+        not appear in indexed content.
+      </p>
+    );
+  }
+  const scopeLabel =
+    scope.relPrefix !== null
+      ? `${scope.project?.name ?? ""}/${scope.relPrefix.replace(/\/$/, "")}`
+      : (scope.project?.name ?? "the active scope");
+  // The form is the parent's responsibility, so we point at a route
+  // that clears the path/language filters rather than mutating state
+  // here.
+  return (
+    <p className="pullquote">
+      No results in <code>{scopeLabel}</code>. Try removing the path filter to search every
+      project, or check the query spelling.
+    </p>
   );
 }
 
