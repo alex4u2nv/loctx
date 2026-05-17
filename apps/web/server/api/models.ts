@@ -12,6 +12,7 @@ import {
   EMBEDDING_REGISTRY,
   LocalEmbeddingProvider,
   findModel,
+  isModelTrusted,
   markModelTrusted,
   setAllowedOutboundReasons,
 } from "@loctx/core";
@@ -22,15 +23,16 @@ import { sanitizeError } from "../lib/request-validation.js";
 export function mountModels(app: Hono, config: Config): void {
   app.get("/api/models", (c) => {
     const current = config.embedding.model;
-    const cacheBase = join(config.paths.dataDir, "hf-cache", "models--");
     const available: ModelInfo[] = EMBEDDING_REGISTRY.map((m) => ({
       id: m.name,
       current: m.name === current,
-      // Best-effort: HF caches under `models--<name with slashes replaced>`.
-      // If the cache path exists at all we treat it as downloaded; the
-      // alternative is loading every model just to check, which would be
-      // absurd for a status read.
-      downloaded: existsSync(`${cacheBase}${m.name.replace(/\//g, "--")}`),
+      // The trusted-models store is the authoritative "user has downloaded
+      // this" signal — `loctx model download` and POST /api/models/download
+      // both call markModelTrusted on success. The actual HF cache lives
+      // wherever @huggingface/transformers happens to put it (currently
+      // `node_modules/@huggingface/transformers/.cache/`), which we don't
+      // own and shouldn't poke at directly.
+      downloaded: isModelTrusted(config.paths.dataDir, m.name),
     }));
     const payload: ModelsPayload = { current, available };
     return c.json(payload);
