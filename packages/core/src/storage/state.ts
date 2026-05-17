@@ -148,6 +148,7 @@ export interface SymbolRefHit extends SymbolRef {
   readonly relPath: string;
   readonly chunkStartLine: number;
   readonly chunkEndLine: number;
+  readonly document: string;
 }
 
 /** A BM25-ranked match returned by {@link StateStore.searchLexical}. */
@@ -830,6 +831,7 @@ interface SymbolRefRow {
   rel_path: string;
   chunk_start: number;
   chunk_end: number;
+  document: string;
 }
 
 function symbolRefHitFromRow(row: SymbolRefRow): SymbolRefHit {
@@ -843,6 +845,7 @@ function symbolRefHitFromRow(row: SymbolRefRow): SymbolRefHit {
     relPath: row.rel_path,
     chunkStartLine: row.chunk_start,
     chunkEndLine: row.chunk_end,
+    document: row.document,
   });
 }
 

@@ -305,6 +305,44 @@ export interface UsageHit {
   readonly chunkStartLine: number;
   readonly chunkEndLine: number;
   readonly kind: string;
+  /** Chunk body the symbol appeared in. Powers the snippet modal. */
+  readonly snippet: string;
+}
+
+/**
+ * Per-project deep-dive payload behind `GET /api/projects/:id`. The UI
+ * uses this for the `/projects/:id` inspect view: header card + stats
+ * tables + a scoped search/find-usages panel that reuses the existing
+ * /api/search and /api/find-usages endpoints with `path` pre-set.
+ */
+export interface ProjectDetailPayload {
+  readonly project: ProjectsRow;
+  readonly stats: ProjectStats;
+}
+
+export interface ProjectStats {
+  /** File + chunk counts grouped by file extension (".ts", ".py", "<none>"). */
+  readonly byExtension: ReadonlyArray<{
+    readonly ext: string;
+    readonly files: number;
+    readonly chunks: number;
+  }>;
+  /** Files with the most chunks (largest contributors). Capped server-side. */
+  readonly topFiles: ReadonlyArray<{
+    readonly relPath: string;
+    readonly chunks: number;
+    readonly indexedAt: string | null;
+  }>;
+  /** Most-recently-indexed files. Capped server-side. */
+  readonly recentFiles: ReadonlyArray<{
+    readonly relPath: string;
+    readonly indexedAt: string | null;
+  }>;
+  /** Every file whose `error` column is non-null. Helps drill into indexing failures. */
+  readonly failingFiles: ReadonlyArray<{
+    readonly relPath: string;
+    readonly error: string;
+  }>;
 }
 
 export interface WatchersPayload {

@@ -1,5 +1,6 @@
 import type { InactiveRow, OrphanRow, ProjectHealth, ProjectsRow } from "@shared/contracts";
 import { useCallback, useState } from "react";
+import { Link } from "react-router-dom";
 import { confirm } from "../components/confirm";
 import { Icon, type IconName } from "../components/icon";
 import { useLiveRefreshEvent } from "../components/live-refresh";
@@ -389,6 +390,13 @@ function RowActionButtons({
   const isBusy = busy !== null;
   return (
     <span style={{ display: "inline-flex", gap: "0.4rem", flexWrap: "wrap" }}>
+      <Link
+        to={`/projects/${encodeURIComponent(row.id)}`}
+        className="btn"
+        title="Inspect: view stats and scoped search/find-usages for this project"
+      >
+        <Icon name="search" /> inspect
+      </Link>
       {actions.pause && row.watcher === "active" ? (
         <IconButton
           icon="pause"

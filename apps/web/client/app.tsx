@@ -16,6 +16,9 @@ import { StatusPage } from "./routes/status";
 const ProjectsPage = lazy(() =>
   import("./routes/projects").then((m) => ({ default: m.ProjectsPage })),
 );
+const ProjectDetailPage = lazy(() =>
+  import("./routes/project-detail").then((m) => ({ default: m.ProjectDetailPage })),
+);
 const SearchPage = lazy(() =>
   import("./routes/search").then((m) => ({ default: m.SearchPage })),
 );
@@ -71,6 +74,7 @@ export function App() {
           <Routes>
             <Route path="/" element={<StatusPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/projects/:id" element={<ProjectDetailPage />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/find-usages" element={<FindUsagesPage />} />
             <Route path="/doctor" element={<DoctorPage />} />

@@ -300,13 +300,18 @@ DELETE FROM symbol_refs WHERE project_id = ?;
 -- :name find_symbol_in_project
 -- Definitions + references (calls/imports/reference) for a single symbol
 -- in a single project. Caller splits into defs + refs by `kind`. Files
--- joined so the caller can present rel_path without a second round-trip.
+-- joined for rel_path; chunks for line range; chunks_fts for the chunk
+-- body (the chunks base table doesn't hold content — it lives in the
+-- FTS5 virtual table) so the UI can show a snippet modal in one
+-- round-trip.
 SELECT s.symbol, s.project_id, s.file_id, s.chunk_id, s.line, s.kind,
        f.rel_path AS rel_path,
-       c.start_line AS chunk_start, c.end_line AS chunk_end
+       c.start_line AS chunk_start, c.end_line AS chunk_end,
+       cf.document AS document
 FROM symbol_refs s
 INNER JOIN files f ON s.file_id = f.file_id
 INNER JOIN chunks c ON s.chunk_id = c.chunk_id
+INNER JOIN chunks_fts cf ON cf.chunk_id = s.chunk_id
 WHERE s.project_id = ? AND s.symbol = ?
 ORDER BY s.kind, f.rel_path, s.line;
 
