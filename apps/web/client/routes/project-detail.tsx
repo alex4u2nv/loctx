@@ -407,6 +407,7 @@ function SearchResults({ hits }: { hits: ReadonlyArray<SearchHit> }) {
           snippet={open.snippet}
           onClose={() => setOpen(null)}
           meta={<SearchHitMeta hit={open} />}
+          {...(open.language !== "" ? { language: open.language } : {})}
         />
       ) : null}
     </>
