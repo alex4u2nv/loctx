@@ -46,6 +46,7 @@ export const FilterReason = {
   UNREADABLE: "unreadable",
   MISSING: "missing",
   NOT_A_FILE: "not-a-file",
+  NOISE: "noise",
 } as const;
 export type FilterReason = (typeof FilterReason)[keyof typeof FilterReason];
 
@@ -63,6 +64,10 @@ export interface FilteringRules {
   readonly secretAllowlistGlobs: ReadonlyArray<string>;
   readonly allowedExtensions: ReadonlySet<string>;
   readonly allowedNamedFiles: ReadonlySet<string>;
+  // Machine-generated noise (lockfiles, vendored dumps) that passes the
+  // extension check but shouldn't be indexed by default. Evaluated as
+  // basename globs after secret_globs but before the extension allow.
+  readonly noiseGlobs: ReadonlyArray<string>;
 }
 
 export class FilteringConfigError extends Error {}
@@ -79,6 +84,7 @@ const LIST_KEYS = [
   "secret_allowlist_globs",
   "allowed_extensions",
   "allowed_named_files",
+  "noise_globs",
 ] as const;
 type ListKey = (typeof LIST_KEYS)[number];
 
@@ -105,6 +111,7 @@ function newAccumulator(): Accumulator {
       secret_allowlist_globs: [],
       allowed_extensions: [],
       allowed_named_files: [],
+      noise_globs: [],
     },
   };
 }
@@ -220,6 +227,7 @@ function finalize(acc: Accumulator): FilteringRules {
     secretAllowlistGlobs: Object.freeze([...acc.lists.secret_allowlist_globs]),
     allowedExtensions: new Set(acc.lists.allowed_extensions.map(normalizeExt)),
     allowedNamedFiles: new Set(acc.lists.allowed_named_files),
+    noiseGlobs: Object.freeze([...acc.lists.noise_globs]),
   });
 }
 
@@ -272,6 +280,13 @@ export class ProjectFilter {
       !matchesAny(name, this.rules.secretAllowlistGlobs)
     ) {
       return decide(false, FilterReason.SECRET, name);
+    }
+
+    // allowed_named_files is an explicit opt-in (e.g. Pipfile.lock) and
+    // wins over the noise list, so users can keep specific lockfiles
+    // indexed even if their basename also matches a noise pattern.
+    if (!this.rules.allowedNamedFiles.has(name) && matchesAny(name, this.rules.noiseGlobs)) {
+      return decide(false, FilterReason.NOISE, name);
     }
 
     if (!this.extensionAllowed(name)) {

@@ -220,4 +220,18 @@ export const FILTERING_DEFAULTS = {
     "NOTICE",
     "CHANGELOG",
   ],
+  noise_globs: [
+    // Lockfiles for ecosystems where the lock is huge, machine-generated
+    // registry metadata that drowns out real code in retrieval. Lockfiles
+    // explicitly added to `allowed_named_files` (e.g. Pipfile.lock,
+    // uv.lock, poetry.lock, go.sum) keep their opt-in and remain indexed.
+    "package-lock.json",
+    "npm-shrinkwrap.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "bun.lockb",
+    "composer.lock",
+    "Gemfile.lock",
+    ".terraform.lock.hcl",
+  ],
 } as const;
