@@ -1,7 +1,8 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 import { ConfirmHost } from "./components/confirm";
 import { LiveRefresh } from "./components/live-refresh";
+import { McpHelpModal } from "./components/mcp-help";
 
 // Route-level code splitting (#218). Each page chunk loads on first
 // navigation rather than ship in the initial bundle. The status page
@@ -46,6 +47,7 @@ export function App() {
   // `useLiveRefreshEvent` from components/live-refresh. App no longer
   // owns a `tick` prop — that pattern interrupted React Router v7's
   // navigation transitions during reconciliation (#249).
+  const [mcpHelpOpen, setMcpHelpOpen] = useState(false);
   return (
     <BrowserRouter>
       <header className="nav">
@@ -64,9 +66,14 @@ export function App() {
         </nav>
         <span className="nav-meta">
           <LiveRefresh />
-          <span>
+          <button
+            type="button"
+            className="nav-mcp"
+            onClick={() => setMcpHelpOpen(true)}
+            title="Show MCP client setup snippets"
+          >
             mcp <code>/mcp</code>
-          </span>
+          </button>
         </span>
       </header>
       <main>
@@ -85,6 +92,7 @@ export function App() {
         </Suspense>
       </main>
       <ConfirmHost />
+      {mcpHelpOpen ? <McpHelpModal onClose={() => setMcpHelpOpen(false)} /> : null}
     </BrowserRouter>
   );
 }
