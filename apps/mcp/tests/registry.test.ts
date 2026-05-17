@@ -32,6 +32,7 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
         projects.map((p) => ({ project: p, marker: ".git", markerKind: "git" })),
       resolveProject: (path: string) =>
         projects.find((p) => path.startsWith(p.root)) ?? null,
+      findAbsorbedMarkers: () => [],
       configuredRoots: ["/ws"] as ReadonlyArray<string>,
     },
     state: {

@@ -281,6 +281,9 @@ function ProjectsTable({
                   <span className="dim">
                     {row.marker !== null ? ` [${row.marker}]` : ""}
                   </span>
+                  {row.absorbedMarkers.length > 0 ? (
+                    <AbsorbedMarkersPill markers={row.absorbedMarkers} />
+                  ) : null}
                 </div>
                 <div
                   className={orphan?.rootExists === false ? "err" : "dim"}
@@ -335,6 +338,29 @@ function ProjectsTable({
         ) : null}
       </tbody>
     </table>
+  );
+}
+
+function AbsorbedMarkersPill({
+  markers,
+}: {
+  markers: ReadonlyArray<ProjectsRow["absorbedMarkers"][number]>;
+}) {
+  const count = markers.length;
+  const label = `${count} inner ${count === 1 ? "marker" : "markers"}`;
+  const summary = markers.map((m) => `${m.relPath} (${m.marker})`).join("\n");
+  return (
+    <details className="absorbed-pill">
+      <summary title={summary}>{label}</summary>
+      <ul>
+        {markers.map((m) => (
+          <li key={m.relPath}>
+            <code>{m.relPath}</code>
+            <span className="dim"> · {m.marker}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

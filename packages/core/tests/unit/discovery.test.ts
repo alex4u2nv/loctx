@@ -77,6 +77,27 @@ describe("WorkspaceDiscovery", () => {
     expect(projects.map((p) => p.name)).toEqual(["outer"]);
   });
 
+  it("findAbsorbedMarkers returns inner markers under a project root (#286)", () => {
+    const outer = join(tmp, "outer");
+    gitInit(outer);
+    gitInit(join(outer, "inner-a"));
+    gitInit(join(outer, "nested", "inner-b"));
+    // Deeper marker inside an inner project should NOT be reported — we
+    // stop descending once we hit an absorbed marker.
+    gitInit(join(outer, "inner-a", "inner-of-inner"));
+    const markers = new WorkspaceDiscovery([tmp]).findAbsorbedMarkers(outer);
+    expect(markers.map((m) => m.relPath)).toEqual(["inner-a", "nested/inner-b"]);
+    expect(markers.every((m) => m.marker === ".git")).toBe(true);
+  });
+
+  it("findAbsorbedMarkers is empty when there are no inner markers", () => {
+    const outer = join(tmp, "outer");
+    gitInit(outer);
+    mkdirSync(join(outer, "src"), { recursive: true });
+    writeFileSync(join(outer, "src", "a.ts"), "");
+    expect(new WorkspaceDiscovery([tmp]).findAbsorbedMarkers(outer)).toEqual([]);
+  });
+
   it("skips hidden directories", () => {
     gitInit(join(tmp, ".cache", "repo"));
     expect(new WorkspaceDiscovery([tmp]).discoverProjects()).toEqual([]);
