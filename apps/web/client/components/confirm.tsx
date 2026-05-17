@@ -10,10 +10,15 @@
  *
  * The host component must be mounted exactly once high in the tree so
  * the portal target exists when `confirm()` is invoked.
+ *
+ * The visual scaffolding (portal, backdrop, Escape) lives in <Modal>
+ * (#259). This component owns the imperative API + Enter-to-confirm
+ * keystroke; Modal owns Escape-to-close and routes that to
+ * `onClose=decide(false)`.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { Modal } from "./modal";
 
 export interface ConfirmOptions {
   readonly message: string;
@@ -68,15 +73,13 @@ export function ConfirmHost() {
     [current],
   );
 
-  // Escape cancels, Enter confirms. Capture-phase so we beat any
-  // form-submit handlers that might be listening on the page.
+  // Enter confirms. Escape is handled by Modal's built-in onClose path,
+  // which we wire to decide(false). Capture-phase so we beat any
+  // form-submit handlers listening on the page.
   useEffect(() => {
     if (current === null) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        decide(false);
-      } else if (e.key === "Enter") {
+      if (e.key === "Enter") {
         e.preventDefault();
         decide(true);
       }
@@ -87,45 +90,27 @@ export function ConfirmHost() {
 
   if (current === null) return null;
 
-  return createPortal(
-    <div
-      className="modal-backdrop"
-      onClick={() => decide(false)}
-      // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard handled at window level above
-      role="presentation"
+  return (
+    <Modal
+      onClose={() => decide(false)}
+      {...(current.title !== undefined ? { title: current.title } : {})}
     >
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={current.title ? "modal-title" : undefined}
-        aria-describedby="modal-body"
-        onClick={(e) => e.stopPropagation()}
-        // biome-ignore lint/a11y/useKeyWithClickEvents: handled at window level
-      >
-        {current.title !== undefined ? (
-          <h3 id="modal-title" className="modal-title">
-            {current.title}
-          </h3>
-        ) : null}
-        <p id="modal-body" className="modal-body">
-          {current.message}
-        </p>
-        <div className="modal-actions">
-          <button type="button" className="btn" onClick={() => decide(false)}>
-            {current.cancelLabel ?? "Cancel"}
-          </button>
-          <button
-            type="button"
-            className={`btn ${current.danger ? "btn-danger" : "btn-primary"}`}
-            onClick={() => decide(true)}
-            ref={(el) => el?.focus()}
-          >
-            {current.confirmLabel ?? "Confirm"}
-          </button>
-        </div>
+      <p id="modal-body" className="modal-body">
+        {current.message}
+      </p>
+      <div className="modal-actions">
+        <button type="button" className="btn" onClick={() => decide(false)}>
+          {current.cancelLabel ?? "Cancel"}
+        </button>
+        <button
+          type="button"
+          className={`btn ${current.danger ? "btn-danger" : "btn-primary"}`}
+          onClick={() => decide(true)}
+          ref={(el) => el?.focus()}
+        >
+          {current.confirmLabel ?? "Confirm"}
+        </button>
       </div>
-    </div>,
-    document.body,
+    </Modal>
   );
 }

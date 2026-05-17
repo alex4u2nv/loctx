@@ -13,9 +13,9 @@
  * in components/confirm.tsx) instead of pulling in a dialog library.
  */
 
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { useState } from "react";
 import { Icon } from "./icon";
+import { Modal } from "./modal";
 
 interface Snippet {
   readonly transport: "http" | "stdio";
@@ -97,17 +97,6 @@ export function McpHelpModal({ onClose }: { onClose: () => void }) {
   const [activeId, setActiveId] = useState<string>(examples[0]?.id ?? "");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
-
   const active = examples.find((e) => e.id === activeId) ?? examples[0];
   if (active === undefined) return null;
 
@@ -121,24 +110,14 @@ export function McpHelpModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  return createPortal(
-    <div
-      className="modal-backdrop"
-      onClick={onClose}
-      // biome-ignore lint/a11y/useKeyWithClickEvents: Escape handled at window level above
-      role="presentation"
+  return (
+    <Modal
+      title="Add loctx as an MCP server"
+      titleId="mcp-help-title"
+      onClose={onClose}
+      className="modal-mcp"
     >
-      <div
-        className="modal modal-mcp"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="mcp-help-title"
-        onClick={(e) => e.stopPropagation()}
-        // biome-ignore lint/a11y/useKeyWithClickEvents: Escape handled at window level above
-      >
-        <h3 id="mcp-help-title" className="modal-title">
-          Add loctx as an MCP server
-        </h3>
+      <>
         <p className="modal-body" style={{ marginBottom: "var(--space-3)" }}>
           Prefer <strong>HTTP</strong> when the daemon is running — it reuses
           the loaded embedding model and DB handle. Use <strong>stdio</strong>{" "}
@@ -191,8 +170,7 @@ export function McpHelpModal({ onClose }: { onClose: () => void }) {
             Close
           </button>
         </div>
-      </div>
-    </div>,
-    document.body,
+      </>
+    </Modal>
   );
 }
