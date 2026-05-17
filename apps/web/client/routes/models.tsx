@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { DataTable } from "../components/data-table";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
 
@@ -55,22 +56,22 @@ export function ModelsPage() {
           {error}
         </p>
       ) : data === null ? null : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>model</th>
-              <th>state</th>
-              <th>actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.available.map((m) => (
-              <tr key={m.id}>
-                <td>{m.id}</td>
-                <td className="dim">
-                  <ModelState current={m.current} downloaded={m.downloaded} />
-                </td>
-                <td>
+        <DataTable
+          rows={data.available}
+          rowKey={(m) => m.id}
+          columns={[
+            { key: "model", header: "model", cell: (m) => m.id },
+            {
+              key: "state",
+              header: "state",
+              dim: true,
+              cell: (m) => <ModelState current={m.current} downloaded={m.downloaded} />,
+            },
+            {
+              key: "actions",
+              header: "actions",
+              cell: (m) => (
+                <>
                   <button
                     type="button"
                     className="btn"
@@ -87,11 +88,11 @@ export function ModelsPage() {
                   >
                     {busy === m.id ? "downloading…" : "download"}
                   </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </>
+              ),
+            },
+          ]}
+        />
       )}
     </section>
   );
