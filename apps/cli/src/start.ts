@@ -198,6 +198,31 @@ function startReconciliation(
   if (!runOnStart && intervalSeconds <= 0) return () => undefined;
   if (projects.length === 0) return () => undefined;
 
+  // Priority reorder: any project with a persisted rebuild_pending_at
+  // marker (left behind by /api/rebuild or `loctx rebuild` that didn't
+  // run to completion) goes to the front of the queue. The reconciler's
+  // content-sha guard makes resumption cheap — files already indexed
+  // are skipped, only the unfinished tail gets embedded. After a
+  // successful reconcile we clear the marker so subsequent passes don't
+  // re-prioritise the same project forever.
+  const pending = new Set(
+    runtime.state.listProjectsWithRebuildPending().map((p) => p.id as string),
+  );
+  const orderedProjects: Project[] =
+    pending.size === 0
+      ? projects.slice()
+      : [
+          ...projects.filter((p) => pending.has(p.id)),
+          ...projects.filter((p) => !pending.has(p.id)),
+        ];
+  if (pending.size > 0) {
+    const names = orderedProjects
+      .filter((p) => pending.has(p.id))
+      .map((p) => p.name)
+      .join(", ");
+    console.error(`[loctx reconcile] resuming rebuild for: ${names}`);
+  }
+
   // Exponential backoff on repeated failures so we don't hammer LanceDB
   // (or whatever else is broken) every interval. Caps at 1h; resets to
   // the configured interval on the first success.
@@ -232,10 +257,20 @@ function startReconciliation(
     // (#155). 6 random hex chars is plenty for human eyeballs.
     const traceId = Math.random().toString(16).slice(2, 8);
     const startedAt = Date.now();
-    console.error(`[loctx reconcile ${traceId}] ${label} starting (${projects.length} project(s))`);
+    console.error(
+      `[loctx reconcile ${traceId}] ${label} starting (${orderedProjects.length} project(s))`,
+    );
     runtime.reconciler
-      .reconcileAll(projects)
+      .reconcileAll(orderedProjects)
       .then((summaries) => {
+        // Clear rebuild_pending_at for every project whose reconcile
+        // completed without throwing — the indexer's full walk
+        // satisfies the rebuild intent we recorded at click time.
+        for (const s of summaries) {
+          if (pending.has(s.project.id)) {
+            runtime.state.clearProjectRebuildPending(s.project.id);
+          }
+        }
         const tally = summaries.reduce(
           (acc, s) => ({
             pruned: acc.pruned + s.pruned,

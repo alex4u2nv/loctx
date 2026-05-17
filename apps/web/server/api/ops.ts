@@ -175,10 +175,19 @@ export function mountOps(
     // via /api/projects) and on stderr.
     for (const project of projects) {
       if (!accepted.some((a) => a.projectId === project.id)) continue;
+      // Persist the rebuild intent BEFORE the destructive purge so a
+      // daemon crash mid-operation leaves a recoverable marker. The
+      // next `loctx start` reads this and resumes the rebuild with
+      // priority over other projects' reconciles.
+      rt.state.upsertProjectWithActive(project, true);
+      rt.state.markProjectRebuildPending(project.id);
       void (async () => {
         try {
           await rt.vectors.deleteProjectChunks(project.id);
-          rt.state.deleteProject(project.id);
+          // Keep the project row (with active=1 + rebuild_pending_at)
+          // alive so a crash leaves us recoverable. Only the file /
+          // chunk / symbol-ref rows get wiped.
+          rt.state.purgeProjectContents(project.id);
           await rt.indexer.indexProject(project, {
             onProgress: ({ indexed, total }) => {
               rebuildTracker.recordProgress(project.id, indexed, total);
@@ -190,6 +199,7 @@ export function mountOps(
           // last_reconciled_at here keeps doctor + the projects page from
           // showing a stale "reconciled —" right after a clean rebuild.
           rt.state.markProjectReconciled(project.id);
+          rt.state.clearProjectRebuildPending(project.id);
           rebuildTracker.finish(project.id);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

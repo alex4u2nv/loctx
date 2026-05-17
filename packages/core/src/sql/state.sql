@@ -133,6 +133,14 @@ CREATE INDEX IF NOT EXISTS idx_file_enrichments_analyzer
 ALTER TABLE projects ADD COLUMN active INTEGER NOT NULL DEFAULT 0;
 UPDATE projects SET active = 1;
 
+-- :name schema_v7
+-- Rebuild intent persistence. /api/rebuild and `loctx rebuild` set this
+-- column to the kickoff ISO timestamp. The startup reconciler reorders
+-- its queue so pending-rebuild projects go first, and pre-populates the
+-- in-memory RebuildTracker so the UI immediately shows "resuming
+-- rebuild…". Cleared by the indexer on a successful pass.
+ALTER TABLE projects ADD COLUMN rebuild_pending_at TEXT;
+
 -- :name pragma_enable_foreign_keys
 PRAGMA foreign_keys = ON;
 
@@ -171,6 +179,17 @@ UPDATE projects SET last_indexed_at = ? WHERE id = ?;
 
 -- :name mark_project_reconciled
 UPDATE projects SET last_reconciled_at = ? WHERE id = ?;
+
+-- :name mark_project_rebuild_pending
+UPDATE projects SET rebuild_pending_at = ? WHERE id = ?;
+
+-- :name clear_project_rebuild_pending
+UPDATE projects SET rebuild_pending_at = NULL WHERE id = ?;
+
+-- :name list_projects_with_rebuild_pending
+SELECT id, name, root, rebuild_pending_at FROM projects
+WHERE rebuild_pending_at IS NOT NULL
+ORDER BY rebuild_pending_at;
 
 -- :name upsert_file
 INSERT INTO files (

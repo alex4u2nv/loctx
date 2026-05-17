@@ -55,6 +55,13 @@ export function mountProjects(
       const inventory = inventoryProjects(discovery, state);
       const chunkCounts = chunkCountsByProject(state);
       const rebuilds = rebuildTracker.snapshot();
+      // Persisted rebuild intent (survives daemon restart). Lets the
+      // UI render "resuming rebuild…" on rows whose rebuild was
+      // interrupted, even when the in-memory tracker is empty after
+      // a restart. Keyed by projectId for O(1) lookup per row.
+      const rebuildPendingByProject = new Map<string, string>(
+        state.listProjectsWithRebuildPending().map((p) => [p.id, p.rebuildPendingAt]),
+      );
 
       const buildRow = (
         project: Project,
@@ -96,6 +103,7 @@ export function mountProjects(
           health,
           healthHint,
           rebuilding: toRebuildProgress(rebuilds.get(project.id)),
+          rebuildPendingAt: rebuildPendingByProject.get(project.id) ?? null,
         };
       };
 

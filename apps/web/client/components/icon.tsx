@@ -46,11 +46,19 @@ export function Icon({
   fixedWidth = true,
   className,
   title,
+  animate,
 }: {
   name: IconName;
   fixedWidth?: boolean;
   className?: string;
   title?: string;
+  /**
+   * When true, applies FontAwesome's `beat` animation — a periodic
+   * pulse that signals "this is actively doing work" without the
+   * disorientation of a continuously spinning icon. Used for the
+   * rebuild hammer while a job is running or resuming.
+   */
+  animate?: boolean;
 }) {
   return (
     <FontAwesomeIcon
@@ -58,6 +66,7 @@ export function Icon({
       fixedWidth={fixedWidth}
       {...(className !== undefined ? { className } : {})}
       {...(title !== undefined ? { title } : {})}
+      {...(animate === true ? { beat: true } : {})}
     />
   );
 }
