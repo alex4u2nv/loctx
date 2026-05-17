@@ -1,6 +1,7 @@
 import type { FindUsagesPayload, UsageHit } from "@shared/contracts";
 import { useState } from "react";
 import { DataTable } from "../components/data-table";
+import { QueryForm } from "../components/query-form";
 import { api } from "../lib/api";
 
 export function FindUsagesPage() {
@@ -31,29 +32,27 @@ export function FindUsagesPage() {
         across the indexed projects.
       </p>
 
-      <form
-        className="search-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const fd = new FormData(e.currentTarget);
-          void submit(
-            String(fd.get("symbol") ?? "").trim(),
-            String(fd.get("path") ?? "").trim(),
-          );
-        }}
-      >
-        <div className="field">
-          <label htmlFor="symbol">symbol</label>
-          <input id="symbol" name="symbol" type="text" className="input" placeholder="e.g. authenticate" />
-        </div>
-        <div className="field">
-          <label htmlFor="path">path (optional)</label>
-          <input id="path" name="path" type="text" className="input" placeholder="scope to one project" />
-        </div>
-        <button type="submit" className="btn btn-primary field-submit" disabled={busy}>
-          {busy ? "Searching…" : "Find"}
-        </button>
-      </form>
+      <QueryForm
+        busy={busy}
+        submitLabel="Find"
+        fields={[
+          {
+            id: "symbol",
+            name: "symbol",
+            label: "symbol",
+            placeholder: "e.g. authenticate",
+            autoFocus: true,
+          },
+          {
+            id: "path",
+            name: "path",
+            label: "path",
+            placeholder: "scope to one project",
+            optional: true,
+          },
+        ]}
+        onSubmit={(values) => void submit(values["symbol"] ?? "", values["path"] ?? "")}
+      />
 
       {error !== null ? (
         <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>

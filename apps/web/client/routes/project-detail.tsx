@@ -22,6 +22,7 @@ import { Link, useParams } from "react-router-dom";
 import { BarChart, type BarRow } from "../components/bar-chart";
 import { type Column, DataTable } from "../components/data-table";
 import { useLiveRefreshEvent } from "../components/live-refresh";
+import { QueryForm } from "../components/query-form";
 import { SnippetModal } from "../components/snippet-modal";
 import { SurfaceCard } from "../components/surface-card";
 import { useSnippetSelection } from "../lib/use-snippet-selection";
@@ -281,28 +282,19 @@ function ScopedSearch({ projectRoot }: { projectRoot: string }) {
   };
   return (
     <>
-      <form
-        className="search-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const fd = new FormData(e.currentTarget);
-          void submit(String(fd.get("q") ?? "").trim());
-        }}
-      >
-        <div className="field">
-          <label htmlFor="scoped-search-q">query</label>
-          <input
-            id="scoped-search-q"
-            name="q"
-            type="text"
-            className="input"
-            placeholder="semantic + lexical search across this project"
-          />
-        </div>
-        <button type="submit" className="btn btn-primary field-submit" disabled={busy}>
-          {busy ? "Searching…" : "Search"}
-        </button>
-      </form>
+      <QueryForm
+        busy={busy}
+        submitLabel="Search"
+        fields={[
+          {
+            id: "scoped-search-q",
+            name: "q",
+            label: "query",
+            placeholder: "semantic + lexical search across this project",
+          },
+        ]}
+        onSubmit={(values) => void submit(values["q"] ?? "")}
+      />
       {error !== null ? (
         <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
           {error}
@@ -403,28 +395,19 @@ function ScopedFindUsages({ projectRoot }: { projectRoot: string }) {
   };
   return (
     <>
-      <form
-        className="search-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const fd = new FormData(e.currentTarget);
-          void submit(String(fd.get("sym") ?? "").trim());
-        }}
-      >
-        <div className="field">
-          <label htmlFor="scoped-fu-sym">symbol</label>
-          <input
-            id="scoped-fu-sym"
-            name="sym"
-            type="text"
-            className="input"
-            placeholder="exact-match symbol name (e.g. authenticate)"
-          />
-        </div>
-        <button type="submit" className="btn btn-primary field-submit" disabled={busy}>
-          {busy ? "Searching…" : "Find"}
-        </button>
-      </form>
+      <QueryForm
+        busy={busy}
+        submitLabel="Find"
+        fields={[
+          {
+            id: "scoped-fu-sym",
+            name: "sym",
+            label: "symbol",
+            placeholder: "exact-match symbol name (e.g. authenticate)",
+          },
+        ]}
+        onSubmit={(values) => void submit(values["sym"] ?? "")}
+      />
       {error !== null ? (
         <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
           {error}
