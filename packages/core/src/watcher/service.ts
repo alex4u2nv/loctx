@@ -14,6 +14,7 @@
 
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import type { ProjectFilter } from "../filtering.js";
 import { RULE_FILENAMES } from "../gitignore.js";
 import type { ProjectIndexer } from "../indexing/index.js";
 import { safeLog } from "../log.js";
@@ -107,6 +108,11 @@ export class WatcherService {
   private readonly onError: (event: WatchEvent, relPath: string, error: Error) => void;
   private readonly pending = new Map<string, NodeJS.Timeout>();
   private readonly inflight = new Set<string>();
+  // Cached project filter so we can drop ignored events (e.g. files
+  // matching ~/.gitignore_global or .loctxignore patterns) before they
+  // hit the indexer or pollute the watcher log. Rebuilt on rule-file
+  // changes; null means "build on next access."
+  private filter: ProjectFilter | null = null;
 
   constructor(
     public readonly project: Project,
@@ -236,7 +242,20 @@ export class WatcherService {
       this.scheduleRulesReeval();
       return;
     }
+    // Drop events for paths the project filter rejects (gitignore,
+    // global excludes, .loctxignore, secret patterns, unsupported
+    // extensions). Without this, every transient .tmp.* file from
+    // editors using atomic-rename writes shows up in the watcher log
+    // and incurs a deleteFile call on unlink — pure noise.
+    if (!this.currentFilter().shouldIndex(ev.path).shouldIndex) return;
     this.schedule(EVENT_MAP[ev.type], ev.path);
+  }
+
+  private currentFilter(): ProjectFilter {
+    if (this.filter === null) {
+      this.filter = this.indexer.filterFactory(this.project);
+    }
+    return this.filter;
   }
 
   private relPath(absPath: string): string {
@@ -255,6 +274,11 @@ export class WatcherService {
   }
 
   private async dispatchRulesReeval(): Promise<void> {
+    // Drop the cached filter so the next routeEvent rebuilds it from
+    // the now-current rule files. Without this, an edit to .gitignore
+    // wouldn't take effect on watcher routing until the daemon
+    // restarts.
+    this.filter = null;
     try {
       const summary = await this.indexer.reevaluateFilter(this.project);
       if (summary.pruned > 0) {

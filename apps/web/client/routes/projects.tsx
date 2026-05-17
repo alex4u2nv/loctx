@@ -1,5 +1,5 @@
 import type { InactiveRow, OrphanRow, ProjectHealth, ProjectsRow } from "@shared/contracts";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { confirm } from "../components/confirm";
 import { Icon, type IconName } from "../components/icon";
 import { useLiveRefreshEvent } from "../components/live-refresh";
@@ -16,6 +16,15 @@ export function ProjectsPage() {
   const ops = useOpRunner(() => fetched.reload());
   const onRefresh = useCallback(() => fetched.reload(), [fetched.reload]);
   useLiveRefreshEvent(onRefresh);
+  // Per-row in-flight tracker for purge. The server response takes a
+  // second or two on large projects; without local UI state the row
+  // looks identical between "ready" and "deleting" which made the
+  // fire-and-forget refactor feel broken. Keyed by the project root
+  // (the same value passed to api.resetProject) since handlers don't
+  // get the row id.
+  const [purgingRoots, setPurgingRoots] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
 
   if (fetched.loading && fetched.data === null) return <p className="pullquote">Loading…</p>;
   if (fetched.error !== null)
@@ -36,11 +45,32 @@ export function ProjectsPage() {
     { files: 0, chunks: 0, errors: 0 },
   );
 
+  // Every handler is fire-and-forget against the daemon. Earlier these
+  // went through `ops.run` which set a page-wide `busy` flag and greyed
+  // out every action on every row until the request finished. That made
+  // sense when the actions were synchronous-by-mistake (old /api/rebuild)
+  // but is hostile for genuinely fast ops (pause/resume/purge/activate/
+  // deactivate) and for the now-async /api/rebuild. Each action below
+  // hits the API, calls fetched.reload() on success, and surfaces any
+  // error into the same banner ops.run used to write — without claiming
+  // the global busy slot. Per-row state (e.g. `rebuilding`) handles
+  // single-row disable when appropriate.
+  const fireAndForget = async (
+    label: string,
+    fn: () => Promise<unknown>,
+  ): Promise<void> => {
+    try {
+      await fn();
+      fetched.reload();
+    } catch (err) {
+      ops.surfaceError(label, err);
+    }
+  };
   const handlers = {
-    pause: (id: string, name: string) =>
-      ops.run(`pause ${name}`, () => api.watchPause(id)).then(() => undefined),
-    resume: (id: string, name: string) =>
-      ops.run(`resume ${name}`, () => api.watchResume(id)).then(() => undefined),
+    pause: (id: string, name: string): Promise<void> =>
+      fireAndForget(`pause ${name}`, () => api.watchPause(id)),
+    resume: (id: string, name: string): Promise<void> =>
+      fireAndForget(`resume ${name}`, () => api.watchResume(id)),
     rebuild: async (root: string, name: string): Promise<void> => {
       const ok = await confirm({
         title: `Rebuild ${name}?`,
@@ -52,19 +82,7 @@ export function ProjectsPage() {
         danger: true,
       });
       if (!ok) return;
-      // Rebuild is async: the endpoint returns 202 immediately and the
-      // tracker drives progress via SSE. We do NOT use ops.run here
-      // because that would set the global busy flag and grey out every
-      // button until the server-side work finished — which can be
-      // minutes on a CPU-only embedder.
-      try {
-        await api.rebuild(root);
-        fetched.reload();
-      } catch (err) {
-        // Surface failures in the same banner ops.run uses, but without
-        // taking the page-wide busy slot.
-        ops.surfaceError(`rebuild ${name}`, err);
-      }
+      await fireAndForget(`rebuild ${name}`, () => api.rebuild(root));
     },
     purge: async (root: string, name: string): Promise<void> => {
       const ok = await confirm({
@@ -74,12 +92,33 @@ export function ProjectsPage() {
         danger: true,
       });
       if (!ok) return;
-      await ops.run(`purge ${name}`, () => api.resetProject(root));
+      // Mark this row as purging so RowActionButtons can render
+      // "purging…" and disable just this row's button. Clear in the
+      // finally so a failed request returns the button to its normal
+      // state (along with the error banner from surfaceError).
+      setPurgingRoots((s) => {
+        const next = new Set(s);
+        next.add(root);
+        return next;
+      });
+      try {
+        await api.resetProject(root);
+        fetched.reload();
+      } catch (err) {
+        ops.surfaceError(`purge ${name}`, err);
+      } finally {
+        setPurgingRoots((s) => {
+          if (!s.has(root)) return s;
+          const next = new Set(s);
+          next.delete(root);
+          return next;
+        });
+      }
     },
-    activate: (root: string, name: string) =>
-      ops.run(`activate ${name}`, () => api.activateProject(root)).then(() => undefined),
-    deactivate: (root: string, name: string) =>
-      ops.run(`deactivate ${name}`, () => api.deactivateProject(root)).then(() => undefined),
+    activate: (root: string, name: string): Promise<void> =>
+      fireAndForget(`activate ${name}`, () => api.activateProject(root)),
+    deactivate: (root: string, name: string): Promise<void> =>
+      fireAndForget(`deactivate ${name}`, () => api.deactivateProject(root)),
   };
 
   const rootHeader = data.commonRoot !== "" ? applyHomeAbbrev(data.commonRoot, data.homeDir) : null;
@@ -145,6 +184,7 @@ export function ProjectsPage() {
           deactivate: handlers.deactivate,
         }}
         busy={ops.busy}
+        purgingRoots={purgingRoots}
       />
 
       {data.inactive.length > 0 ? (
@@ -179,6 +219,7 @@ export function ProjectsPage() {
             showReason
             actions={{ purge: handlers.purge }}
             busy={ops.busy}
+            purgingRoots={purgingRoots}
           />
         </>
       ) : null}
@@ -203,6 +244,7 @@ function ProjectsTable({
   showReason,
   actions,
   busy,
+  purgingRoots,
 }: {
   rows: ReadonlyArray<AnyRow>;
   homeDir: string;
@@ -211,6 +253,7 @@ function ProjectsTable({
   showReason?: boolean;
   actions?: RowActions;
   busy?: string | null;
+  purgingRoots?: ReadonlySet<string>;
 }) {
   const cols = ["project", "status", "indexed", "activity"];
   if (showReason) cols.push("reason");
@@ -268,7 +311,12 @@ function ProjectsTable({
               ) : null}
               {actions !== undefined ? (
                 <td>
-                  <RowActionButtons row={row} actions={actions} busy={busy ?? null} />
+                  <RowActionButtons
+                    row={row}
+                    actions={actions}
+                    busy={busy ?? null}
+                    isPurging={purgingRoots?.has(row.root) ?? false}
+                  />
                 </td>
               ) : null}
             </tr>
@@ -331,10 +379,12 @@ function RowActionButtons({
   row,
   actions,
   busy,
+  isPurging,
 }: {
   row: AnyRow;
   actions: RowActions;
   busy: string | null;
+  isPurging: boolean;
 }) {
   const isBusy = busy !== null;
   return (
@@ -365,9 +415,15 @@ function RowActionButtons({
       {actions.purge ? (
         <IconButton
           icon="purge"
-          label="purge"
+          label={isPurging ? "purging…" : "purge"}
           onClick={() => void actions.purge?.(row.root, row.name)}
-          disabled={isBusy}
+          disabled={isBusy || isPurging}
+          {...(isPurging
+            ? {
+                title:
+                  "Purge in progress — clearing this project's vectors + state from disk. The row will disappear once it completes.",
+              }
+            : {})}
         />
       ) : null}
       {actions.deactivate ? (
@@ -456,12 +512,15 @@ function IconButton({
   onClick,
   disabled,
   title,
+  animate,
 }: {
   icon: IconName;
   label: string;
   onClick: () => void;
   disabled?: boolean;
   title?: string;
+  /** Animate the icon to signal "doing work" while disabled. */
+  animate?: boolean;
 }) {
   return (
     <button
@@ -471,7 +530,7 @@ function IconButton({
       disabled={disabled}
       {...(title !== undefined ? { title } : {})}
     >
-      <Icon name={icon} /> {label}
+      <Icon name={icon} {...(animate === true ? { animate: true } : {})} /> {label}
     </button>
   );
 }
@@ -496,15 +555,20 @@ function RebuildButton({
   if (job !== null && job.status === "running") {
     const eta = estimateEta(job);
     const counts =
-      job.totalFiles !== null ? `${job.indexed}/${job.totalFiles}` : "…";
+      job.totalFiles !== null ? `${job.indexed}/${job.totalFiles}` : null;
     const label =
-      eta !== null ? `rebuilding ${counts} (~${eta} left)` : `rebuilding ${counts}`;
+      counts === null
+        ? "rebuilding"
+        : eta !== null
+          ? `rebuilding ${counts} (~${eta} left)`
+          : `rebuilding ${counts}`;
     return (
       <IconButton
         icon="rebuild"
         label={label}
         onClick={onClick}
         disabled
+        animate
         title="Rebuild in progress — runs in the background; the page will refresh as the indexer makes progress."
       />
     );
@@ -517,6 +581,24 @@ function RebuildButton({
         onClick={onClick}
         disabled={disabled}
         title={job.error ?? "Rebuild failed. Click to retry."}
+      />
+    );
+  }
+  // No in-memory tracker entry, but the project carries a persisted
+  // rebuild_pending_at — its rebuild was interrupted by a daemon stop
+  // and the startup reconciler is finishing the work right now. Same
+  // "rebuilding" label + animated hammer as the running case; the
+  // animation is the signal that work is happening, no need for a
+  // distinct "resuming" word.
+  if (job === null && row.rebuildPendingAt !== null) {
+    return (
+      <IconButton
+        icon="rebuild"
+        label="rebuilding"
+        onClick={onClick}
+        disabled
+        animate
+        title={`Rebuild requested at ${row.rebuildPendingAt}; the daemon restart left this project queued for the next reconcile pass.`}
       />
     );
   }

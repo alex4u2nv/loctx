@@ -43,8 +43,16 @@ interface StubIndexer {
 
 function stubIndexer(): StubIndexer {
   const events: StubIndexer["events"] = [];
-  // Only the two methods WatcherService.dispatch invokes; the rest of
-  // ProjectIndexer's surface isn't exercised by the lifecycle paths.
+  // Stand-in filter that accepts every path. The real ProjectFilter
+  // would consult gitignore + secret/extension rules; the watcher
+  // routing tests don't care about that, they just need a callable
+  // that returns `shouldIndex: true`.
+  const passThroughFilter = {
+    shouldIndex: () => ({ shouldIndex: true, reason: "ok", detail: "" }),
+    rules: { ignoredDirs: new Set<string>() },
+  };
+  // Only the methods WatcherService.dispatch / routeEvent invoke; the
+  // rest of ProjectIndexer's surface isn't exercised by these tests.
   const indexer = {
     indexFile: async (_project: Project, absPath: string) => {
       events.push({ kind: "indexFile", relPath: absPath });
@@ -54,6 +62,7 @@ function stubIndexer(): StubIndexer {
       events.push({ kind: "deleteFile", relPath });
     },
     reevaluateFilter: async () => ({ checked: 0, pruned: 0, prunedRelPaths: [] }),
+    filterFactory: () => passThroughFilter,
   } as unknown as ProjectIndexer;
   return { indexer, events };
 }

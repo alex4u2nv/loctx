@@ -22,7 +22,7 @@ import {
 } from "../models.js";
 import { loadQueries } from "../sql/loader.js";
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 /**
  * Raised when the on-disk schema version is newer than this build's
@@ -313,6 +313,16 @@ export class StateStore {
       }
     }
 
+    if (current < 7) {
+      const schemaV7 = QUERIES["schema_v7"];
+      if (schemaV7 === undefined) throw new Error("Missing schema_v7 in state.sql");
+      // schema_v7 adds `projects.rebuild_pending_at`. Same SQLite gotcha:
+      // skip when the column already exists.
+      if (!this.columnExists("projects", "rebuild_pending_at")) {
+        this.db.exec(schemaV7);
+      }
+    }
+
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
@@ -396,6 +406,43 @@ export class StateStore {
   }
 
   /**
+   * Persist a "rebuild was requested for this project" marker so the
+   * intent survives daemon restart. The startup reconciler reads
+   * `listProjectsWithRebuildPending()` and reorders its queue so these
+   * projects go first; the in-memory RebuildTracker is pre-populated so
+   * the UI shows "resuming rebuild…" instead of a stale idle button.
+   * Cleared by `clearProjectRebuildPending()` once the post-rebuild
+   * indexProject pass succeeds.
+   */
+  markProjectRebuildPending(id: ProjectId, at: Date = new Date()): void {
+    this.write("mark_project_rebuild_pending", [at.toISOString(), id]);
+  }
+
+  clearProjectRebuildPending(id: ProjectId): void {
+    this.write("clear_project_rebuild_pending", [id]);
+  }
+
+  listProjectsWithRebuildPending(): ReadonlyArray<{
+    readonly id: ProjectId;
+    readonly name: string;
+    readonly root: string;
+    readonly rebuildPendingAt: string;
+  }> {
+    const rows = this.readAll<{
+      id: string;
+      name: string;
+      root: string;
+      rebuild_pending_at: string;
+    }>("list_projects_with_rebuild_pending");
+    return rows.map((r) => ({
+      id: r.id as ProjectId,
+      name: r.name,
+      root: r.root,
+      rebuildPendingAt: r.rebuild_pending_at,
+    }));
+  }
+
+  /**
    * Flip the active flag for an existing project row. Returns true when
    * a row was updated, false when the project id didn't exist (caller
    * should upsert first if it wants to activate a brand-new project).
@@ -427,6 +474,25 @@ export class StateStore {
       this.write("delete_symbol_refs_for_project", [id]);
       this.write("delete_files_for_project", [id]);
       this.write("delete_project", [id]);
+    });
+    tx();
+  }
+
+  /**
+   * Purge a project's contents (chunks_fts, chunks, symbol_refs, files)
+   * but keep the project row itself + its active/rebuild_pending_at
+   * columns. Used by `/api/rebuild`: dropping the project row would
+   * delete a persisted rebuild_pending_at marker that the next daemon
+   * start needs to find. Also closes the "rebuild crash window" where
+   * a daemon dying between deleteProject and indexProject leaves the
+   * project stranded as "inactive" until manual re-activation.
+   */
+  purgeProjectContents(id: ProjectId): void {
+    const tx = this.db.transaction(() => {
+      this.write("delete_chunks_fts_for_project", [id]);
+      this.write("delete_chunks_for_project", [id]);
+      this.write("delete_symbol_refs_for_project", [id]);
+      this.write("delete_files_for_project", [id]);
     });
     tx();
   }

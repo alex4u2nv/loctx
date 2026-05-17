@@ -644,13 +644,20 @@ program
       const projects = resolved !== null ? [resolved] : runtime.discovery.discoverProjects();
       for (const project of projects) {
         console.log(`Rebuilding ${project.name} (${project.root}) ...`);
+        // Persist rebuild intent before the destructive purge — a crash
+        // here leaves a marker the next `loctx start` will pick up and
+        // resume with priority. Keeps the project row alive so the
+        // marker survives.
+        runtime.state.upsertProjectWithActive(project, true);
+        runtime.state.markProjectRebuildPending(project.id);
         await runtime.vectors.deleteProjectChunks(project.id);
-        runtime.state.deleteProject(project.id);
+        runtime.state.purgeProjectContents(project.id);
         const summary = await runtime.indexer.indexProject(project);
         // Rebuild is a strict superset of a reconcile pass — stamp
         // last_reconciled_at so doctor + the projects page don't show
         // a stale "reconciled —" right after.
         runtime.state.markProjectReconciled(project.id);
+        runtime.state.clearProjectRebuildPending(project.id);
         console.log(
           `  indexed=${summary.indexed} skipped=${summary.skipped} failed=${summary.failed} (${summary.elapsedSeconds.toFixed(2)}s)`,
         );

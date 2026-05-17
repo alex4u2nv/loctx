@@ -104,6 +104,14 @@ export interface ProjectsRow {
    * in-memory RebuildTracker; lost on daemon restart.
    */
   readonly rebuilding: RebuildProgress | null;
+  /**
+   * Persisted "rebuild requested" timestamp surviving daemon restarts.
+   * Set when the user clicks rebuild, cleared once the post-rebuild
+   * reconcile completes. The UI uses this to render "resuming
+   * rebuild…" on a row whose rebuild was interrupted by a daemon
+   * stop, even though the in-memory tracker is empty.
+   */
+  readonly rebuildPendingAt: string | null;
 }
 
 export interface RebuildProgress {
