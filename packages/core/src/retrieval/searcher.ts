@@ -17,6 +17,7 @@
 
 import { realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { RISKY_CATEGORY_TOKENS } from "../chunking/analyzer.js";
 import { detectLanguage } from "../chunking/index.js";
 import type { RetrievalConfig } from "../config.js";
 import type { WorkspaceDiscovery } from "../discovery.js";
@@ -592,17 +593,10 @@ const HIGH_NESTING_DEPTH = 4;
 const HIGH_LOOP_DEPTH = 2;
 const HIGH_PARAM_COUNT = 5;
 
-/** Risky-call category names a query can mention to fire that reason. */
-const RISKY_CATEGORY_TOKENS: ReadonlyArray<string> = [
-  "eval",
-  "exec",
-  "system",
-  "child_process",
-  "subprocess",
-  "shell",
-  "spawn",
-  "dangerouslysetinnerhtml",
-];
+// Risky-call category names come from the chunker's analyzer module
+// so extract-time + query-time read the same list. Importing rather
+// than redeclaring eliminates the previous drift risk (#277).
+// `RISKY_CATEGORY_TOKENS` is imported below from "../chunking/analyzer.js".
 
 interface QueryTerms {
   readonly tokens: ReadonlySet<string>;
