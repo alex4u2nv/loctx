@@ -70,6 +70,8 @@ export async function start(config: Config, options: StartOptions): Promise<void
   const inventory = inventoryProjects(runtime.discovery, runtime.state);
   const activeProjects: Project[] = inventory.active.map((a) => a.project);
 
+  healLastIndexedAt(runtime, inventory.active);
+
   if (discoveredProjects.length === 0) {
     console.error(
       "[loctx start] no projects found under configured workspace_roots; " +
@@ -520,6 +522,35 @@ async function raceShutdownStep(
     console.error(`[loctx start] ${label} threw: ${(err as Error).message}`);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+// Backfill projects.last_indexed_at from the newest file row when the project stamp is null (#275).
+function healLastIndexedAt(
+  runtime: Runtime,
+  activeProjects: ReadonlyArray<{
+    readonly project: Project;
+    readonly lastIndexedAt: string | null;
+  }>,
+): void {
+  let healed = 0;
+  for (const entry of activeProjects) {
+    if (entry.lastIndexedAt !== null) continue;
+    const files = runtime.state.listFiles(entry.project.id);
+    if (files.length === 0) continue;
+    let newest: string | null = null;
+    for (const f of files) {
+      if (f.indexedAt !== null && (newest === null || f.indexedAt > newest)) {
+        newest = f.indexedAt;
+      }
+    }
+    if (newest !== null) {
+      runtime.state.markProjectIndexed(entry.project.id, new Date(newest));
+      healed += 1;
+    }
+  }
+  if (healed > 0) {
+    console.error(`[loctx start] backfilled last_indexed_at for ${healed} project(s) (#275)`);
   }
 }
 
