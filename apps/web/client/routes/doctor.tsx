@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { DataTable } from "../components/data-table";
 import { Icon } from "../components/icon";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
@@ -76,26 +77,23 @@ export function DoctorPage() {
           <p className="summary">
             summary: <strong>{data.summary}</strong>
           </p>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>check</th>
-                <th>status</th>
-                <th>detail</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.checks.map((c) => (
-                <tr key={c.name}>
-                  <td>{c.name}</td>
-                  <td className={c.ok ? "" : "warn"}>
+          <DataTable
+            rows={data.checks}
+            rowKey={(c) => c.name}
+            columns={[
+              { key: "check", header: "check", cell: (c) => c.name },
+              {
+                key: "status",
+                header: "status",
+                cell: (c) => (
+                  <span className={c.ok ? "" : "warn"}>
                     <Icon name={c.ok ? "ok" : "warn"} /> {c.ok ? "ok" : "warn/err"}
-                  </td>
-                  <td className="dim">{c.detail}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </span>
+                ),
+              },
+              { key: "detail", header: "detail", dim: true, cell: (c) => c.detail },
+            ]}
+          />
         </>
       )}
     </section>

@@ -34,6 +34,8 @@ export interface Column<T> {
   readonly dim?: boolean;
   /** Optional inline style applied to the `<col>` for fixed-width layout. */
   readonly colStyle?: CSSProperties;
+  /** Optional class on the `<col>` element (for CSS-driven width rules). */
+  readonly colClassName?: string;
   /** Optional extra class merged into the header cell. */
   readonly headerClassName?: string;
 }
@@ -69,7 +71,9 @@ export function DataTable<T>({
   tableLayout,
 }: DataTableProps<T>) {
   const tableClass = className !== undefined ? `data-table ${className}` : "data-table";
-  const hasCols = columns.some((c) => c.colStyle !== undefined);
+  const hasCols = columns.some(
+    (c) => c.colStyle !== undefined || c.colClassName !== undefined,
+  );
   const clickable = onRowClick !== undefined;
   return (
     <table
@@ -82,6 +86,7 @@ export function DataTable<T>({
             <col
               key={c.key}
               {...(c.colStyle !== undefined ? { style: c.colStyle } : {})}
+              {...(c.colClassName !== undefined ? { className: c.colClassName } : {})}
             />
           ))}
         </colgroup>

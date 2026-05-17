@@ -1,5 +1,6 @@
 import type { FindUsagesPayload, UsageHit } from "@shared/contracts";
 import { useState } from "react";
+import { DataTable } from "../components/data-table";
 import { api } from "../lib/api";
 
 export function FindUsagesPage() {
@@ -80,40 +81,43 @@ function Results({ r }: { r: FindUsagesPayload }) {
 
 function UsageTable({ hits }: { hits: ReadonlyArray<UsageHit> }) {
   if (hits.length === 0) return <p className="pullquote">none</p>;
+  // Fixed column widths via .usage-table .col-* in styles.css so the
+  // Definitions and References tables line up across the page — two
+  // independent <table>s would otherwise auto-size per their content.
   return (
-    <table className="data-table usage-table">
-      {/* Fixed column widths so the Definitions and References tables
-          line up — two independent <table>s would otherwise auto-size
-          their columns differently per the content of each. */}
-      <colgroup>
-        <col className="col-project" />
-        <col className="col-file" />
-        <col className="col-kind" />
-        <col className="col-lines" />
-      </colgroup>
-      <thead>
-        <tr>
-          <th>project</th>
-          <th>file</th>
-          <th>kind</th>
-          <th>lines</th>
-        </tr>
-      </thead>
-      <tbody>
-        {hits.map((h, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: composite key would be (projectId+relPath+startLine), index is fine here
-          <tr key={`${h.projectId}-${h.relPath}-${h.chunkStartLine}-${i}`}>
-            <td className="dim" title={h.projectId}>
-              {h.projectName}
-            </td>
-            <td>{h.relPath}</td>
-            <td className="dim">{h.kind}</td>
-            <td className="num">
-              {h.chunkStartLine}-{h.chunkEndLine}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <DataTable
+      className="usage-table"
+      rows={hits}
+      rowKey={(h, i) => `${h.projectId}-${h.relPath}-${h.chunkStartLine}-${i}`}
+      columns={[
+        {
+          key: "project",
+          header: "project",
+          dim: true,
+          colClassName: "col-project",
+          cell: (h) => <span title={h.projectId}>{h.projectName}</span>,
+        },
+        {
+          key: "file",
+          header: "file",
+          colClassName: "col-file",
+          cell: (h) => h.relPath,
+        },
+        {
+          key: "kind",
+          header: "kind",
+          dim: true,
+          colClassName: "col-kind",
+          cell: (h) => h.kind,
+        },
+        {
+          key: "lines",
+          header: "lines",
+          numeric: true,
+          colClassName: "col-lines",
+          cell: (h) => `${h.chunkStartLine}-${h.chunkEndLine}`,
+        },
+      ]}
+    />
   );
 }
