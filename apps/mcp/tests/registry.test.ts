@@ -45,6 +45,7 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
           active: true,
         })),
       findDuplicateGroups: () => [],
+      findSymbol: () => ({ defs: [], refs: [] }),
     },
     searcher: {
       search: async () => ({
@@ -76,6 +77,15 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
         total: 7,
       }),
     },
+    reconciler: {
+      status: () => ({
+        running: false,
+        startedAt: null,
+        currentProjectName: null,
+        completed: 0,
+        total: 0,
+      }),
+    },
     rules: {},
     embeddings: {},
     vectors: {},
@@ -103,6 +113,59 @@ describe("TOOL_DEFINITIONS", () => {
     for (const tool of TOOL_DEFINITIONS) {
       expect(tool.inputSchema.type).toBe("object");
     }
+  });
+});
+
+// ---- indexHealth surfacing (#43) -----------------------------------
+
+describe("indexHealth surfacing", () => {
+  function reconcilingRuntime(): Runtime {
+    return stubRuntime({
+      reconciler: {
+        status: () => ({
+          running: true,
+          startedAt: "2026-05-17T22:57:31.185Z",
+          currentProjectName: "loctx",
+          completed: 0,
+          total: 7,
+        }),
+      } as Runtime["reconciler"],
+    });
+  }
+
+  it("search response carries indexHealth from the reconciler", async () => {
+    const out = await tools.search(reconcilingRuntime(), { query: "x" });
+    expect(out.indexHealth.reconciling).toBe(true);
+    expect(out.indexHealth.currentProject).toBe("loctx");
+    expect(out.indexHealth.completed).toBe(0);
+    expect(out.indexHealth.total).toBe(7);
+  });
+
+  it("status response carries indexHealth", async () => {
+    const out = await tools.status(reconcilingRuntime(), {});
+    expect(out.indexHealth.reconciling).toBe(true);
+    expect(out.indexHealth.currentProject).toBe("loctx");
+  });
+
+  it("find_usages response carries indexHealth", async () => {
+    const out = await tools.findUsages(reconcilingRuntime(), { symbol: "WorkspaceSearcher" });
+    expect(out.indexHealth.reconciling).toBe(true);
+  });
+
+  it("find_duplicates response carries indexHealth", async () => {
+    const out = await tools.findDuplicates(reconcilingRuntime(), {});
+    expect(out.indexHealth.reconciling).toBe(true);
+  });
+
+  it("refresh response carries indexHealth", async () => {
+    const out = await tools.refresh(reconcilingRuntime(), {});
+    expect(out.indexHealth.reconciling).toBe(true);
+  });
+
+  it("idle reconciler reports reconciling=false", async () => {
+    const out = await tools.search(stubRuntime(), { query: "x" });
+    expect(out.indexHealth.reconciling).toBe(false);
+    expect(out.indexHealth.currentProject).toBeNull();
   });
 });
 
