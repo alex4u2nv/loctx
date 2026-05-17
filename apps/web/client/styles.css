@@ -1466,6 +1466,27 @@ h3 {
 }
 
 /* MCP snippet tile — compact code block */
+/* ---- SnippetModal code container ----------------------------------- */
+/* Shared by the highlighted (Shiki-emitted) and plain-text fallback    */
+/* variants in components/snippet-modal.tsx. The plain variant adds     */
+/* `.snippet-pre--plain` for the bg/padding/font that Shiki provides    */
+/* via inline styles in the highlighted case. See #255 entry 8.         */
+.snippet-pre {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-inner);
+  overflow: auto;
+  max-height: 60vh;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  margin: 0;
+}
+.snippet-pre--plain {
+  background: var(--surface-2);
+  padding: var(--space-3);
+  white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 .mcp-snippet {
   font-family: var(--font-mono);
   font-size: 0.78rem;
