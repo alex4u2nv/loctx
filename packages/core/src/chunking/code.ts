@@ -239,8 +239,70 @@ export class TreeSitterCodeChunker implements Chunker {
         chunks[0] = withFileImports(first, fileImports);
       }
     }
-    return chunks;
+    return capChunkSizes(chunks);
   }
+}
+
+// ---- hard size cap (#279) ----------------------------------------------
+
+const HARD_MAX_LINES = 120;
+const SUBWINDOW_LINES = 60;
+const SUBWINDOW_OVERLAP = 10;
+
+// When a top-level chunk exceeds HARD_MAX_LINES, split its body via the
+// line-window chunker and re-offset line numbers back to the file. The
+// kind/symbols/analyzer/symbolRefs of the original chunk go on the first
+// sub-chunk only — that's where the unit's definitional metadata lives.
+function capChunkSizes(chunks: ReadonlyArray<CodeChunk>): CodeChunk[] {
+  let oversized = false;
+  for (const c of chunks) {
+    if (c.endLine - c.startLine + 1 > HARD_MAX_LINES) {
+      oversized = true;
+      break;
+    }
+  }
+  if (!oversized) return [...chunks];
+
+  const splitter = new LineWindowChunker({
+    windowLines: SUBWINDOW_LINES,
+    overlapLines: SUBWINDOW_OVERLAP,
+  });
+  const out: CodeChunk[] = [];
+  for (const c of chunks) {
+    if (c.endLine - c.startLine + 1 <= HARD_MAX_LINES) {
+      out.push(c);
+      continue;
+    }
+    const subs = splitter.chunk({
+      relPath: "",
+      content: c.content,
+      language: null,
+    });
+    if (subs.length <= 1) {
+      out.push(c);
+      continue;
+    }
+    for (let i = 0; i < subs.length; i++) {
+      const sub = subs[i];
+      if (sub === undefined) continue;
+      const offsetStart = c.startLine + sub.startLine - 1;
+      const offsetEnd = c.startLine + sub.endLine - 1;
+      const isFirst = i === 0;
+      out.push({
+        startLine: offsetStart,
+        endLine: offsetEnd,
+        content: sub.content,
+        kind: isFirst ? c.kind : "window",
+        symbols: isFirst ? c.symbols : Object.freeze([]),
+        chunkSha: sub.chunkSha,
+        ...(isFirst && c.analyzer !== undefined ? { analyzer: c.analyzer } : {}),
+        ...(isFirst && c.symbolRefs !== undefined && c.symbolRefs.length > 0
+          ? { symbolRefs: c.symbolRefs }
+          : {}),
+      });
+    }
+  }
+  return out;
 }
 
 function chunkFromNode(node: TreeSitterNode, source: string, language: string): CodeChunk {

@@ -145,6 +145,48 @@ describe("TreeSitterCodeChunker — TypeScript", () => {
   });
 });
 
+describe("TreeSitterCodeChunker — size cap (#279)", () => {
+  it("splits chunks larger than the hard cap into line-window sub-chunks", () => {
+    const inner: string[] = [];
+    // Build a single function body with ~150 lines so it exceeds the
+    // 120-line hard cap.
+    for (let i = 0; i < 150; i++) inner.push(`  const v${i} = ${i};`);
+    const source = ["function huge() {", ...inner, "}"].join("\n");
+
+    const chunks = chunkFile("huge.ts", source);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) {
+      expect(c.endLine - c.startLine + 1).toBeLessThanOrEqual(120);
+    }
+    // First sub-chunk preserves the function's kind + name; subsequent
+    // sub-chunks are "window" with no symbols.
+    expect(chunks[0]?.kind).toBe("function");
+    expect(chunks[0]?.symbols).toEqual(["huge"]);
+    for (const c of chunks.slice(1)) {
+      expect(c.kind).toBe("window");
+      expect(c.symbols).toEqual([]);
+    }
+    // Combined ranges cover the original chunk's span (with overlap).
+    expect(chunks[0]?.startLine).toBe(1);
+    expect(chunks.at(-1)?.endLine).toBeGreaterThanOrEqual(150);
+  });
+
+  it("leaves chunks under the cap untouched", () => {
+    const source = [
+      "function small() {",
+      "  return 1;",
+      "}",
+      "",
+      "function alsoSmall() {",
+      "  return 2;",
+      "}",
+    ].join("\n");
+    const chunks = chunkFile("small.ts", source);
+    expect(chunks).toHaveLength(2);
+    expect(chunks.every((c) => c.kind === "function")).toBe(true);
+  });
+});
+
 describe("TreeSitterCodeChunker — Go", () => {
   it("emits chunks for top-level function and type declarations", () => {
     const source = [
