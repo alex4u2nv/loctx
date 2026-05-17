@@ -1,8 +1,8 @@
 import type { InactiveRow, OrphanRow, ProjectHealth, ProjectsRow } from "@shared/contracts";
 import { useCallback, useState } from "react";
-import { Link } from "react-router-dom";
 import { confirm } from "../components/confirm";
 import { Icon, type IconName } from "../components/icon";
+import { IconButton } from "../components/icon-button";
 import { useLiveRefreshEvent } from "../components/live-refresh";
 import { type NavSection, SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
@@ -390,13 +390,12 @@ function RowActionButtons({
   const isBusy = busy !== null;
   return (
     <span style={{ display: "inline-flex", gap: "0.4rem", flexWrap: "wrap" }}>
-      <Link
-        to={`/projects/${encodeURIComponent(row.id)}`}
-        className="btn"
+      <IconButton
+        icon="search"
+        label="inspect"
+        href={`/projects/${encodeURIComponent(row.id)}`}
         title="Inspect: view stats and scoped search/find-usages for this project"
-      >
-        <Icon name="search" /> inspect
-      </Link>
+      />
       {actions.pause && row.watcher === "active" ? (
         <IconButton
           icon="pause"
@@ -511,35 +510,6 @@ function InactiveTable({
         })}
       </tbody>
     </table>
-  );
-}
-
-function IconButton({
-  icon,
-  label,
-  onClick,
-  disabled,
-  title,
-  animate,
-}: {
-  icon: IconName;
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  title?: string;
-  /** Animate the icon to signal "doing work" while disabled. */
-  animate?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      className="btn"
-      onClick={onClick}
-      disabled={disabled}
-      {...(title !== undefined ? { title } : {})}
-    >
-      <Icon name={icon} {...(animate === true ? { animate: true } : {})} /> {label}
-    </button>
   );
 }
 
