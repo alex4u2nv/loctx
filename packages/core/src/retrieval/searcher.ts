@@ -447,7 +447,39 @@ export class WorkspaceSearcher {
     } catch {
       absPath = resolved;
     }
-    const project = this.discovery.resolveProject(absPath);
+
+    const markerProject = this.discovery.resolveProject(absPath);
+    const indexedAncestor = this.findDeepestIndexedAncestor(absPath);
+
+    let project: Project | null = null;
+    if (markerProject !== null && indexedAncestor !== null) {
+      // Both available. Prefer the inner marker only if it is itself an
+      // indexed project; otherwise fall back to the deepest indexed
+      // ancestor (#276) so the search has real data to draw on instead
+      // of silently returning zero hits.
+      if (markerProject.id === indexedAncestor.id) {
+        project = markerProject;
+      } else if (markerProject.root.startsWith(indexedAncestor.root + sep)) {
+        project = indexedAncestor;
+        warnings.push(
+          `path ${absPath} is inside unindexed inner project ${markerProject.name} ` +
+            `(${markerProject.root}); scoping to indexed parent ${indexedAncestor.name}.`,
+        );
+      } else {
+        // Inner marker is not under the indexed ancestor (shouldn't
+        // normally happen; defensive). Prefer the indexed project.
+        project = indexedAncestor;
+      }
+    } else if (indexedAncestor !== null) {
+      project = indexedAncestor;
+    } else if (markerProject !== null) {
+      // We have a marker but no indexed project covers this path. Keep
+      // the marker so an "outside indexed scope" search still runs
+      // against an empty subtree — caller sees zero results plus the
+      // existing "not inside any indexed project" pathway.
+      project = markerProject;
+    }
+
     if (project === null) {
       warnings.push(`path ${absPath} is not inside any indexed project; searching every project.`);
       return Object.freeze({ mode: "all", project: null, relPrefix: null, inputPath: absPath });
@@ -474,6 +506,23 @@ export class WorkspaceSearcher {
       relPrefix: `${rel}/`,
       inputPath: absPath,
     });
+  }
+
+  // Walk through state-recorded active projects, return the deepest one whose
+  // root contains absPath (#276). Indexed-status is approximated by active=1;
+  // the heal pass in apps/cli ensures active projects with file rows surface
+  // here even when last_indexed_at started null.
+  private findDeepestIndexedAncestor(absPath: string): Project | null {
+    let best: Project | null = null;
+    for (const row of this.state.listProjects()) {
+      if (!row.active) continue;
+      const root = row.root;
+      if (absPath !== root && !absPath.startsWith(root + sep)) continue;
+      if (best === null || root.length > best.root.length) {
+        best = { id: row.id, name: row.name, root };
+      }
+    }
+    return best;
   }
 }
 

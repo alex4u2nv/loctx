@@ -37,8 +37,15 @@ function fakeEmbeddings(): EmbeddingProvider {
 function fakeDiscovery(projects: Project[]): WorkspaceDiscovery {
   return {
     discoverProjects: () => projects,
-    resolveProject: (cwd: string) =>
-      projects.find((p) => cwd === p.root || cwd.startsWith(`${p.root}/`)) ?? null,
+    // Mimic the real resolveProject: walk upward and return the *deepest*
+    // (longest-root) project containing cwd. Real impl walks dirname chain
+    // until it finds a marker; the depth ordering matches the behavior the
+    // tests for #276 need to exercise.
+    resolveProject: (cwd: string) => {
+      const containing = projects.filter((p) => cwd === p.root || cwd.startsWith(`${p.root}/`));
+      if (containing.length === 0) return null;
+      return containing.reduce((a, b) => (b.root.length > a.root.length ? b : a));
+    },
   } as unknown as WorkspaceDiscovery;
 }
 
@@ -46,7 +53,18 @@ interface StateCapture {
   lastQuery: LexicalQuery | null;
 }
 
-function fakeState(matches: ReadonlyArray<LexicalMatch> = [], capture?: StateCapture): StateStore {
+interface FakeIndexedProject {
+  readonly id: string;
+  readonly name: string;
+  readonly root: string;
+  readonly active?: boolean;
+}
+
+function fakeState(
+  matches: ReadonlyArray<LexicalMatch> = [],
+  capture?: StateCapture,
+  indexed: ReadonlyArray<FakeIndexedProject> = [],
+): StateStore {
   return {
     searchLexical: (q: LexicalQuery): LexicalMatch[] => {
       if (capture !== undefined) capture.lastQuery = q;
@@ -61,6 +79,17 @@ function fakeState(matches: ReadonlyArray<LexicalMatch> = [], capture?: StateCap
     // doesn't have to opt in to those tables for every test.
     getFile: () => null,
     getFileEnrichment: () => null,
+    // Scope resolver (#276) consults listProjects to prefer indexed
+    // ancestors over discovery-detected markers.
+    listProjects: () =>
+      indexed.map((p) => ({
+        id: projectId(p.id),
+        name: p.name,
+        root: p.root,
+        lastIndexedAt: "2026-05-17T00:00:00.000Z",
+        lastReconciledAt: null,
+        active: p.active ?? true,
+      })),
   } as unknown as StateStore;
 }
 
@@ -219,6 +248,61 @@ describe("WorkspaceSearcher path-based scope", () => {
   it("omitting path searches all", async () => {
     const r = await searcherWith([]).search({ query: "x" });
     expect(r.resolvedScope.mode).toBe("all");
+    expect(r.warnings).toHaveLength(0);
+  });
+});
+
+describe("WorkspaceSearcher scope prefers indexed ancestor (#276)", () => {
+  // Monorepo root is indexed; the inner package has its own marker but is
+  // NOT in state. Discovery surfaces both. Scope resolution should pick the
+  // indexed parent and rewrite relPrefix from the parent's root.
+  const monorepoRoot = "/tmp/loctx";
+  const innerPkg = "/tmp/loctx/apps/cli";
+  const outer = fakeProject("outer", "loctx", monorepoRoot);
+  const inner = fakeProject("inner", "cli", innerPkg);
+
+  it("falls back to indexed parent when the inner marker isn't indexed", async () => {
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([]),
+      fakeEmbeddings(),
+      fakeDiscovery([outer, inner]),
+      fakeState([], undefined, [{ id: "outer", name: "loctx", root: monorepoRoot }]),
+    );
+    const r = await searcher.search({ query: "x", path: "/tmp/loctx/apps/cli/src" });
+    expect(r.resolvedScope.mode).toBe("subtree");
+    expect(r.resolvedScope.project?.id).toBe("outer");
+    expect(r.resolvedScope.relPrefix).toBe("apps/cli/src/");
+    expect(r.warnings.some((w) => /unindexed inner project/.test(w))).toBe(true);
+  });
+
+  it("uses the inner project when it IS indexed (no warning)", async () => {
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([]),
+      fakeEmbeddings(),
+      fakeDiscovery([outer, inner]),
+      fakeState([], undefined, [
+        { id: "outer", name: "loctx", root: monorepoRoot },
+        { id: "inner", name: "cli", root: innerPkg },
+      ]),
+    );
+    const r = await searcher.search({ query: "x", path: "/tmp/loctx/apps/cli/src" });
+    expect(r.resolvedScope.mode).toBe("subtree");
+    expect(r.resolvedScope.project?.id).toBe("inner");
+    expect(r.resolvedScope.relPrefix).toBe("src/");
+    expect(r.warnings).toHaveLength(0);
+  });
+
+  it("skips inactive indexed-ancestor candidates", async () => {
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([]),
+      fakeEmbeddings(),
+      fakeDiscovery([outer, inner]),
+      fakeState([], undefined, [{ id: "outer", name: "loctx", root: monorepoRoot, active: false }]),
+    );
+    const r = await searcher.search({ query: "x", path: "/tmp/loctx/apps/cli/src" });
+    // No indexed ancestor available → falls back to the marker project (inner),
+    // preserving prior behavior for projects the user hasn't activated.
+    expect(r.resolvedScope.project?.id).toBe("inner");
     expect(r.warnings).toHaveLength(0);
   });
 });
