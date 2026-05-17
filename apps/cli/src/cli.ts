@@ -387,6 +387,74 @@ program
     },
   );
 
+program
+  .command("find-usages <symbol>")
+  .description(
+    "Cross-reference lookup for SYMBOL: every def + callsite + import. " +
+      "Default scope is the project containing cwd; pass --path to scope " +
+      "elsewhere or --all to search every indexed project.",
+  )
+  .option("--path <p>", "Absolute or relative path to scope to a specific project.")
+  .option("--all", "Search every indexed project, ignoring the current directory.", false)
+  .action(async (symbol: string, opts: { path?: string; all: boolean }) => {
+    if (opts.path !== undefined && opts.all) {
+      console.error("--path and --all are mutually exclusive.");
+      process.exit(1);
+    }
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    const runtime = await buildRuntime(config);
+    try {
+      const scopePath = opts.all ? undefined : (opts.path ?? process.cwd());
+      let projects = runtime.discovery.discoverProjects();
+      if (scopePath !== undefined) {
+        const scoped = runtime.discovery.resolveProject(scopePath);
+        if (scoped === null) {
+          console.error(
+            `# scope: ${scopePath} is not inside any indexed project; pass --all to search everywhere.`,
+          );
+          process.exit(1);
+        }
+        projects = [scoped];
+      }
+
+      const reconcile = runtime.reconciler.status();
+      if (reconcile.running) {
+        const fileLabel =
+          reconcile.currentProjectIndexed !== null && reconcile.currentProjectTotal !== null
+            ? `, ${reconcile.currentProjectIndexed}/${reconcile.currentProjectTotal} files`
+            : "";
+        console.error(
+          `# warning: index reconciling (${reconcile.currentProjectName}${fileLabel}); results may be partial.`,
+        );
+      }
+
+      let totalDefs = 0;
+      let totalRefs = 0;
+      for (const project of projects) {
+        const { defs, refs } = runtime.state.findSymbol(project.id, symbol);
+        if (defs.length === 0 && refs.length === 0) continue;
+        console.log(`# project: ${project.name}  defs=${defs.length}  refs=${refs.length}`);
+        for (const d of defs) {
+          const abs = `${project.root}/${d.relPath}`;
+          console.log(`  def  ${abs}:${d.chunkStartLine}  [${d.kind}]`);
+        }
+        for (const r of refs) {
+          const abs = `${project.root}/${r.relPath}`;
+          console.log(`  ${r.kind.padEnd(5)} ${abs}:${r.chunkStartLine}`);
+        }
+        totalDefs += defs.length;
+        totalRefs += refs.length;
+      }
+      if (totalDefs === 0 && totalRefs === 0) {
+        console.error(`# no matches for ${symbol}`);
+        process.exit(0);
+      }
+    } finally {
+      await runtime.close();
+    }
+  });
+
 function clip(text: string, maxLines = 12): string {
   const lines = text.split("\n");
   if (lines.length <= maxLines) return text;
