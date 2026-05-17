@@ -112,6 +112,19 @@ export interface ProjectsRow {
    * stop, even though the in-memory tracker is empty.
    */
   readonly rebuildPendingAt: string | null;
+  /**
+   * Inner project markers absorbed by this project (#286). Each entry is
+   * a subdirectory under `root` that carries its own project marker
+   * (`.git`, `package.json`, etc.) but is indexed as part of the parent.
+   * Empty array when none.
+   */
+  readonly absorbedMarkers: ReadonlyArray<AbsorbedMarkerRow>;
+}
+
+export interface AbsorbedMarkerRow {
+  readonly relPath: string;
+  readonly marker: string;
+  readonly markerKind: string;
 }
 
 export interface RebuildProgress {

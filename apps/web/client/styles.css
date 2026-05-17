@@ -483,6 +483,44 @@ h3 {
   color: var(--bad);
 }
 
+/* Absorbed-markers pill on projects rows (#286) */
+.absorbed-pill {
+  display: inline-block;
+  margin-left: var(--space-2);
+  font-size: 0.75rem;
+  vertical-align: baseline;
+}
+.absorbed-pill > summary {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-dim);
+  background: var(--surface);
+  cursor: pointer;
+  list-style: none;
+}
+.absorbed-pill > summary::-webkit-details-marker {
+  display: none;
+}
+.absorbed-pill > summary:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+.absorbed-pill[open] > summary {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+.absorbed-pill > ul {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-3);
+  font-size: 0.85em;
+  font-weight: normal;
+}
+.absorbed-pill > ul code {
+  font-size: 0.95em;
+}
+
 /* Code snippet block */
 .snippet {
   margin: var(--space-2) 0 0;

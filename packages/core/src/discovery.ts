@@ -4,7 +4,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import {
   type ChunkId,
   type FileId,
@@ -238,6 +238,55 @@ export class WorkspaceDiscovery {
     return [...seen.values()].sort((a, b) => a.project.root.localeCompare(b.project.root));
   }
 
+  // Inner project markers absorbed by a parent project (#286). Walks the
+  // subtree under `projectRoot` with the same maxDepth + skip rules as
+  // discovery, collecting marker-bearing subdirectories. Stops descending
+  // once an inner marker is hit so we surface direct children only, not
+  // markers inside those children.
+  findAbsorbedMarkers(projectRoot: string): AbsorbedMarker[] {
+    const root = resolveSafe(projectRoot);
+    if (root === null || !isDir(root)) return [];
+    const out: AbsorbedMarker[] = [];
+    for (const hit of this.iterAbsorbedInside(root, 0)) {
+      const path = hit.path;
+      const relPath = relative(root, path).split(sep).join("/");
+      out.push({ path, relPath, marker: hit.marker, markerKind: hit.markerKind });
+    }
+    out.sort((a, b) => a.relPath.localeCompare(b.relPath));
+    return out;
+  }
+
+  private *iterAbsorbedInside(
+    directory: string,
+    depth: number,
+  ): Generator<{ path: string; marker: string; markerKind: MarkerKind }> {
+    if (depth > 0) {
+      const marker = this.detectMarker(directory);
+      if (marker !== null) {
+        yield { path: directory, marker: marker.name, markerKind: marker.group };
+        return;
+      }
+    }
+    if (depth >= this.maxDepth) return;
+    let entries: string[];
+    try {
+      entries = readdirSync(directory).sort();
+    } catch {
+      return;
+    }
+    for (const name of entries) {
+      if (name.startsWith(".") || SKIP_DIR_NAMES.has(name)) continue;
+      const child = join(directory, name);
+      try {
+        const stat = lstatSync(child);
+        if (!stat.isDirectory() || stat.isSymbolicLink()) continue;
+      } catch {
+        continue;
+      }
+      yield* this.iterAbsorbedInside(child, depth + 1);
+    }
+  }
+
   /** Walk upward from cwd looking for the nearest project marker. */
   resolveProject(cwd: string): Project | null {
     let current = resolveSafe(cwd);
@@ -312,6 +361,16 @@ function isFile(path: string): boolean {
 
 // ---- active / inactive / orphaned categorization -----------------------
 
+export interface AbsorbedMarker {
+  /** Absolute path of the inner directory carrying its own project marker. */
+  readonly path: string;
+  /** Forward-slash path relative to the parent project's root. */
+  readonly relPath: string;
+  /** Marker filename/dirname that identified the inner directory (e.g. `.git`). */
+  readonly marker: string;
+  readonly markerKind: MarkerKind;
+}
+
 export interface ActiveProject {
   readonly project: Project;
   readonly lastIndexedAt: string | null;
@@ -319,6 +378,11 @@ export interface ActiveProject {
   /** Marker filename/dirname that identified this directory as a project. */
   readonly marker: string;
   readonly markerKind: MarkerKind;
+  /**
+   * Inner subdirectories carrying their own project markers that were
+   * absorbed into this parent project (#286). Empty when none.
+   */
+  readonly absorbedMarkers: ReadonlyArray<AbsorbedMarker>;
 }
 
 /**
@@ -389,6 +453,7 @@ export function inventoryProjects(
         lastReconciledAt: r.lastReconciledAt,
         marker: hit.marker,
         markerKind: hit.markerKind,
+        absorbedMarkers: discovery.findAbsorbedMarkers(hit.project.root),
       });
     } else {
       inactive.push({

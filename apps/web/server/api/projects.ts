@@ -71,6 +71,7 @@ export function mountProjects(
         marker: string | null,
         markerKind: string | null,
         isOrphaned = false,
+        absorbedMarkers: ProjectsRow["absorbedMarkers"] = [],
       ): ProjectsRow => {
         const files = state.listFiles(project.id);
         const errors = files.filter((f) => f.error !== null).length;
@@ -106,11 +107,23 @@ export function mountProjects(
           healthHint,
           rebuilding: toRebuildProgress(rebuilds.get(project.id)),
           rebuildPendingAt: rebuildPendingByProject.get(project.id) ?? null,
+          absorbedMarkers,
         };
       };
 
       const active = inventory.active.map((a) =>
-        buildRow(a.project, a.lastReconciledAt, a.marker, a.markerKind),
+        buildRow(
+          a.project,
+          a.lastReconciledAt,
+          a.marker,
+          a.markerKind,
+          false,
+          a.absorbedMarkers.map((m) => ({
+            relPath: m.relPath,
+            marker: m.marker,
+            markerKind: m.markerKind,
+          })),
+        ),
       );
       const inactive: InactiveRow[] = inventory.inactive.map((i) => ({
         id: i.project.id,
@@ -198,6 +211,14 @@ export function mountProjects(
         healthHint,
         rebuilding: toRebuildProgress(rebuild ?? undefined),
         rebuildPendingAt: pendingMap.get(project.id) ?? null,
+        absorbedMarkers:
+          "absorbedMarkers" in found
+            ? found.absorbedMarkers.map((m) => ({
+                relPath: m.relPath,
+                marker: m.marker,
+                markerKind: m.markerKind,
+              }))
+            : [],
       };
       const stats = projectStats(state, project.id);
       const payload: ProjectDetailPayload = { project: row, stats };
