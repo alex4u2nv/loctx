@@ -3,15 +3,30 @@
  * everything here applies to the workspace as a whole.
  */
 
+import { useCallback } from "react";
 import { Link } from "react-router-dom";
 import { confirm } from "../components/confirm";
 import { Icon } from "../components/icon";
+import { useLiveRefreshEvent } from "../components/live-refresh";
 import { SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
+import { useFetch } from "../lib/use-fetch";
 import { useOpRunner } from "../lib/use-op-runner";
 
 export function AdminPage() {
   const ops = useOpRunner();
+  // Poll status so we can disable index/refresh while a reconcile
+  // is in flight — they'd 409 anyway (#312) and a pre-disabled
+  // button + tooltip beats clicking → reading an error toast.
+  const statusReq = useFetch(() => api.status(), []);
+  const onRefresh = useCallback(() => statusReq.reload(), [statusReq.reload]);
+  useLiveRefreshEvent(onRefresh);
+  const reconcile = statusReq.data?.reconciliation;
+  const reconcileBlocked = reconcile?.running ?? false;
+  const indexBlocked = ops.busy !== null || reconcileBlocked;
+  const reconcileTooltip = reconcileBlocked
+    ? `Reconciler is running on ${reconcile?.currentProjectName ?? "—"} — would 409. Wait for the pass to finish.`
+    : undefined;
 
   const indexAll = (): Promise<unknown> => ops.run("index all", () => api.index());
   const refreshAll = (): Promise<unknown> => ops.run("refresh", () => api.refresh());
@@ -67,7 +82,8 @@ export function AdminPage() {
           type="button"
           className="btn btn-primary"
           onClick={() => void indexAll()}
-          disabled={ops.busy !== null}
+          disabled={indexBlocked}
+          title={reconcileTooltip}
         >
           <Icon name="index" /> index all projects
         </button>{" "}
@@ -75,7 +91,8 @@ export function AdminPage() {
           type="button"
           className="btn"
           onClick={() => void refreshAll()}
-          disabled={ops.busy !== null}
+          disabled={indexBlocked}
+          title={reconcileTooltip}
         >
           <Icon name="refresh" /> refresh (reconcile drift)
         </button>{" "}
