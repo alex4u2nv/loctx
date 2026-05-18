@@ -69,9 +69,17 @@ export type WatcherState = "active" | "paused" | "failed";
  *                     (the watcher only catches *changes*, not initial state)
  *   - `empty`         files=0 but lastIndexed!=null — filter excluded everything
  *   - `errors`        files>0 but some failed indexing
+ *   - `indexing`      a rebuild is actively running for this project
+ *   - `reconciling`   the daemon's reconciler is mid-pass on this project
  *   - `active`        watching + has data
  *   - `ready`         indexed, no watcher (daemon started with --no-watch)
  *   - `orphaned`      project no longer under workspace_roots
+ *
+ *   `indexing` + `reconciling` are transient — they appear only while
+ *   work is happening and revert to active/ready when the daemon
+ *   finishes. They take precedence over `active`/`ready` so the badge
+ *   on /projects accurately mirrors the in-flight state shown in the
+ *   timestamp column.
  */
 export type ProjectHealth =
   | "failed"
@@ -79,6 +87,8 @@ export type ProjectHealth =
   | "never-indexed"
   | "empty"
   | "errors"
+  | "indexing"
+  | "reconciling"
   | "active"
   | "ready"
   | "orphaned";

@@ -105,13 +105,7 @@ export function mountProjects(
           watcherRegistry !== undefined ? watcherRegistry.get(project.id as ProjectId) : null;
         const watcherState = watcherEntry !== null ? watcherEntry.state : null;
         const filesCount = files.length;
-        const { health, healthHint } = computeHealth({
-          isOrphaned,
-          watcherState,
-          files: filesCount,
-          errors,
-          lastIndexed: lastIndexed ?? null,
-        });
+        const rebuildProgress = toRebuildProgress(rebuilds.get(project.id));
         const reconciling =
           reconcileSnap !== null &&
           reconcileSnap.running &&
@@ -121,6 +115,18 @@ export function mountProjects(
                 total: reconcileSnap.currentProjectTotal,
               }
             : null;
+        const { health, healthHint } = computeHealth({
+          isOrphaned,
+          watcherState,
+          files: filesCount,
+          errors,
+          lastIndexed: lastIndexed ?? null,
+          rebuilding:
+            rebuildProgress !== null && rebuildProgress.status === "running"
+              ? { indexed: rebuildProgress.indexed, totalFiles: rebuildProgress.totalFiles }
+              : null,
+          reconciling,
+        });
         return {
           id: project.id,
           name: project.name,
@@ -136,7 +142,7 @@ export function mountProjects(
           watcherFailure: watcherEntry !== null ? watcherEntry.failureReason : null,
           health,
           healthHint,
-          rebuilding: toRebuildProgress(rebuilds.get(project.id)),
+          rebuilding: rebuildProgress,
           rebuildPendingAt: rebuildPendingByProject.get(project.id) ?? null,
           absorbedMarkers,
           reconciling,
@@ -232,18 +238,33 @@ export function mountProjects(
       const watcherEntry =
         watcherRegistry !== undefined ? watcherRegistry.get(project.id) : null;
       const watcherState = watcherEntry !== null ? watcherEntry.state : null;
+      const chunkCounts = chunkCountsByProject(state);
+      const rebuild = rebuildTracker.get(project.id);
+      const rebuildProgress = toRebuildProgress(rebuild ?? undefined);
+      const pendingMap = new Map(
+        state.listProjectsWithRebuildPending().map((p) => [p.id, p.rebuildPendingAt]),
+      );
+      const detailReconciling =
+        detailReconcileSnap !== null &&
+        detailReconcileSnap.running &&
+        detailReconcileSnap.currentProjectId === project.id
+          ? {
+              indexed: detailReconcileSnap.currentProjectIndexed,
+              total: detailReconcileSnap.currentProjectTotal,
+            }
+          : null;
       const { health, healthHint } = computeHealth({
         isOrphaned: isOrphan,
         watcherState,
         files: files.length,
         errors,
         lastIndexed: lastIndexed ?? null,
+        rebuilding:
+          rebuildProgress !== null && rebuildProgress.status === "running"
+            ? { indexed: rebuildProgress.indexed, totalFiles: rebuildProgress.totalFiles }
+            : null,
+        reconciling: detailReconciling,
       });
-      const chunkCounts = chunkCountsByProject(state);
-      const rebuild = rebuildTracker.get(project.id);
-      const pendingMap = new Map(
-        state.listProjectsWithRebuildPending().map((p) => [p.id, p.rebuildPendingAt]),
-      );
       const row: ProjectsRow = {
         id: project.id,
         name: project.name,
@@ -259,7 +280,7 @@ export function mountProjects(
         watcherFailure: watcherEntry !== null ? watcherEntry.failureReason : null,
         health,
         healthHint,
-        rebuilding: toRebuildProgress(rebuild ?? undefined),
+        rebuilding: rebuildProgress,
         rebuildPendingAt: pendingMap.get(project.id) ?? null,
         absorbedMarkers:
           "absorbedMarkers" in found
@@ -461,6 +482,10 @@ function computeHealth(input: {
   files: number;
   errors: number;
   lastIndexed: string | null;
+  /** In-flight rebuild progress for this project, if any. */
+  rebuilding?: { indexed: number; totalFiles: number | null } | null;
+  /** Daemon is currently reconciling this specific project. */
+  reconciling?: { indexed: number | null; total: number | null } | null;
 }): { health: ProjectHealth; healthHint: string } {
   if (input.isOrphaned) {
     return {
@@ -477,6 +502,31 @@ function computeHealth(input: {
   }
   if (input.watcherState === "paused") {
     return { health: "paused", healthHint: "watcher paused — resume to track changes" };
+  }
+  // In-flight states override the steady ones so the badge mirrors
+  // the timestamp column's "indexing/reconciling" copy (#310).
+  // Rebuild wins over reconcile when both are true — a forced rebuild
+  // is the more aggressive operation and triggers the reconciler as
+  // a side-effect.
+  if (input.rebuilding != null) {
+    const totalLabel =
+      input.rebuilding.totalFiles !== null && input.rebuilding.totalFiles !== undefined
+        ? ` / ${input.rebuilding.totalFiles}`
+        : "";
+    return {
+      health: "indexing",
+      healthHint: `rebuild in flight — ${input.rebuilding.indexed}${totalLabel} files written so far`,
+    };
+  }
+  if (input.reconciling != null) {
+    const detail =
+      input.reconciling.indexed !== null && input.reconciling.total !== null
+        ? `${input.reconciling.indexed.toLocaleString()} / ${input.reconciling.total.toLocaleString()} files`
+        : "walking the project tree";
+    return {
+      health: "reconciling",
+      healthHint: `daemon reconciling this project — ${detail}; results may be partial until done`,
+    };
   }
   if (input.files === 0 && input.lastIndexed === null) {
     return {
