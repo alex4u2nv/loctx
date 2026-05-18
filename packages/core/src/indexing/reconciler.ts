@@ -140,6 +140,12 @@ export class Reconciler {
     // Stamp only on full success — a partially-failed reconcile must not
     // mark the project as up-to-date (see #194).
     this.state.markProjectReconciled(project.id);
+    // Clear rebuild_pending_at the moment THIS project finishes, not
+    // after the whole reconcileAll batch resolves. Without this, a
+    // mid-reconcile daemon restart leaves the flag set forever and
+    // each subsequent start re-resumes the rebuild from scratch even
+    // though the project is fully indexed.
+    this.state.clearProjectRebuildPending(project.id);
 
     return Object.freeze({
       project,

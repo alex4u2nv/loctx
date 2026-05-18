@@ -265,14 +265,10 @@ function startReconciliation(
     runtime.reconciler
       .reconcileAll(orderedProjects)
       .then((summaries) => {
-        // Clear rebuild_pending_at for every project whose reconcile
-        // completed without throwing — the indexer's full walk
-        // satisfies the rebuild intent we recorded at click time.
-        for (const s of summaries) {
-          if (pending.has(s.project.id)) {
-            runtime.state.clearProjectRebuildPending(s.project.id);
-          }
-        }
+        // `rebuild_pending_at` clearing moved into `reconcileProject`
+        // itself so each project's flag clears the moment that project
+        // finishes — surviving a mid-batch daemon kill. Used to live
+        // here. See Reconciler.reconcileProject.
         const tally = summaries.reduce(
           (acc, s) => ({
             pruned: acc.pruned + s.pruned,
