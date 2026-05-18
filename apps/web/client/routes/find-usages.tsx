@@ -90,13 +90,21 @@ export function FindUsagesPage() {
           {error}
         </p>
       ) : response === null ? null : (
-        <Results r={response} />
+        <Results r={response} scopedPath={urlPath} onClearScope={() => void submit(response.symbol, "")} />
       )}
     </section>
   );
 }
 
-function Results({ r }: { r: FindUsagesPayload }) {
+function Results({
+  r,
+  scopedPath,
+  onClearScope,
+}: {
+  r: FindUsagesPayload;
+  scopedPath: string;
+  onClearScope: () => void;
+}) {
   const warnings = r.warnings ?? [];
   const empty = r.defs.length === 0 && r.refs.length === 0;
   return (
@@ -111,7 +119,22 @@ function Results({ r }: { r: FindUsagesPayload }) {
         </p>
       ))}
       {empty ? (
-        <p className="pullquote">No matches for {r.symbol}.</p>
+        scopedPath !== "" ? (
+          <p className="pullquote">
+            No matches for <code>{r.symbol}</code> in <code>{scopedPath}</code>. The symbol may
+            be defined in another project —{" "}
+            <button type="button" className="btn-link" onClick={onClearScope}>
+              clear the path filter
+            </button>{" "}
+            to search every indexed project.
+          </p>
+        ) : (
+          <p className="pullquote">
+            No matches for <code>{r.symbol}</code> across every indexed project. The symbol may
+            not exist, or its file isn't indexed (check <code>.gitignore</code> /
+            <code>.loctxignore</code> / language filter).
+          </p>
+        )
       ) : (
         <>
           <h2>Definitions ({r.defs.length})</h2>
