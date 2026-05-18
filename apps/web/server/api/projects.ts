@@ -50,9 +50,31 @@ export function mountProjects(
   getRuntime: () => Promise<Runtime>,
   rebuildTracker: RebuildTracker,
 ): void {
-  app.get("/api/projects", (c) => {
+  app.get("/api/projects", async (c) => {
     const discovery = new WorkspaceDiscovery(config.workspaceRoots);
     const state = new StateStore(config.paths.stateDb);
+    // Live reconcile snapshot: lets each row know whether the daemon is
+    // currently reconciling it (vs the stale `lastReconciled` stamp).
+    // Best-effort — if the runtime isn't ready yet (very early boot)
+    // we just leave reconciling=null on every row.
+    let reconcileSnap: {
+      running: boolean;
+      currentProjectId: string | null;
+      currentProjectIndexed: number | null;
+      currentProjectTotal: number | null;
+    } | null = null;
+    try {
+      const rt = await getRuntime();
+      const s = rt.reconciler.status();
+      reconcileSnap = {
+        running: s.running,
+        currentProjectId: s.currentProjectId,
+        currentProjectIndexed: s.currentProjectIndexed,
+        currentProjectTotal: s.currentProjectTotal,
+      };
+    } catch {
+      // Runtime not ready yet — fall through with reconcileSnap=null.
+    }
     try {
       const inventory = inventoryProjects(discovery, state);
       const chunkCounts = chunkCountsByProject(state);
@@ -90,6 +112,15 @@ export function mountProjects(
           errors,
           lastIndexed: lastIndexed ?? null,
         });
+        const reconciling =
+          reconcileSnap !== null &&
+          reconcileSnap.running &&
+          reconcileSnap.currentProjectId === project.id
+            ? {
+                indexed: reconcileSnap.currentProjectIndexed,
+                total: reconcileSnap.currentProjectTotal,
+              }
+            : null;
         return {
           id: project.id,
           name: project.name,
@@ -108,6 +139,7 @@ export function mountProjects(
           rebuilding: toRebuildProgress(rebuilds.get(project.id)),
           rebuildPendingAt: rebuildPendingByProject.get(project.id) ?? null,
           absorbedMarkers,
+          reconciling,
         };
       };
 
@@ -155,10 +187,28 @@ export function mountProjects(
     }
   });
 
-  app.get("/api/projects/:id", (c) => {
+  app.get("/api/projects/:id", async (c) => {
     const id = c.req.param("id");
     const discovery = new WorkspaceDiscovery(config.workspaceRoots);
     const state = new StateStore(config.paths.stateDb);
+    let detailReconcileSnap: {
+      running: boolean;
+      currentProjectId: string | null;
+      currentProjectIndexed: number | null;
+      currentProjectTotal: number | null;
+    } | null = null;
+    try {
+      const rt = await getRuntime();
+      const s = rt.reconciler.status();
+      detailReconcileSnap = {
+        running: s.running,
+        currentProjectId: s.currentProjectId,
+        currentProjectIndexed: s.currentProjectIndexed,
+        currentProjectTotal: s.currentProjectTotal,
+      };
+    } catch {
+      /* runtime not ready — leave null */
+    }
     try {
       const inventory = inventoryProjects(discovery, state);
       // The inspect view spans active + orphaned. Inactive projects
@@ -219,6 +269,15 @@ export function mountProjects(
                 markerKind: m.markerKind,
               }))
             : [],
+        reconciling:
+          detailReconcileSnap !== null &&
+          detailReconcileSnap.running &&
+          detailReconcileSnap.currentProjectId === project.id
+            ? {
+                indexed: detailReconcileSnap.currentProjectIndexed,
+                total: detailReconcileSnap.currentProjectTotal,
+              }
+            : null,
       };
       const stats = projectStats(state, project.id);
       const payload: ProjectDetailPayload = { project: row, stats };

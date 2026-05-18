@@ -305,10 +305,7 @@ function ProjectsTable({
                 </div>
               </td>
               <td className="dim" style={{ fontSize: "0.9em" }}>
-                <div title={row.lastIndexed ?? ""}>indexed {relativeTime(row.lastIndexed)}</div>
-                <div title={row.lastReconciled ?? ""}>
-                  reconciled {relativeTime(row.lastReconciled)}
-                </div>
+                <IndexStatusCell row={row} />
               </td>
               {showReason && orphan ? (
                 <td className={orphan.rootExists === false ? "err" : "warn"}>{orphan.reason}</td>
@@ -338,6 +335,54 @@ function ProjectsTable({
         ) : null}
       </tbody>
     </table>
+  );
+}
+
+/**
+ * Per-row "indexing/indexed · reconciling/reconciled" cell. Splits the
+ * stale-timestamp display into honest in-flight vs completed states so
+ * the user can tell at a glance whether work is happening right now.
+ *
+ *   In-flight rebuild:   "indexing… N files"     (no stamp shown)
+ *   No rebuild:          "indexed Xs ago"        (past-tense stamp)
+ *   Mid-reconcile here:  "reconciling… N/M files"
+ *   Not mid-reconcile:   "reconciled Xs ago" or "reconciled —"
+ */
+function IndexStatusCell({ row }: { row: AnyRow }) {
+  // The /api/rebuild path uses RebuildProgress; if a rebuild is running,
+  // the indexer is actively writing rows for this project.
+  const isIndexing = row.rebuilding !== null && row.rebuilding.status === "running";
+  const indexedLabel = isIndexing ? (
+    <span className="warn">
+      indexing… {row.rebuilding?.indexed ?? 0}
+      {row.rebuilding?.totalFiles !== null && row.rebuilding?.totalFiles !== undefined
+        ? `/${row.rebuilding.totalFiles}`
+        : ""}{" "}
+      files
+    </span>
+  ) : (
+    <>indexed {relativeTime(row.lastIndexed)}</>
+  );
+
+  const isReconciling = row.reconciling !== null;
+  const reconcileLabel = isReconciling ? (
+    <span className="warn">
+      reconciling…{" "}
+      {row.reconciling?.indexed !== null && row.reconciling?.total !== null
+        ? `${row.reconciling.indexed.toLocaleString()} / ${row.reconciling.total.toLocaleString()} files`
+        : "walking"}
+    </span>
+  ) : (
+    <>reconciled {relativeTime(row.lastReconciled)}</>
+  );
+
+  return (
+    <>
+      <div title={isIndexing ? "in-flight rebuild" : (row.lastIndexed ?? "")}>{indexedLabel}</div>
+      <div title={isReconciling ? "in-flight reconcile" : (row.lastReconciled ?? "")}>
+        {reconcileLabel}
+      </div>
+    </>
   );
 }
 
