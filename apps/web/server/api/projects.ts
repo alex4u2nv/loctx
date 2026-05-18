@@ -127,15 +127,6 @@ export function mountProjects(
               : null,
           reconciling,
         });
-        const reconciling =
-          reconcileSnap !== null &&
-          reconcileSnap.running &&
-          reconcileSnap.currentProjectId === project.id
-            ? {
-                indexed: reconcileSnap.currentProjectIndexed,
-                total: reconcileSnap.currentProjectTotal,
-              }
-            : null;
         return {
           id: project.id,
           name: project.name,

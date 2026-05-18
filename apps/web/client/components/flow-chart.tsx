@@ -22,6 +22,13 @@ export interface FlowProject {
   readonly name: string;
   readonly chunks: number;
   readonly watcher: WatcherState | null;
+  /**
+   * Daemon is actively writing chunks for this project — either via a
+   * rebuild or a reconcile pass (#310). Drives the "indexing" pulse on
+   * the flow-chart link so the dashboard mirrors what the /projects
+   * health badge already shows.
+   */
+  readonly inFlight?: boolean;
 }
 
 const MAX_OUTPUTS = 6;
@@ -66,7 +73,7 @@ export function FlowChart({
 }) {
   const counts = projects.reduce(
     (acc, p) => {
-      const kind = classify(p.watcher, p.chunks, undefined);
+      const kind = classify(p.watcher, p.chunks, undefined, p.inFlight === true);
       acc[kind] = (acc[kind] ?? 0) + 1;
       return acc;
     },
@@ -83,12 +90,14 @@ export function FlowChart({
     label: string;
     chunks: number;
     watcher: WatcherState | null;
+    inFlight?: boolean;
     hiddenCount?: number;
   }> = visible.map((p) => ({
     key: p.id,
     label: truncate(p.name),
     chunks: p.chunks,
     watcher: p.watcher,
+    ...(p.inFlight === true ? { inFlight: true } : {}),
   }));
   if (hidden.length > 0) {
     rows.push({
@@ -111,7 +120,7 @@ export function FlowChart({
     // hugging the top/bottom edges.
     cy: top + ((i + 1) * span) / (rowCount + 1),
     thickness: thicknessFor(r.chunks, totalChunks),
-    kind: classify(r.watcher, r.chunks, r.hiddenCount),
+    kind: classify(r.watcher, r.chunks, r.hiddenCount, r.inFlight === true),
   }));
 
   // Source bar — vertically centred, height proportional to total chunks
@@ -312,10 +321,15 @@ function classify(
   watcher: WatcherState | null,
   chunks: number,
   hiddenCount: number | undefined,
+  inFlight = false,
 ): OutputKind {
   if (hiddenCount !== undefined) return "more";
   if (watcher === "failed") return "failed";
   if (watcher === "paused") return "paused";
+  // Daemon is actively writing chunks (rebuild or reconcile pass) —
+  // takes precedence over the "active" steady state so the link
+  // animates while real work is happening.
+  if (inFlight) return "indexing";
   // Active watcher but nothing indexed yet → in-progress / queued.
   if (watcher === "active" && chunks === 0) return "indexing";
   if (watcher === "active") return "active";
