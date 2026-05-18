@@ -189,9 +189,25 @@ export function mountOps(
     // Claim a tracker slot per project before kicking work off. A second
     // /api/rebuild for the same project while one is running gets 409 —
     // wiping vectors twice would race the in-flight indexer's mergeInsert.
+    // Also reject if the reconciler is currently walking this exact
+    // project: deleteProjectChunks would race the reconciler's writes
+    // on the same LanceDB table. Different projects in the same call
+    // are fine (the reconciler is sequential).
+    const reconcileStatus = rt.reconciler.status();
+    const reconcilingProjectId =
+      reconcileStatus.running ? reconcileStatus.currentProjectId : null;
     const accepted: Array<{ projectId: string; name: string }> = [];
     const rejected: Array<{ projectId: string; name: string; reason: string }> = [];
     for (const project of projects) {
+      if (reconcilingProjectId === project.id) {
+        rejected.push({
+          projectId: project.id,
+          name: project.name,
+          reason:
+            "reconciler is currently walking this project — wait for it to finish (visible on the bell + /projects)",
+        });
+        continue;
+      }
       const job = rebuildTracker.start(project.id, project.name);
       if (job === null) {
         rejected.push({
