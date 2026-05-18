@@ -145,6 +145,45 @@ describe("Reconciler (#14)", () => {
     expect(stampedAfterFail).toBe(stampedFirst);
   });
 
+  it("clears rebuild_pending_at the moment a project finishes (#46 follow-up)", async () => {
+    // Previously the clear ran in start.ts's post-batch loop after
+    // reconcileAll resolved, so a mid-batch daemon kill left the flag
+    // set forever and the next start re-resumed the rebuild from
+    // scratch. Now reconcileProject itself clears the flag per-project
+    // on success.
+    writeFileSync(join(projectRoot, "src", "auth.ts"), "export function authenticate() {}\n");
+    const project = makeProject();
+    // Persist a rebuild intent the way `loctx rebuild` does.
+    state.upsertProjectWithActive(project, true);
+    state.markProjectRebuildPending(project.id);
+    expect(state.listProjectsWithRebuildPending().map((p) => p.id)).toContain(project.id);
+
+    await reconciler.reconcileProject(project);
+
+    expect(state.listProjectsWithRebuildPending().map((p) => p.id)).not.toContain(project.id);
+  });
+
+  it("does NOT clear rebuild_pending_at when indexProject throws", async () => {
+    // The clear must obey the same success gate as last_reconciled_at:
+    // a failed reconcile leaves the rebuild marker so the next startup
+    // tries again from the priority queue.
+    writeFileSync(join(projectRoot, "src", "auth.ts"), "export function authenticate() {}\n");
+    const project = makeProject();
+    state.upsertProjectWithActive(project, true);
+    state.markProjectRebuildPending(project.id);
+
+    const original = indexer.indexProject.bind(indexer);
+    indexer.indexProject = async () => {
+      throw new Error("simulated indexer failure");
+    };
+    try {
+      await expect(reconciler.reconcileProject(project)).rejects.toThrow();
+    } finally {
+      indexer.indexProject = original;
+    }
+    expect(state.listProjectsWithRebuildPending().map((p) => p.id)).toContain(project.id);
+  });
+
   it("prunes already-indexed files that a new ignore rule now excludes", async () => {
     // Sim the user's report: file is indexed first, then a matching
     // pattern is added to .gitignore (or global). Subsequent
