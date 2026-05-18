@@ -483,6 +483,11 @@ h3 {
   color: var(--bad);
 }
 
+/* In-flight health badge — same warn palette but signals "active work". */
+.dot-busy {
+  color: var(--primary);
+}
+
 /* Notifications bell (top-nav) + modal list */
 .nav-bell {
   position: relative;

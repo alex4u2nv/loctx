@@ -422,7 +422,7 @@ function HealthBadge({
   const meta = (health !== null && health !== undefined && HEALTH_META[health]) || HEALTH_FALLBACK;
   return (
     <span className={`dot ${meta.cls}`} title={hint ?? undefined}>
-      <Icon name={meta.icon} />
+      <Icon name={meta.icon} animate={meta.animate === true} />
       <span>{meta.label}</span>
     </span>
   );
@@ -432,6 +432,8 @@ interface HealthMeta {
   readonly icon: IconName;
   readonly cls: string;
   readonly label: string;
+  /** Pulse the icon — used for transient in-flight states. */
+  readonly animate?: boolean;
 }
 
 const HEALTH_META: Record<ProjectHealth, HealthMeta> = {
@@ -441,6 +443,8 @@ const HEALTH_META: Record<ProjectHealth, HealthMeta> = {
   "never-indexed": { icon: "warn", cls: "dot-warn", label: "never indexed" },
   empty: { icon: "warn", cls: "dot-warn", label: "no matched files" },
   errors: { icon: "warn", cls: "dot-warn", label: "errors" },
+  indexing: { icon: "rebuild", cls: "dot-busy", label: "indexing", animate: true },
+  reconciling: { icon: "refresh", cls: "dot-busy", label: "reconciling", animate: true },
   failed: { icon: "err", cls: "dot-bad", label: "failed" },
   orphaned: { icon: "err", cls: "dot-bad", label: "orphaned" },
 };
