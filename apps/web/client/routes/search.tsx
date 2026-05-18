@@ -1,5 +1,5 @@
 import type { SearchHit, SearchPayload } from "@shared/contracts";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { SnippetModal } from "../components/snippet-modal";
 import { api } from "../lib/api";
@@ -50,6 +50,21 @@ export function SearchPage() {
     },
     [setParams],
   );
+
+  // Auto-fire when a URL deep-link arrives with ?q=... (e.g. landing
+  // from a bookmark, browser back/forward, or a link in another tab).
+  // Matches /find-usages's behavior from #296. lastFiredQuery tracks
+  // what we last submitted for so a same-URL re-render doesn't double-
+  // submit; setParams() inside submit() updates `query` and triggers
+  // this effect, but lastFiredQuery is already up to date by then.
+  const lastFired = useRef<string>("");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — fire once per URL-derived state
+  useEffect(() => {
+    const key = `${query}|${path}|${limit}|${language}`;
+    if (!query || lastFired.current === key) return;
+    lastFired.current = key;
+    void submit({ q: query, path, limit, language });
+  }, [query, path, limit, language]);
 
   return (
     <section>
@@ -136,11 +151,7 @@ export function SearchPage() {
           {error}
         </p>
       ) : response === null ? (
-        query ? (
-          loading ? null : (
-            <p className="pullquote">No results yet.</p>
-          )
-        ) : (
+        query ? null /* URL-driven submit is in flight; brief blank is OK */ : (
           <p className="pullquote">Enter a query to search the locally-indexed workspace.</p>
         )
       ) : (
