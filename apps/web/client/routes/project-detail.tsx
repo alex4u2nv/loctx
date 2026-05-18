@@ -362,7 +362,21 @@ function SearchHitMeta({ hit }: { hit: SearchHit }) {
       {hit.symbols.length > 0 ? (
         <>
           <br />
-          <span className="dim">symbols: {hit.symbols.join(", ")}</span>
+          <span className="dim">
+            symbols:{" "}
+            {hit.symbols.map((s, i) => (
+              <span key={s}>
+                {i > 0 ? ", " : ""}
+                <Link
+                  className="btn-link"
+                  to={`/find-usages?symbol=${encodeURIComponent(s)}`}
+                  title={`find usages of ${s}`}
+                >
+                  {s}
+                </Link>
+              </span>
+            ))}
+          </span>
         </>
       ) : null}
       {hit.matchReasons.length > 0 ? (
