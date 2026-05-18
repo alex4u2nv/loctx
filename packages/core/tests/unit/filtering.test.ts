@@ -117,6 +117,25 @@ describe("ProjectFilter", () => {
     expect(freshFilter().shouldIndex(outside).reason).toBe(FilterReason.OUTSIDE_PROJECT);
   });
 
+  it("skips test/coverage output directories by default", () => {
+    // Common build artifacts users don't want in the index. Each entry
+    // matches the basename anywhere in the path. Without this, an
+    // indexing pass on a JS repo will absorb Playwright reports
+    // (test-results/, playwright-report/) and coverage HTML, eating
+    // both the embedding budget and lexical signal-to-noise.
+    const subPaths = [
+      "test-results/run-1/output.json",
+      "playwright-report/index.html",
+      "coverage/lcov-report/index.html",
+      ".nyc_output/coverage-final.json",
+      "htmlcov/index.html",
+    ];
+    for (const rel of subPaths) {
+      const f = write(join(projectRoot, rel), "{}");
+      expect(freshFilter().shouldIndex(f).reason).toBe(FilterReason.IGNORED_DIRECTORY);
+    }
+  });
+
   it("skips lockfiles via noise_globs by default", () => {
     const f = write(join(projectRoot, "package-lock.json"), '{"lockfileVersion": 3}');
     expect(freshFilter().shouldIndex(f).reason).toBe(FilterReason.NOISE);

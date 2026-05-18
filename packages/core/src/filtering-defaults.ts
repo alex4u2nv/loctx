@@ -54,6 +54,8 @@ export const FILTERING_DEFAULTS = {
     "coverage",
     ".nyc_output",
     "htmlcov",
+    "test-results",
+    "playwright-report",
     // editors / ides
     ".idea",
     ".vscode",
