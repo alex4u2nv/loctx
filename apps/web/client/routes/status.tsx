@@ -20,6 +20,7 @@
 import type { StatusPayload } from "@shared/contracts";
 import { useCallback, useState } from "react";
 import { FlowChart, type FlowProject } from "../components/flow-chart";
+import { Icon } from "../components/icon";
 import { useLiveRefreshData, useLiveRefreshEvent } from "../components/live-refresh";
 import { SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
@@ -385,12 +386,39 @@ function McpTile({ baseUrl }: { baseUrl: string }) {
       <p className="metric-label" style={{ marginTop: 0 }}>
         HTTP
       </p>
-      <pre className="mcp-snippet">{httpSnippet}</pre>
+      <McpSnippetWithCopy snippet={httpSnippet} kind="http" />
       <p className="metric-label" style={{ marginTop: "var(--space-2)" }}>
         stdio
       </p>
-      <pre className="mcp-snippet">{stdioSnippet}</pre>
+      <McpSnippetWithCopy snippet={stdioSnippet} kind="stdio" />
     </article>
+  );
+}
+
+function McpSnippetWithCopy({ snippet, kind }: { snippet: string; kind: string }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(snippet);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* clipboard blocked — silent */
+    }
+  };
+  return (
+    <div className="mcp-snippet-wrap">
+      <pre className="mcp-snippet">{snippet}</pre>
+      <button
+        type="button"
+        className="btn mcp-copy"
+        onClick={() => void onCopy()}
+        aria-label={`Copy ${kind} snippet`}
+      >
+        <Icon name="copy" />
+        <span>{copied ? "Copied" : "Copy"}</span>
+      </button>
+    </div>
   );
 }
 
