@@ -300,49 +300,68 @@ function ScopedSearch({ projectRoot }: { projectRoot: string }) {
           {error}
         </p>
       ) : null}
-      {results !== null ? <SearchResults hits={results.results} /> : null}
+      {results !== null ? <SearchResults response={results} /> : null}
     </>
   );
 }
 
-function SearchResults({ hits }: { hits: ReadonlyArray<SearchHit> }) {
+function SearchResults({ response }: { response: SearchPayload }) {
   const { selected, open, close } = useSnippetSelection<SearchHit>();
-  if (hits.length === 0) return <p className="pullquote">No matches.</p>;
+  const hits = response.results;
+  const warnings = response.warnings ?? [];
   return (
     <>
-      <p className="summary dim">
-        {hits.length} {hits.length === 1 ? "result" : "results"}. Click a row for the snippet.
-      </p>
-      <DataTable
-        rows={hits}
-        rowKey={(h, i) => `${h.relPath}-${h.startLine}-${i}`}
-        onRowClick={open}
-        columns={[
-          { key: "file", header: "file", cell: (h) => <code>{h.relPath}</code> },
-          {
-            key: "lines",
-            header: "lines",
-            numeric: true,
-            cell: (h) => `${h.startLine}-${h.endLine}`,
-          },
-          { key: "kind", header: "kind", dim: true, cell: (h) => h.kind },
-          {
-            key: "score",
-            header: "score",
-            numeric: true,
-            cell: (h) => h.score.toFixed(3),
-          },
-        ]}
-      />
-      {selected !== null ? (
-        <SnippetModal
-          title={selected.relPath}
-          snippet={selected.snippet}
-          onClose={close}
-          meta={<SearchHitMeta hit={selected} />}
-          {...(selected.language !== "" ? { language: selected.language } : {})}
-        />
-      ) : null}
+      {warnings.map((w) => (
+        <p
+          key={w}
+          className="pullquote"
+          style={{ borderLeftColor: "var(--warn)", color: "var(--warn)" }}
+        >
+          {w}
+        </p>
+      ))}
+      {hits.length === 0 ? (
+        <p className="pullquote">
+          No matches in this project. Try a broader query or use the global{" "}
+          <Link to="/search">search page</Link> to scan every indexed project.
+        </p>
+      ) : (
+        <>
+          <p className="summary dim">
+            {hits.length} {hits.length === 1 ? "result" : "results"}. Click a row for the snippet.
+          </p>
+          <DataTable
+            rows={hits}
+            rowKey={(h, i) => `${h.relPath}-${h.startLine}-${i}`}
+            onRowClick={open}
+            columns={[
+              { key: "file", header: "file", cell: (h) => <code>{h.relPath}</code> },
+              {
+                key: "lines",
+                header: "lines",
+                numeric: true,
+                cell: (h) => `${h.startLine}-${h.endLine}`,
+              },
+              { key: "kind", header: "kind", dim: true, cell: (h) => h.kind },
+              {
+                key: "score",
+                header: "score",
+                numeric: true,
+                cell: (h) => h.score.toFixed(3),
+              },
+            ]}
+          />
+          {selected !== null ? (
+            <SnippetModal
+              title={selected.relPath}
+              snippet={selected.snippet}
+              onClose={close}
+              meta={<SearchHitMeta hit={selected} />}
+              {...(selected.language !== "" ? { language: selected.language } : {})}
+            />
+          ) : null}
+        </>
+      )}
     </>
   );
 }
