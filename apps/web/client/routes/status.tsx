@@ -96,6 +96,8 @@ export function StatusPage() {
     name: p.name,
     chunks: p.chunks,
     watcher: p.watcher,
+    inFlight:
+      (p.rebuilding !== null && p.rebuilding.status === "running") || p.reconciling !== null,
   }));
 
   return (
