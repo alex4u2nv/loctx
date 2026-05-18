@@ -33,12 +33,30 @@ function ensureSource(): void {
   if (source !== null) return;
   source = new EventSource("/api/events");
   source.onopen = () => {
+    // Detect closed→open transitions: that's a reconnect after the
+    // daemon was restarted or the network blipped. Fire eventListeners
+    // so subscribers (useFetch reloaders) refetch fresh data without
+    // waiting for the next SSE message to land. Without this, the UI
+    // sits on stale data until the user navigates.
+    const wasDisconnected = connectionState === "closed";
     connectionState = "open";
     for (const l of stateListeners) l(connectionState, lastEventAt);
+    if (wasDisconnected) {
+      for (const l of eventListeners) l();
+    }
   };
   source.onerror = () => {
     connectionState = "closed";
     for (const l of stateListeners) l(connectionState, lastEventAt);
+    // EventSource auto-reconnects from readyState=CONNECTING; we
+    // explicitly handle the CLOSED case (server returned 4xx/5xx, or
+    // the connection was hard-closed) so the UI doesn't stay red
+    // forever. Recycle the source and schedule a retry.
+    if (source !== null && source.readyState === EventSource.CLOSED) {
+      source.close();
+      source = null;
+      setTimeout(() => ensureSource(), 2_000);
+    }
   };
   source.onmessage = (msg) => {
     let parsed: unknown = null;
