@@ -6,6 +6,7 @@
 
 import {
   faBan,
+  faBell,
   faBolt,
   faCheckCircle,
   faCircleXmark,
@@ -37,6 +38,7 @@ const ICONS = {
   warn: faTriangleExclamation,
   err: faCircleXmark,
   live: faWifi,
+  bell: faBell,
 } as const;
 
 export type IconName = keyof typeof ICONS;
