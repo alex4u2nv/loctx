@@ -91,9 +91,28 @@ export function ProjectDetailPage() {
               </>
             ) : null}
             <span className="sep">·</span>
-            <span className="dim">indexed {relativeTime(project.lastIndexed)}</span>
+            {project.rebuilding !== null && project.rebuilding.status === "running" ? (
+              <span className="warn">
+                indexing… {project.rebuilding.indexed}
+                {project.rebuilding.totalFiles !== null
+                  ? `/${project.rebuilding.totalFiles}`
+                  : ""}{" "}
+                files
+              </span>
+            ) : (
+              <span className="dim">indexed {relativeTime(project.lastIndexed)}</span>
+            )}
             <span className="sep">·</span>
-            <span className="dim">reconciled {relativeTime(project.lastReconciled)}</span>
+            {project.reconciling !== null ? (
+              <span className="warn">
+                reconciling…{" "}
+                {project.reconciling.indexed !== null && project.reconciling.total !== null
+                  ? `${project.reconciling.indexed.toLocaleString()} / ${project.reconciling.total.toLocaleString()} files`
+                  : "walking"}
+              </span>
+            ) : (
+              <span className="dim">reconciled {relativeTime(project.lastReconciled)}</span>
+            )}
           </p>
           <p className="summary dim">{project.healthHint}</p>
         </div>
