@@ -462,8 +462,19 @@ function UsageResults({
   refs: ReadonlyArray<UsageHit>;
   symbol: string;
 }) {
-  if (defs.length === 0 && refs.length === 0)
-    return <p className="pullquote">No matches for {symbol}.</p>;
+  if (defs.length === 0 && refs.length === 0) {
+    // Scoped panel: we're already inside one project, so the helpful
+    // next step is the global /find-usages page (which searches every
+    // indexed project). Mirrors the broaden-to-global treatment the
+    // scoped-search panel uses.
+    return (
+      <p className="pullquote">
+        No matches for <code>{symbol}</code> in this project. Open{" "}
+        <Link to={`/find-usages?symbol=${encodeURIComponent(symbol)}`}>global find-usages</Link>{" "}
+        to search every indexed project.
+      </p>
+    );
+  }
   return (
     <>
       <h3>Definitions ({defs.length})</h3>
