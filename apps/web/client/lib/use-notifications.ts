@@ -1,18 +1,18 @@
 /**
  * Derive a list of operator-relevant notifications from the daemon's
- * /api/status payload. Currently surfaces:
+ * /api/status + /api/projects payloads. Surfaces:
  *
  *   - In-flight reconcile (project + file progress)
- *
- * Future sources (rebuild_pending flags, watcher failures, etc.) will
- * plug into the same shape so the bell UI doesn't grow new code paths.
+ *   - In-flight rebuilds (per project)
+ *   - Watcher failures (per project, with failure reason)
+ *   - Stuck rebuild_pending flags from killed daemons
  *
  * Auto-refresh: re-fetches when the SSE LiveRefresh bus signals, so
  * the bell badge updates in step with the rest of the admin UI.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import type { StatusPayload } from "@shared/contracts";
+import type { ProjectsPayload, StatusPayload } from "@shared/contracts";
 import { useLiveRefreshEvent } from "../components/live-refresh";
 import { api } from "./api";
 
@@ -34,12 +34,14 @@ export interface NotificationsState {
 
 export function useNotifications(): NotificationsState {
   const [status, setStatus] = useState<StatusPayload | null>(null);
+  const [projects, setProjects] = useState<ProjectsPayload | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
-      const next = await api.status();
-      setStatus(next);
+      const [s, p] = await Promise.all([api.status(), api.projects()]);
+      setStatus(s);
+      setProjects(p);
     } catch {
       // Daemon unreachable — keep the previous snapshot so the bell
       // doesn't flicker empty during a transient blip.
@@ -54,28 +56,92 @@ export function useNotifications(): NotificationsState {
   useLiveRefreshEvent(() => void refresh());
 
   return {
-    notifications: status === null ? [] : deriveNotifications(status),
+    notifications: deriveNotifications(status, projects),
     loading,
   };
 }
 
-function deriveNotifications(status: StatusPayload): Notification[] {
+function deriveNotifications(
+  status: StatusPayload | null,
+  projects: ProjectsPayload | null,
+): Notification[] {
   const out: Notification[] = [];
 
-  const r = status.reconciliation;
-  if (r.running) {
-    const fileLabel =
-      r.currentProjectIndexed !== null && r.currentProjectTotal !== null
-        ? ` — ${r.currentProjectIndexed.toLocaleString()} / ${r.currentProjectTotal.toLocaleString()} files`
-        : "";
-    const projectLabel = r.currentProjectName ?? "—";
-    const projectProgress = `project ${r.completed + 1} of ${r.total}`;
-    out.push({
-      id: `reconcile:${r.startedAt ?? "unknown"}:${projectLabel}`,
-      kind: "warn",
-      title: `Reconciling ${projectLabel}`,
-      message: `${projectProgress}${fileLabel}. Search and find_usages may return partial results until the pass finishes.`,
-    });
+  // In-flight reconcile (warn): one entry, names the current project
+  // and file progress.
+  if (status !== null) {
+    const r = status.reconciliation;
+    if (r.running) {
+      const fileLabel =
+        r.currentProjectIndexed !== null && r.currentProjectTotal !== null
+          ? ` — ${r.currentProjectIndexed.toLocaleString()} / ${r.currentProjectTotal.toLocaleString()} files`
+          : "";
+      const projectLabel = r.currentProjectName ?? "—";
+      const projectProgress = `project ${r.completed + 1} of ${r.total}`;
+      out.push({
+        id: `reconcile:${r.startedAt ?? "unknown"}:${projectLabel}`,
+        kind: "warn",
+        title: `Reconciling ${projectLabel}`,
+        message: `${projectProgress}${fileLabel}. Search and find_usages may return partial results until the pass finishes.`,
+      });
+    }
+  }
+
+  if (projects === null) return out;
+
+  // In-flight rebuilds (warn): one entry per project actively rebuilding.
+  // Independent from the reconcile entry above — a rebuild can run on
+  // one project while the reconciler walks another.
+  for (const p of projects.active) {
+    if (p.rebuilding !== null && p.rebuilding.status === "running") {
+      const totals =
+        p.rebuilding.totalFiles !== null
+          ? `${p.rebuilding.indexed} / ${p.rebuilding.totalFiles}`
+          : `${p.rebuilding.indexed}`;
+      out.push({
+        id: `rebuild:${p.id}:${p.rebuilding.startedAt}`,
+        kind: "warn",
+        title: `Rebuilding ${p.name}`,
+        message: `${totals} files indexed so far. Wiping + re-embedding from scratch — the project will be unavailable for search until done.`,
+      });
+    }
+  }
+
+  // Watcher failures (error): per-project, names the failure reason.
+  // Watcher silently stops emitting events when it errors; without
+  // this signal the first sign would be stale search results hours
+  // later (#160).
+  for (const p of projects.active) {
+    if (p.watcher === "failed") {
+      out.push({
+        id: `watcher-failed:${p.id}`,
+        kind: "error",
+        title: `Watcher failed for ${p.name}`,
+        message:
+          p.watcherFailure !== null
+            ? `${p.watcherFailure}. Try \`ulimit -n 10240\` if it's EMFILE; otherwise click resume on /projects to retry.`
+            : "Reason unknown — check daemon logs. Click resume on /projects to retry.",
+      });
+    }
+  }
+
+  // Stuck rebuild_pending (info): an interrupted rebuild left a marker
+  // that'll trigger a forced re-index on the next reconcile pass. Surfaced
+  // here so the user isn't surprised by the long pass later. Skipped
+  // when the reconciler is already running — the reconcile entry above
+  // already names the pending project.
+  const reconcileRunning = status?.reconciliation.running ?? false;
+  if (!reconcileRunning) {
+    for (const p of projects.active) {
+      if (p.rebuildPendingAt !== null && (p.rebuilding === null || p.rebuilding.status !== "running")) {
+        out.push({
+          id: `rebuild-pending:${p.id}:${p.rebuildPendingAt}`,
+          kind: "info",
+          title: `${p.name} flagged for rebuild`,
+          message: `Rebuild was requested at ${p.rebuildPendingAt} but didn't finish. The next reconcile pass will re-run it from scratch.`,
+        });
+      }
+    }
   }
 
   return out;
