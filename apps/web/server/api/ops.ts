@@ -48,6 +48,21 @@ export function mountOps(
   app.post("/api/index", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { path?: string };
     const rt = await getRuntime();
+    // Same reasoning as /api/refresh below: a concurrent indexer pass
+    // against a project the reconciler is also walking races on the
+    // same LanceDB table (#207). Refuse and surface what's in flight.
+    const status = rt.reconciler.status();
+    if (status.running) {
+      return c.json(
+        {
+          error: "a reconcile is already in flight; index would race the in-flight pass",
+          currentProject: status.currentProjectName,
+          completed: status.completed,
+          total: status.total,
+        },
+        409,
+      );
+    }
     let projects: ReturnType<typeof rt.discovery.discoverProjects>;
     if (body.path) {
       const confined = resolveUnderWorkspaceRoots(body.path, config.workspaceRoots);
@@ -83,6 +98,26 @@ export function mountOps(
 
   app.post("/api/refresh", async (c) => {
     const rt = await getRuntime();
+    // Refuse a second concurrent reconcileAll. The Reconciler's
+    // reconcileProject path uses LanceDB writers that aren't safe
+    // for concurrent writers within a project (#207) — a click
+    // during the startup pass would race the in-flight indexer.
+    // Return 409 with the live progress so the caller knows why
+    // and what to wait on.
+    const status = rt.reconciler.status();
+    if (status.running) {
+      return c.json(
+        {
+          error: "a reconcile is already in flight",
+          currentProject: status.currentProjectName,
+          completed: status.completed,
+          total: status.total,
+          currentProjectIndexed: status.currentProjectIndexed,
+          currentProjectTotal: status.currentProjectTotal,
+        },
+        409,
+      );
+    }
     const projects = rt.discovery.discoverProjects();
     const summaries = await rt.reconciler.reconcileAll(projects);
     return c.json({
