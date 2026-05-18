@@ -253,10 +253,16 @@ export interface SearchPayload {
   readonly warnings: ReadonlyArray<string>;
 }
 
+export type DoctorCheckStatus = "ok" | "warn" | "error";
+
 export interface DoctorPayload {
   readonly checks: ReadonlyArray<{
     readonly name: string;
-    readonly ok: boolean;
+    /** Tri-state from core's runDoctorChecks. The web UI used to
+     * collapse this to a boolean and lost the warn vs error
+     * distinction — yellow vs red matters when scanning a long
+     * checks list. */
+    readonly status: DoctorCheckStatus;
     readonly detail: string;
   }>;
   readonly summary: string;
