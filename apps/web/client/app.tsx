@@ -3,6 +3,7 @@ import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 import { ConfirmHost } from "./components/confirm";
 import { LiveRefresh } from "./components/live-refresh";
 import { McpHelpModal } from "./components/mcp-help";
+import { NotificationsBell } from "./components/notifications-bell";
 
 // Route-level code splitting (#218). Each page chunk loads on first
 // navigation rather than ship in the initial bundle. The status page
@@ -66,6 +67,7 @@ export function App() {
         </nav>
         <span className="nav-meta">
           <LiveRefresh />
+          <NotificationsBell />
           <button
             type="button"
             className="nav-mcp"
