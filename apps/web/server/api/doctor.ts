@@ -18,7 +18,7 @@ export function mountDoctor(
       watcherRegistry !== undefined ? { watcherRegistry } : {},
     );
     const payload: DoctorPayload = {
-      checks: checks.map((ch) => ({ name: ch.name, ok: ch.status === "ok", detail: ch.detail })),
+      checks: checks.map((ch) => ({ name: ch.name, status: ch.status, detail: ch.detail })),
       summary: worstStatus(checks),
     };
     return c.json(payload);

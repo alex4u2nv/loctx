@@ -85,11 +85,7 @@ export function DoctorPage() {
               {
                 key: "status",
                 header: "status",
-                cell: (c) => (
-                  <span className={c.ok ? "" : "warn"}>
-                    <Icon name={c.ok ? "ok" : "warn"} /> {c.ok ? "ok" : "warn/err"}
-                  </span>
-                ),
+                cell: (c) => <DoctorStatusCell status={c.status} />,
               },
               { key: "detail", header: "detail", dim: true, cell: (c) => c.detail },
             ]}
@@ -97,5 +93,27 @@ export function DoctorPage() {
         </>
       )}
     </section>
+  );
+}
+
+function DoctorStatusCell({ status }: { status: "ok" | "warn" | "error" }) {
+  if (status === "error") {
+    return (
+      <span className="err">
+        <Icon name="err" /> error
+      </span>
+    );
+  }
+  if (status === "warn") {
+    return (
+      <span className="warn">
+        <Icon name="warn" /> warn
+      </span>
+    );
+  }
+  return (
+    <span>
+      <Icon name="ok" /> ok
+    </span>
   );
 }
