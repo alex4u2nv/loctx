@@ -126,6 +126,17 @@ export interface ProjectsRow {
    * Empty array when none.
    */
   readonly absorbedMarkers: ReadonlyArray<AbsorbedMarkerRow>;
+  /**
+   * In-flight reconcile signal for this specific project. When non-null,
+   * the daemon is currently reconciling this project — the UI should
+   * render "reconciling…" instead of the stale `lastReconciled` stamp.
+   * Carries file progress when the indexer has reported it; null fields
+   * mean the walk hasn't started reporting yet (pre-stat phase).
+   */
+  readonly reconciling: {
+    readonly indexed: number | null;
+    readonly total: number | null;
+  } | null;
 }
 
 export interface AbsorbedMarkerRow {

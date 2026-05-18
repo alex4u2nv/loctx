@@ -52,6 +52,12 @@ export interface ReconciliationStatus {
   readonly startedAt: string | null;
   /** Project currently being reconciled; null when idle. */
   readonly currentProjectName: string | null;
+  /**
+   * Project ID for the row currently being reconciled. Lets the /api/projects
+   * handler match by exact ID rather than name (names can collide across
+   * workspaces in pathological cases).
+   */
+  readonly currentProjectId: string | null;
   /** How many projects in the current batch are done. */
   readonly completed: number;
   /** Total projects in the current batch. */
@@ -71,6 +77,7 @@ export class Reconciler {
   private _running = false;
   private _startedAt: string | null = null;
   private _currentProjectName: string | null = null;
+  private _currentProjectId: string | null = null;
   private _completed = 0;
   private _total = 0;
   private _currentProjectIndexed: number | null = null;
@@ -86,6 +93,7 @@ export class Reconciler {
       running: this._running,
       startedAt: this._startedAt,
       currentProjectName: this._currentProjectName,
+      currentProjectId: this._currentProjectId,
       completed: this._completed,
       total: this._total,
       currentProjectIndexed: this._currentProjectIndexed,
@@ -187,6 +195,7 @@ export class Reconciler {
         // projects" when concurrency > 1; useful for the UI banner
         // even if not strictly ordered.
         this._currentProjectName = project.name;
+        this._currentProjectId = project.id;
         out[i] = await this.reconcileProject(project);
         this._completed += 1;
       }
@@ -196,6 +205,7 @@ export class Reconciler {
     } finally {
       this._running = false;
       this._currentProjectName = null;
+      this._currentProjectId = null;
       this._currentProjectIndexed = null;
       this._currentProjectTotal = null;
     }
