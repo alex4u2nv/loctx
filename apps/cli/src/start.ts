@@ -30,6 +30,7 @@ import {
   looksLikeFdExhaustion,
   nofileBumpHint,
   stopActiveDaemon,
+  summarizeLegacyProjectConfig,
 } from "@loctx/core";
 
 const DAEMON_VERSION = "0.1.0";
@@ -318,9 +319,18 @@ function startReconciliation(
 function warnOnLegacyProjectConfig(): void {
   const legacy = findLegacyProjectConfig(process.cwd());
   if (legacy === null) return;
-  console.error(
-    `[loctx start] WARNING: ${legacy} is no longer loaded. Project-level config was removed; move its contents into the global config (edit via the admin UI or \`loctx config show\`).`,
-  );
+  const leaves = summarizeLegacyProjectConfig(legacy);
+  console.error(`[loctx start] WARNING: ${legacy} is no longer loaded.`);
+  if (leaves.length > 0) {
+    console.error(`[loctx start]          ignored settings: ${leaves.join(", ")}`);
+    console.error(
+      `[loctx start]          set these in the global config via the admin UI's /config page, or delete ${legacy} if you no longer need them.`,
+    );
+  } else {
+    console.error(
+      `[loctx start]          the file is empty or trivial; safe to delete (\`rm ${legacy}\`).`,
+    );
+  }
 }
 
 function warnIfNofileLow(projectCount: number): void {
