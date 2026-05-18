@@ -315,6 +315,44 @@ export function findLegacyProjectConfig(cwd: string): string | null {
   return null;
 }
 
+/**
+ * Parse a legacy `.loctx.yaml` and return a summary of the leaf
+ * settings the new loader is ignoring. Used by `warnOnLegacyProjectConfig`
+ * to produce an actionable warning (showing what's being dropped vs the
+ * old vague "move its contents" prompt). Empty array means "file exists
+ * but contains nothing the user would care about" — typical when an
+ * old file got truncated to `{}` or has only comments.
+ */
+export function summarizeLegacyProjectConfig(path: string): string[] {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf-8");
+  } catch {
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(text, { merge: false, maxAliasCount: 100 });
+  } catch {
+    return [`<unparseable YAML in ${path}>`];
+  }
+  if (parsed === null || parsed === undefined || typeof parsed !== "object") return [];
+  const out: string[] = [];
+  walkLeaves(parsed as Record<string, unknown>, "", out);
+  return out;
+}
+
+function walkLeaves(obj: Record<string, unknown>, prefix: string, out: string[]): void {
+  for (const [k, v] of Object.entries(obj)) {
+    const key = prefix === "" ? k : `${prefix}.${k}`;
+    if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+      walkLeaves(v as Record<string, unknown>, key, out);
+    } else {
+      out.push(`${key}=${JSON.stringify(v)}`);
+    }
+  }
+}
+
 interface LoctxEnv {
   readonly embeddingProvider: string | undefined;
 }

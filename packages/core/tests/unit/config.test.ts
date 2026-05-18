@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ConfigError, loadConfig } from "../../src/config.js";
+import { ConfigError, loadConfig, summarizeLegacyProjectConfig } from "../../src/config.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
 
 let tmp: string;
@@ -116,5 +116,30 @@ describe("loadConfig precedence chain", () => {
   it("rejects an unknown retrieval.mode", () => {
     writeFileSync(configPath, "retrieval:\n  mode: bogus\n", "utf-8");
     expect(() => loadConfig({ configPath })).toThrow(ConfigError);
+  });
+});
+
+describe("summarizeLegacyProjectConfig", () => {
+  it("returns flat leaf=value entries for a legacy daemon config", () => {
+    const legacy = join(tmp, ".loctx.yaml");
+    writeFileSync(legacy, "daemon:\n  port: 3022\n  hostname: localhost\n", "utf-8");
+    expect(summarizeLegacyProjectConfig(legacy).sort()).toEqual([
+      'daemon.hostname="localhost"',
+      "daemon.port=3022",
+    ]);
+  });
+
+  it("returns empty for an empty file (safe-to-delete signal)", () => {
+    const legacy = join(tmp, ".loctx.yaml");
+    writeFileSync(legacy, "", "utf-8");
+    expect(summarizeLegacyProjectConfig(legacy)).toEqual([]);
+  });
+
+  it("flags unparseable YAML rather than crashing", () => {
+    const legacy = join(tmp, ".loctx.yaml");
+    writeFileSync(legacy, ":\n:\nnot: [valid: yaml\n", "utf-8");
+    const summary = summarizeLegacyProjectConfig(legacy);
+    expect(summary.length).toBe(1);
+    expect(summary[0]).toMatch(/unparseable/);
   });
 });
