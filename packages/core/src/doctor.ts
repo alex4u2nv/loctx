@@ -197,6 +197,30 @@ export async function runDoctorChecks(
                   : ""
               }`,
       });
+
+      // Sticky rebuild_pending_at flags. Pre-PR #299, a daemon kill
+      // mid-rebuild would leave the flag set indefinitely and every
+      // restart would re-run the rebuild from scratch. The new flow
+      // clears per-project on success, but doctor still calls out
+      // unresolved flags so the user sees "this project will trigger
+      // a forced reindex on next start" before it surprises them.
+      const pending = state.listProjectsWithRebuildPending();
+      if (pending.length > 0) {
+        const names = pending
+          .map((p) => inv.active.find((a) => a.project.id === p.id)?.project.name ?? p.id)
+          .join(", ");
+        checks.push({
+          name: "rebuild_pending",
+          status: "warn",
+          detail: `${pending.length} project(s) flagged for rebuild — will re-run on next reconcile: ${names}`,
+        });
+      } else {
+        checks.push({
+          name: "rebuild_pending",
+          status: "ok",
+          detail: "no projects flagged",
+        });
+      }
     } finally {
       state.close();
     }
