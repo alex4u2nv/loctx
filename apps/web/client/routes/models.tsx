@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { confirm } from "../components/confirm";
 import { DataTable } from "../components/data-table";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
@@ -9,6 +10,22 @@ export function ModelsPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   const handleUse = async (name: string): Promise<void> => {
+    // Switching embedding models invalidates the existing index. The
+    // server writes the new model name to config but doesn't touch
+    // stored vectors — on next daemon start, LanceDB throws
+    // CollectionIdentityMismatch and the user has to `loctx reset
+    // index --force` then re-embed every chunk in every project
+    // (potentially hours of work). Same destructive-action posture
+    // as /admin's reset/restart/stop buttons — gate it behind a
+    // confirm dialog.
+    const ok = await confirm({
+      title: `Switch embedding model to ${name}?`,
+      message:
+        "The existing index was built for the previous model and will mismatch the new one. After the switch you'll need to `loctx reset index --force` (or click Reset on /admin) and re-index every project. Re-embedding can take minutes to hours depending on workspace size.",
+      confirmLabel: "Switch model",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(name);
     setMessage(null);
     try {
