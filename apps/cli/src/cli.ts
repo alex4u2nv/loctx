@@ -322,59 +322,80 @@ program
       }
       const ctx = getCtx();
       const config = loadConfigOrFail(ctx);
+      const scopePath = opts.all ? undefined : (opts.path ?? process.cwd());
+
+      // Daemon-aware: when a daemon is running, hit /api/search so we
+      // reuse the loaded ONNX embedding model (~90MB) and the live
+      // reconciler status. Without this, every `loctx search` cold-
+      // starts the embedding pipeline, adding 2-5s wall time to a
+      // lookup the daemon could answer in 100ms. Local-runtime path
+      // is preserved as a fallback for `loctx search` without a daemon.
+      const lock = readActiveDaemon(config.paths.dataDir);
+      if (lock !== null) {
+        const client = daemonClient(config.paths.dataDir);
+        const body: Record<string, unknown> = { query, limit: opts.limit };
+        if (scopePath !== undefined) body["path"] = scopePath;
+        if (opts.language !== undefined) body["language"] = opts.language;
+        if (opts.coverage) body["coverage"] = true;
+        try {
+          const payload = await client.post<{
+            resolvedScope: {
+              mode: string;
+              project: { id: string; name: string } | null;
+              relPrefix: string | null;
+            };
+            results: ReadonlyArray<SearchResultRow>;
+            warnings: ReadonlyArray<string>;
+          }>("/api/search", body);
+          printSearchResponse(payload);
+          return;
+        } catch (err) {
+          // Daemon returned 4xx/5xx or the post threw. Try local runtime
+          // so a transient daemon issue doesn't leave the user empty-
+          // handed when their query is otherwise valid.
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`# daemon call failed (${msg}); falling back to local runtime.`);
+        }
+      }
+
       const runtime = await buildRuntime(config);
       try {
-        // CLI default: scope to whatever project contains the cwd. Pass
-        // `--all` to search the whole index instead, or `--path` to point
-        // at something specific.
-        const path = opts.all ? undefined : (opts.path ?? process.cwd());
         const response = await runtime.searcher.search({
           query,
-          ...(path !== undefined ? { path } : {}),
+          ...(scopePath !== undefined ? { path: scopePath } : {}),
           limit: opts.limit,
           ...(opts.language !== undefined ? { language: opts.language } : {}),
           ...(opts.coverage ? { coverage: true } : {}),
         });
-
-        const scopeLabel = [
-          response.resolvedScope.mode,
-          response.resolvedScope.project ? `(${response.resolvedScope.project.name})` : "",
-          response.resolvedScope.relPrefix ? `#${response.resolvedScope.relPrefix}` : "",
-        ].join("");
-        console.log(`# scope: ${scopeLabel}  results: ${response.results.length}`);
-        for (const warning of response.warnings) {
-          console.error(`# warning: ${warning}`);
-        }
-
-        for (const result of response.results) {
-          // Prefer absPath so editors and `cmd-click` resolve directly. Fall
-          // back to relPath when the project's root is no longer registered.
-          const path = result.absPath ?? result.relPath;
-          const header = [
-            `${result.score.toFixed(3)}  ${path}:${result.startLine}-${result.endLine}  [${result.kind}]`,
-            result.symbols.length > 0 ? `  ${result.symbols.join(", ")}` : "",
-          ].join("");
-          console.log(header);
-          if (result.matchReasons.length > 0) {
-            console.log(`    # why: ${result.matchReasons.join(", ")}`);
-          }
-          if (result.coverageReason !== null) {
-            console.log(`    # coverage: ${result.coverageReason}`);
-          }
-          if (result.enrichments.lizard !== null) {
-            const l = result.enrichments.lizard;
-            console.log(
-              `    # complexity: fn=${l.functionName} ccn=${l.ccn} nloc=${l.nloc} tokens=${l.tokens} params=${l.parameters}`,
-            );
-          }
-          for (const f of result.enrichments.findings) {
-            const tag = f.category === "" ? f.severity : `${f.severity}/${f.category}`;
-            const msg = f.message === "" ? "" : `: ${f.message}`;
-            console.log(`    # ${f.analyzer} ${tag} ${f.ruleId} L${f.lineFrom}-${f.lineTo}${msg}`);
-          }
-          console.log(indent(clip(result.snippet)));
-          console.log();
-        }
+        printSearchResponse({
+          resolvedScope: {
+            mode: response.resolvedScope.mode,
+            project: response.resolvedScope.project
+              ? {
+                  id: response.resolvedScope.project.id,
+                  name: response.resolvedScope.project.name,
+                }
+              : null,
+            relPrefix: response.resolvedScope.relPrefix,
+          },
+          results: response.results.map((r) => ({
+            score: r.score,
+            absPath: r.absPath,
+            relPath: r.relPath,
+            startLine: r.startLine,
+            endLine: r.endLine,
+            kind: r.kind,
+            symbols: [...r.symbols],
+            matchReasons: [...r.matchReasons],
+            coverageReason: r.coverageReason,
+            enrichments: {
+              lizard: r.enrichments.lizard,
+              findings: r.enrichments.findings.map((f) => ({ ...f })),
+            },
+            snippet: r.snippet,
+          })),
+          warnings: [...response.warnings],
+        });
       } catch (err) {
         if (err instanceof SearcherError) {
           console.error(err.message);
@@ -386,6 +407,84 @@ program
       }
     },
   );
+
+interface SearchResultRow {
+  readonly score: number;
+  readonly absPath: string | null;
+  readonly relPath: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly kind: string;
+  readonly symbols: ReadonlyArray<string>;
+  readonly matchReasons: ReadonlyArray<string>;
+  readonly coverageReason: string | null;
+  readonly enrichments: {
+    readonly lizard: {
+      readonly functionName: string;
+      readonly ccn: number;
+      readonly nloc: number;
+      readonly tokens: number;
+      readonly parameters: number;
+    } | null;
+    readonly findings: ReadonlyArray<{
+      readonly analyzer: string;
+      readonly severity: string;
+      readonly category: string;
+      readonly ruleId: string;
+      readonly message: string;
+      readonly lineFrom: number;
+      readonly lineTo: number;
+    }>;
+  };
+  readonly snippet: string;
+}
+
+function printSearchResponse(payload: {
+  readonly resolvedScope: {
+    readonly mode: string;
+    readonly project: { readonly id: string; readonly name: string } | null;
+    readonly relPrefix: string | null;
+  };
+  readonly results: ReadonlyArray<SearchResultRow>;
+  readonly warnings: ReadonlyArray<string>;
+}): void {
+  const scopeLabel = [
+    payload.resolvedScope.mode,
+    payload.resolvedScope.project ? `(${payload.resolvedScope.project.name})` : "",
+    payload.resolvedScope.relPrefix ? `#${payload.resolvedScope.relPrefix}` : "",
+  ].join("");
+  console.log(`# scope: ${scopeLabel}  results: ${payload.results.length}`);
+  for (const warning of payload.warnings) {
+    console.error(`# warning: ${warning}`);
+  }
+  for (const result of payload.results) {
+    const path = result.absPath ?? result.relPath;
+    const header = [
+      `${result.score.toFixed(3)}  ${path}:${result.startLine}-${result.endLine}  [${result.kind}]`,
+      result.symbols.length > 0 ? `  ${result.symbols.join(", ")}` : "",
+    ].join("");
+    console.log(header);
+    if (result.matchReasons.length > 0) {
+      console.log(`    # why: ${result.matchReasons.join(", ")}`);
+    }
+    if (result.coverageReason !== null) {
+      console.log(`    # coverage: ${result.coverageReason}`);
+    }
+    if (result.enrichments.lizard !== null) {
+      const l = result.enrichments.lizard;
+      console.log(
+        `    # complexity: fn=${l.functionName} ccn=${l.ccn} nloc=${l.nloc} tokens=${l.tokens} params=${l.parameters}`,
+      );
+    }
+    for (const f of result.enrichments.findings) {
+      const tag = f.category === "" ? f.severity : `${f.severity}/${f.category}`;
+      const msg = f.message === "" ? "" : `: ${f.message}`;
+      console.log(`    # ${f.analyzer} ${tag} ${f.ruleId} L${f.lineFrom}-${f.lineTo}${msg}`);
+    }
+    console.log(indent(clip(result.snippet)));
+    console.log();
+  }
+}
 
 program
   .command("find-usages <symbol>")
