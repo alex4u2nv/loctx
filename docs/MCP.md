@@ -206,9 +206,12 @@ To scope the search:
 ### Stale results
 
 `refresh_workspace` reindexes from scratch. If chunks for a recently-
-deleted file persist, run `loctx reset project <path>` (work in
-progress) to clear the project's data, or restart the daemon — the
-filesystem watcher catches new changes from the watcher start point on.
+deleted file persist, run `loctx purge <path>` to clear the project's
+chunk + vector rows (daemon-aware: hits `/api/reset/project` when the
+daemon is up; otherwise drops the rows in-process). Then `loctx index`
+or restart the daemon — the filesystem watcher catches new changes
+from the watcher start point on. To wipe and re-index in one step,
+use `loctx rebuild <path>` instead.
 
 ### Wrong scope
 

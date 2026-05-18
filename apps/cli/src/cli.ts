@@ -403,9 +403,86 @@ program
     }
     const ctx = getCtx();
     const config = loadConfigOrFail(ctx);
+    const scopePath = opts.all ? undefined : (opts.path ?? process.cwd());
+
+    // Daemon-aware: when a daemon is running, hit /api/find-usages so we
+    // share the loaded SQLite handle (and the reconciler's authoritative
+    // status). The API also prepends the reconcile warning when a pass
+    // is in flight (per #294), so the output is consistent across CLI
+    // and admin UI paths. Falls back to a local runtime when the daemon
+    // is stopped — symbol_refs is a pure SQLite read so we DON'T need
+    // to spin up the embedding model just for find-usages.
+    const lock = readActiveDaemon(config.paths.dataDir);
+    if (lock !== null) {
+      const client = daemonClient(config.paths.dataDir);
+      const body: { symbol: string; path?: string } = { symbol };
+      if (scopePath !== undefined) body.path = scopePath;
+      try {
+        const payload = await client.post<{
+          symbol: string;
+          defs: Array<{
+            projectName: string;
+            relPath: string;
+            chunkStartLine: number;
+            kind: string;
+          }>;
+          refs: Array<{
+            projectName: string;
+            relPath: string;
+            chunkStartLine: number;
+            kind: string;
+          }>;
+          warnings?: ReadonlyArray<string>;
+        }>("/api/find-usages", body);
+        for (const w of payload.warnings ?? []) {
+          console.error(`# warning: ${w}`);
+        }
+        // Group by project name to match the local-runtime output shape.
+        const byProject = new Map<
+          string,
+          { defs: typeof payload.defs; refs: typeof payload.refs }
+        >();
+        for (const d of payload.defs) {
+          const e = byProject.get(d.projectName) ?? { defs: [], refs: [] };
+          (e.defs as Array<(typeof payload.defs)[number]>).push(d);
+          byProject.set(d.projectName, e);
+        }
+        for (const r of payload.refs) {
+          const e = byProject.get(r.projectName) ?? { defs: [], refs: [] };
+          (e.refs as Array<(typeof payload.refs)[number]>).push(r);
+          byProject.set(r.projectName, e);
+        }
+        for (const [name, { defs, refs }] of byProject) {
+          console.log(`# project: ${name}  defs=${defs.length}  refs=${refs.length}`);
+          for (const d of defs) {
+            console.log(`  def  ${d.relPath}:${d.chunkStartLine}  [${d.kind}]`);
+          }
+          for (const r of refs) {
+            console.log(`  ${r.kind.padEnd(5)} ${r.relPath}:${r.chunkStartLine}`);
+          }
+        }
+        if (byProject.size === 0) {
+          console.error(`# no matches for ${symbol}`);
+        }
+        return;
+      } catch (err) {
+        // 404 from /api/find-usages means path resolution failed — handle
+        // that case explicitly. Anything else falls through to the local
+        // runtime so a transient daemon issue doesn't hide results.
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("not inside any indexed project")) {
+          console.error(
+            `# scope: ${scopePath} is not inside any indexed project; pass --all to search everywhere.`,
+          );
+          process.exit(1);
+        }
+        console.error(`# daemon call failed (${msg}); falling back to local read.`);
+      }
+    }
+
+    // No daemon (or daemon path failed): build a minimal runtime.
     const runtime = await buildRuntime(config);
     try {
-      const scopePath = opts.all ? undefined : (opts.path ?? process.cwd());
       let projects = runtime.discovery.discoverProjects();
       if (scopePath !== undefined) {
         const scoped = runtime.discovery.resolveProject(scopePath);
@@ -416,17 +493,6 @@ program
           process.exit(1);
         }
         projects = [scoped];
-      }
-
-      const reconcile = runtime.reconciler.status();
-      if (reconcile.running) {
-        const fileLabel =
-          reconcile.currentProjectIndexed !== null && reconcile.currentProjectTotal !== null
-            ? `, ${reconcile.currentProjectIndexed}/${reconcile.currentProjectTotal} files`
-            : "";
-        console.error(
-          `# warning: index reconciling (${reconcile.currentProjectName}${fileLabel}); results may be partial.`,
-        );
       }
 
       let totalDefs = 0;
