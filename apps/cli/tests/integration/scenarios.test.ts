@@ -123,6 +123,26 @@ describe("loctx CLI: hermetic full-flow scenario", () => {
     expect(doc.stdout).toMatch(/\[ ok \]\s+retrieval/);
   });
 
+  it("find-usages locates the definition site of an exported symbol", () => {
+    // index produces the symbol_refs table the find-usages reader consumes.
+    expect(runCli(["index", ctx.project]).status).toBe(0);
+
+    // No daemon in the test harness → falls back to a local one-shot
+    // runtime (no embedding model needed; symbol_refs is a pure SQLite
+    // read). The fixture's auth.ts defines `authenticate`.
+    const r = runCli(["find-usages", "authenticate", "--path", ctx.project]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("project: demo");
+    expect(r.stdout).toContain("def");
+    expect(r.stdout).toContain("src/auth.ts");
+  });
+
+  it("find-usages --path and --all are mutually exclusive", () => {
+    const r = runCli(["find-usages", "authenticate", "--path", ctx.project, "--all"]);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("mutually exclusive");
+  });
+
   it("model use writes config; doctor reflects the new model", () => {
     // --yes skips the interactive confirm (#315 / cli sibling). Without
     // a TTY in the test harness, the confirm would refuse and exit 1.
