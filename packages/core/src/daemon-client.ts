@@ -7,6 +7,23 @@
 
 import { readActiveDaemon } from "./daemon-lock.js";
 
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+function parseTimeoutMs(raw: string | undefined): number {
+  if (raw === undefined || raw === "") return DEFAULT_TIMEOUT_MS;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) {
+    // A bad env var should not silently quantize to setTimeout's 1ms
+    // floor and fail every single request. Warn once and use the
+    // default instead.
+    console.error(
+      `[loctx] ignoring invalid LOCTX_DAEMON_TIMEOUT_MS=${raw} (not a positive integer); using ${DEFAULT_TIMEOUT_MS}ms.`,
+    );
+    return DEFAULT_TIMEOUT_MS;
+  }
+  return n;
+}
+
 export class NoDaemonError extends Error {
   constructor() {
     super("no active loctx daemon (start one with `loctx start`)");
@@ -45,7 +62,7 @@ export function daemonClient(dataDir: string): DaemonClient {
   // enough headroom for cold-search on a large workspace; everything
   // else completes in <1s. Override via LOCTX_DAEMON_TIMEOUT_MS for
   // long-running endpoints under test.
-  const timeoutMs = Number.parseInt(process.env["LOCTX_DAEMON_TIMEOUT_MS"] ?? "30000", 10);
+  const timeoutMs = parseTimeoutMs(process.env["LOCTX_DAEMON_TIMEOUT_MS"]);
 
   const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
     const ctrl = new AbortController();

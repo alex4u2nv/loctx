@@ -75,6 +75,30 @@ describe("daemonClient", () => {
     });
   });
 
+  it("falls back to default timeout when LOCTX_DAEMON_TIMEOUT_MS is non-numeric", async () => {
+    // Server responds promptly so we can verify the bad env doesn't
+    // collapse to setTimeout's 1ms floor. If parseTimeoutMs failed
+    // open, the request would abort before the response landed.
+    const port = await listen((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+    await writeLock(port);
+    const prev = process.env["LOCTX_DAEMON_TIMEOUT_MS"];
+    process.env["LOCTX_DAEMON_TIMEOUT_MS"] = "abc";
+    const origErr = console.error;
+    console.error = () => {};
+    try {
+      const client = daemonClient(tmp);
+      await expect(client.get("/api/ok")).resolves.toEqual({ ok: true });
+    } finally {
+      console.error = origErr;
+      // biome-ignore lint/performance/noDelete: env var must be absent to test the production default
+      if (prev === undefined) delete process.env["LOCTX_DAEMON_TIMEOUT_MS"];
+      else process.env["LOCTX_DAEMON_TIMEOUT_MS"] = prev;
+    }
+  });
+
   it("rejects with DaemonHttpError when a 200 body is not JSON", async () => {
     const port = await listen((_req, res) => {
       res.writeHead(200, { "content-type": "text/html" });
