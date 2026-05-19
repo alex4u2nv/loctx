@@ -124,7 +124,9 @@ describe("loctx CLI: hermetic full-flow scenario", () => {
   });
 
   it("model use writes config; doctor reflects the new model", () => {
-    const used = runCli(["model", "use", "Xenova/bge-small-en-v1.5"]);
+    // --yes skips the interactive confirm (#315 / cli sibling). Without
+    // a TTY in the test harness, the confirm would refuse and exit 1.
+    const used = runCli(["model", "use", "Xenova/bge-small-en-v1.5", "--yes"]);
     expect(used.status).toBe(0);
     expect(used.stderr).toContain("switched embedding.model to Xenova/bge-small-en-v1.5");
 
@@ -200,7 +202,7 @@ describe("loctx CLI: hermetic full-flow scenario", () => {
     // a warning telling the user the next start will trip
     // CollectionIdentityMismatch unless they reset + reindex. The
     // warning copy is the contract this regression test pins.
-    const swap = runCli(["model", "use", "Xenova/bge-small-en-v1.5"]);
+    const swap = runCli(["model", "use", "Xenova/bge-small-en-v1.5", "--yes"]);
     expect(swap.status).toBe(0);
     const all = `${swap.stderr}${swap.stdout}`;
     expect(all).toMatch(/reset.*index|CollectionIdentityMismatch|reindex/i);

@@ -1175,13 +1175,31 @@ modelCmd
 
 modelCmd
   .command("use <name>")
-  .description("Switch the active embedding model. Reindex required afterward.")
-  .action(async (name: string) => {
+  .description(
+    "Switch the active embedding model. Reindex required afterward. " +
+      "Prompts for confirmation unless --yes — switching invalidates the existing " +
+      "index and forces a full re-embed pass on every project.",
+  )
+  .option("-y, --yes", "Skip the confirmation prompt.", false)
+  .action(async (name: string, opts: { yes: boolean }) => {
     const { findModel } = await import("@loctx/core");
     const info = findModel(name);
     if (info === null) {
       console.error(`Unknown model '${name}'. Run 'loctx model list' to see available options.`);
       process.exit(1);
+    }
+    // Mirror the /models web confirm (#315). A model switch silently
+    // invalidates the existing index: LanceDB throws
+    // CollectionIdentityMismatch on next daemon start, and the user
+    // is forced into `loctx reset index --force` + hours of re-embed.
+    if (!opts.yes) {
+      const ok = await confirm(
+        `Switch embedding.model to ${info.name}? Existing index will mismatch on next daemon start (CollectionIdentityMismatch) — recovery is \`loctx reset index --force\` + re-index every project, which can take minutes to hours.`,
+      );
+      if (!ok) {
+        console.error("[loctx model use] cancelled.");
+        process.exit(1);
+      }
     }
     await writeModelChoice(info.name, info.normalize);
     console.error(`[loctx model use] switched embedding.model to ${info.name}.`);
