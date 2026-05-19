@@ -1037,6 +1037,36 @@ program
     }
   });
 
+/**
+ * Translate daemon/HTTP errors to clean one-liners. Returns true when
+ * the error was handled (and process.exit was called); returns false
+ * when the caller should fall through to its own handling. Centralises
+ * the pretty-printing so the global parseAsync catch and the explicit
+ * withDaemonClient wrapper both share one rule set.
+ */
+function handleDaemonError(err: unknown): boolean {
+  if (err instanceof NoDaemonError) {
+    console.error("No active daemon. Start one with `loctx start`.");
+    process.exit(1);
+  }
+  if (err instanceof DaemonHttpError) {
+    const body = err.body.trim();
+    console.error(`[loctx] daemon ${err.status}: ${body === "" ? "(empty body)" : body}`);
+    process.exit(1);
+  }
+  // fetch() throws a TypeError with cause.code === "ECONNREFUSED" when
+  // the daemon's TCP listener dies between lockfile read and request.
+  const cause = (err as { cause?: { code?: string } }).cause;
+  if (cause?.code === "ECONNREFUSED") {
+    console.error(
+      "[loctx] daemon lockfile exists but the HTTP listener is unreachable. " +
+        "The daemon may have crashed — try `loctx stop` then `loctx start`.",
+    );
+    process.exit(1);
+  }
+  return false;
+}
+
 async function withDaemonClient(
   fn: (client: ReturnType<typeof daemonClient>) => Promise<void>,
 ): Promise<void> {
@@ -1046,33 +1076,7 @@ async function withDaemonClient(
     const client = daemonClient(config.paths.dataDir);
     await fn(client);
   } catch (err) {
-    if (err instanceof NoDaemonError) {
-      console.error("No active daemon. Start one with `loctx start`.");
-      process.exit(1);
-    }
-    if (err instanceof DaemonHttpError) {
-      // The daemon answered but rejected the request — 409 (reconcile in
-      // flight), 4xx (bad scope), 5xx (handler threw). Surface the body
-      // as a one-liner instead of letting the Error escape and dumping a
-      // Node stack trace. The body is already a human-readable message
-      // by convention (apps/web/server/api/*).
-      const body = err.body.trim();
-      console.error(`[loctx] daemon ${err.status}: ${body === "" ? "(empty body)" : body}`);
-      process.exit(1);
-    }
-    // fetch() throws a TypeError with cause.code === "ECONNREFUSED" when
-    // the daemon's TCP listener dies between lockfile read and request.
-    // The lockfile says "daemon up" but the socket is gone — likeliest
-    // cause is a crash after the lock was written. Tell the user what
-    // happened and how to recover instead of leaking the network stack.
-    const cause = (err as { cause?: { code?: string } }).cause;
-    if (cause?.code === "ECONNREFUSED") {
-      console.error(
-        "[loctx] daemon lockfile exists but the HTTP listener is unreachable. " +
-          "The daemon may have crashed — try `loctx stop` then `loctx start`.",
-      );
-      process.exit(1);
-    }
+    handleDaemonError(err);
     throw err;
   }
 }
@@ -1486,6 +1490,10 @@ reset.action(() => {
 // ---- run ----------------------------------------------------------------
 
 program.parseAsync(process.argv).catch((err: unknown) => {
+  // Try the shared daemon-error printer first so an unhandled
+  // DaemonHttpError from any verb (rebuild, refresh, search…) gets the
+  // same one-liner as withDaemonClient-wrapped commands.
+  handleDaemonError(err);
   console.error(err instanceof Error ? err.message : String(err));
   process.exit(1);
 });
