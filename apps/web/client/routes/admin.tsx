@@ -27,6 +27,15 @@ export function AdminPage() {
   const reconcileTooltip = reconcileBlocked
     ? `Reconciler is running on ${reconcile?.currentProjectName ?? "—"} — would 409. Wait for the pass to finish.`
     : undefined;
+  // Reset index refuses while the daemon holds the SQLite + LanceDB
+  // handles — /api/reset/index returns 409. Pre-disable the button so
+  // the user doesn't go through confirm() only to read the same
+  // "daemon is running; stop it first" message as a toast.
+  const daemonRunning = statusReq.data?.daemon.running ?? false;
+  const resetBlocked = ops.busy !== null || daemonRunning;
+  const resetTooltip = daemonRunning
+    ? "Daemon is running — stop it first (Daemon → stop, below). /api/reset/index would 409."
+    : undefined;
 
   const indexAll = (): Promise<unknown> => ops.run("index all", () => api.index());
   const refreshAll = (): Promise<unknown> => ops.run("refresh", () => api.refresh());
@@ -100,7 +109,8 @@ export function AdminPage() {
           type="button"
           className="btn"
           onClick={() => void resetIndex()}
-          disabled={ops.busy !== null}
+          disabled={resetBlocked}
+          title={resetTooltip}
         >
           <Icon name="reset" /> reset index (delete all data)
         </button>
