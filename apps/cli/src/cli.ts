@@ -8,6 +8,7 @@ import { createInterface } from "node:readline";
 import {
   type Config,
   ConfigError,
+  DaemonHttpError,
   DaemonLockHeldError,
   NoDaemonError,
   type Project,
@@ -1043,6 +1044,29 @@ async function withDaemonClient(
   } catch (err) {
     if (err instanceof NoDaemonError) {
       console.error("No active daemon. Start one with `loctx start`.");
+      process.exit(1);
+    }
+    if (err instanceof DaemonHttpError) {
+      // The daemon answered but rejected the request — 409 (reconcile in
+      // flight), 4xx (bad scope), 5xx (handler threw). Surface the body
+      // as a one-liner instead of letting the Error escape and dumping a
+      // Node stack trace. The body is already a human-readable message
+      // by convention (apps/web/server/api/*).
+      const body = err.body.trim();
+      console.error(`[loctx] daemon ${err.status}: ${body === "" ? "(empty body)" : body}`);
+      process.exit(1);
+    }
+    // fetch() throws a TypeError with cause.code === "ECONNREFUSED" when
+    // the daemon's TCP listener dies between lockfile read and request.
+    // The lockfile says "daemon up" but the socket is gone — likeliest
+    // cause is a crash after the lock was written. Tell the user what
+    // happened and how to recover instead of leaking the network stack.
+    const cause = (err as { cause?: { code?: string } }).cause;
+    if (cause?.code === "ECONNREFUSED") {
+      console.error(
+        "[loctx] daemon lockfile exists but the HTTP listener is unreachable. " +
+          "The daemon may have crashed — try `loctx stop` then `loctx start`.",
+      );
       process.exit(1);
     }
     throw err;
