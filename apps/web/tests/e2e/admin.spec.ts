@@ -270,7 +270,7 @@ test.describe("loctx admin UI", () => {
     // Echo whichever origin Playwright is running against (Host:port).
     // The middleware's allowlist includes the configured hostname plus
     // all loopback aliases on the same port; using baseURL matches one.
-    const origin = baseURL ?? "http://localhost:3000";
+    const origin = baseURL ?? "http://localhost:3022";
     const r = await request.fetch("/api/rebuild", {
       method: "OPTIONS",
       headers: {
@@ -301,7 +301,7 @@ test.describe("loctx admin UI", () => {
     request,
     baseURL,
   }) => {
-    const origin = baseURL ?? "http://localhost:3000";
+    const origin = baseURL ?? "http://localhost:3022";
     const r = await request.get("/api/status", { headers: { Origin: origin } });
     expect(r.status()).toBe(200);
     expect(r.headers()["access-control-allow-origin"]).toBe(origin);

@@ -850,7 +850,7 @@ program
         "[loctx watch]   To watch in foreground only: `loctx stop` first, then `loctx watch`.",
       );
       console.error(
-        "[loctx watch]   To see daemon activity: `loctx status` or http://localhost:3000/.",
+        "[loctx watch]   To see daemon activity: `loctx status` or http://localhost:3022/.",
       );
       process.exit(1);
     }
