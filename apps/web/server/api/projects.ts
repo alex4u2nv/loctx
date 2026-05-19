@@ -362,12 +362,32 @@ export function mountProjects(
       if (previous !== undefined) previous.abort();
       const controller = new AbortController();
       inFlightActivation.set(project.id, controller);
-      const indexPass = rt.indexer.indexProject(project, { signal: controller.signal });
+      // Register with the RebuildTracker so the five surfaces that
+      // consume `row.rebuilding` (#309 table cell, #310 health badge,
+      // #311 flow-chart, #317 bell, #320 detail header) all show the
+      // in-flight state for activate's initial index pass — same
+      // signal a rebuild produces. Without this, activate's
+      // background work was invisible. The tracker's null return
+      // would only happen if another rebuild was already running for
+      // this project, which is mutually exclusive with activate via
+      // the `activating` set above.
+      const trackerJob = rebuildTracker.start(project.id, project.name);
+      const indexPass = rt.indexer.indexProject(project, {
+        signal: controller.signal,
+        onProgress: ({ indexed, total }) => {
+          if (trackerJob !== null) {
+            rebuildTracker.recordProgress(project.id, indexed, total);
+          }
+        },
+      });
       void indexPass
+        .then(() => {
+          if (trackerJob !== null) rebuildTracker.finish(project.id);
+        })
         .catch((err) => {
-          console.error(
-            `[activate] initial index failed for ${project.name}: ${(err as Error).message}`,
-          );
+          const msg = (err as Error).message;
+          if (trackerJob !== null) rebuildTracker.fail(project.id, msg);
+          console.error(`[activate] initial index failed for ${project.name}: ${msg}`);
         })
         .finally(() => {
           // Only clear if this controller is still the current one (a
