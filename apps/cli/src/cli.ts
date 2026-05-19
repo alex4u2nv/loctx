@@ -638,15 +638,16 @@ program
         return;
       } catch (err) {
         // 404 from /api/find-usages means path resolution failed — handle
-        // that case explicitly. Anything else falls through to the local
-        // runtime so a transient daemon issue doesn't hide results.
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("not inside any indexed project")) {
+        // that case explicitly via the typed status, not substring match.
+        // Anything else falls through to the local runtime so a transient
+        // daemon issue doesn't hide results.
+        if (err instanceof DaemonHttpError && err.status === 404) {
           console.error(
             `# scope: ${scopePath} is not inside any indexed project; pass --all to search everywhere.`,
           );
           process.exit(1);
         }
+        const msg = err instanceof Error ? err.message : String(err);
         console.error(`# daemon call failed (${msg}); falling back to local read.`);
       }
     }
