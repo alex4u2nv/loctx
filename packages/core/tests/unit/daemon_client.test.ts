@@ -75,6 +75,19 @@ describe("daemonClient", () => {
     });
   });
 
+  it("rejects with DaemonHttpError when a 200 body is not JSON", async () => {
+    const port = await listen((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<html>proxy got in the middle</html>");
+    });
+    await writeLock(port);
+    const client = daemonClient(tmp);
+    await expect(client.get("/api/status")).rejects.toMatchObject({
+      constructor: DaemonHttpError,
+      status: 200,
+    });
+  });
+
   it("times out via AbortController and surfaces DaemonHttpError(504)", async () => {
     // Server that never writes a response — would hang fetch forever
     // without the client-side abort.

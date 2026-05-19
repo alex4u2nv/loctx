@@ -66,7 +66,18 @@ export function daemonClient(dataDir: string): DaemonClient {
     }
     const text = await r.text();
     if (!r.ok) throw new DaemonHttpError(r.status, text);
-    return text === "" ? (undefined as T) : (JSON.parse(text) as T);
+    if (text === "") return undefined as T;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      // A 2xx with a non-JSON body usually means an HTTP proxy got
+      // between the CLI and the daemon (corporate intercept, dev
+      // reverse-proxy) and rewrote the response. Surface the first
+      // 200 chars so the user can see what's actually coming back
+      // instead of getting a SyntaxError stack from the CLI.
+      const preview = text.length > 200 ? `${text.slice(0, 200)}…` : text;
+      throw new DaemonHttpError(r.status, `non-JSON response from ${path}: ${preview}`);
+    }
   };
 
   return {
