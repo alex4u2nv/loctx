@@ -755,6 +755,26 @@ program
   .action(async (opts: { path?: string }) => {
     const ctx = getCtx();
     const config = loadConfigOrFail(ctx);
+    // Refuse to run a second watcher while the daemon owns the same
+    // data dir. LanceDB writers don't coordinate across processes —
+    // two processes calling mergeInsert on the same project corrupt
+    // each other (the per-fileId mutex inside ProjectIndexer is
+    // in-memory). The daemon already watches your projects; running
+    // `loctx watch` alongside it doubles the embedding work and
+    // races on writes.
+    const daemonLock = readActiveDaemon(config.paths.dataDir);
+    if (daemonLock !== null) {
+      console.error(
+        `[loctx watch] daemon is running (PID ${daemonLock.pid}). The daemon already watches every active project — running a second foreground watcher would race on LanceDB writes.`,
+      );
+      console.error(
+        "[loctx watch]   To watch in foreground only: `loctx stop` first, then `loctx watch`.",
+      );
+      console.error(
+        "[loctx watch]   To see daemon activity: `loctx status` or http://localhost:3000/.",
+      );
+      process.exit(1);
+    }
     const runtime = await buildRuntime(config);
     try {
       const projects = opts.path
