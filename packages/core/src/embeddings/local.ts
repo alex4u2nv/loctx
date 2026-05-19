@@ -187,17 +187,18 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
  * directly without download events).
  */
 function defaultProgressLogger(): (event: ProgressEvent) => void {
-  // Use stdout (console.log) rather than stderr — these are informational,
-  // not warnings, and Next.js dev mode promotes anything on stderr into
-  // its red error overlay even though the daemon is healthy.
+  // Stderr only. The stdio MCP transport (`loctx-mcp`) treats stdout as
+  // the JSONRPC channel — any console.log here would corrupt the
+  // protocol and the agent would drop the connection mid-search. CLI
+  // and daemon both prefer stderr for operational logs anyway.
   let announced = false;
   return (event) => {
     if (!announced && event.status === "download") {
       announced = true;
-      console.log("[loctx embeddings] downloading model on first run (~90MB to your HF cache)");
+      console.error("[loctx embeddings] downloading model on first run (~90MB to your HF cache)");
     }
     if (event.status === "ready") {
-      console.log("[loctx embeddings] ready");
+      console.error("[loctx embeddings] ready");
     }
   };
 }
