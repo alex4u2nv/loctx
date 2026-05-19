@@ -123,6 +123,32 @@ program
   .action(async (path?: string) => {
     const ctx = getCtx();
     const config = loadConfigOrFail(ctx);
+
+    // Daemon-aware: building our own ProjectIndexer while the daemon is
+    // running means two processes call mergeInsert / deleteFileChunks on
+    // the same LanceDB project (#322). Refuse upfront unless the user
+    // really wants foreground-only — point at the right command per
+    // intent (activate a new project vs. force a reconcile pass).
+    const daemonLock = readActiveDaemon(config.paths.dataDir);
+    if (daemonLock !== null) {
+      if (path !== undefined) {
+        console.error(
+          `[loctx index] daemon is running (PID ${daemonLock.pid}). Use \`loctx activate ${path}\` to onboard a new project — it activates AND kicks off the initial index against the live daemon, so writes stay coordinated.`,
+        );
+      } else {
+        console.error(
+          `[loctx index] daemon is running (PID ${daemonLock.pid}). The daemon's reconciler walks all active projects on its own; \`loctx refresh\` triggers it explicitly, or wait for the periodic pass.`,
+        );
+        console.error(
+          "[loctx index]   Running `loctx index` in parallel would race the daemon's writers on the same LanceDB collection.",
+        );
+      }
+      console.error(
+        "[loctx index]   To run a foreground index pass: `loctx stop`, `loctx index`, `loctx start`.",
+      );
+      process.exit(1);
+    }
+
     const runtime = await buildRuntime(config);
     try {
       let projects: Project[];
@@ -166,6 +192,48 @@ program
       }
     } finally {
       await runtime.close();
+    }
+  });
+
+// ---- refresh ------------------------------------------------------------
+
+program
+  .command("refresh")
+  .description(
+    "Force the daemon's reconciler to walk every active project NOW " +
+      "(prunes deleted files, re-evaluates filters, re-indexes drift). " +
+      "Requires a running daemon — refuses with 409 if one is already in flight.",
+  )
+  .action(async () => {
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    const lock = readActiveDaemon(config.paths.dataDir);
+    if (lock === null) {
+      console.error(
+        "[loctx refresh] no daemon running. Start one with `loctx start`, or run `loctx index` for a one-shot foreground pass.",
+      );
+      process.exit(1);
+    }
+    const client = daemonClient(config.paths.dataDir);
+    try {
+      const r = await client.post<{
+        summaries: Array<{ projectId: string; name: string; pruned: number; reindexed: number }>;
+      }>("/api/refresh", {});
+      for (const s of r.summaries) {
+        console.log(`refreshed ${s.name}: pruned=${s.pruned} reindexed=${s.reindexed}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // /api/refresh returns 409 mid-reconcile (#312) with the live progress.
+      if (msg.includes("409")) {
+        console.error(`[loctx refresh] ${msg}`);
+        console.error(
+          "[loctx refresh]   The reconciler is already running — see `loctx status` for progress.",
+        );
+        process.exit(2);
+      }
+      console.error(`[loctx refresh] failed: ${msg}`);
+      process.exit(1);
     }
   });
 
