@@ -20,7 +20,7 @@ describe("loadConfig precedence chain", () => {
   it("returns built-in defaults when no global file is present", () => {
     const config = loadConfig({ configPath });
     expect(config.embedding.model).toBe("Xenova/all-MiniLM-L6-v2");
-    expect(config.daemon.port).toBe(3000);
+    expect(config.daemon.port).toBe(3022);
     expect(config.daemon.hostname).toBe("127.0.0.1");
     expect(config.watcher.debounceMs).toBe(500);
     expect(config.source).toBeNull();

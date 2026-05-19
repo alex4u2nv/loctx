@@ -29,7 +29,7 @@ import {
 } from "./paths.js";
 
 const DEFAULT_DEBOUNCE_MS = 500;
-const DEFAULT_DAEMON_PORT = 3000;
+const DEFAULT_DAEMON_PORT = 3022;
 // `127.0.0.1` rather than `localhost` so the daemon binds to a literal
 // loopback IP. Browsers refuse to rebind a literal IP via DNS, which
 // shuts down the DNS-rebinding attack against the localhost daemon.
@@ -708,7 +708,7 @@ watcher:
   debounce_ms: 500
 
 daemon:
-  port: 3000
+  port: 3022
   # 127.0.0.1 (literal loopback IP) blocks browser DNS-rebinding attacks.
   # Use \`localhost\` only if you understand and accept that trade-off.
   hostname: 127.0.0.1
