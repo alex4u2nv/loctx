@@ -177,7 +177,21 @@ program
       }
       for (const project of projects) {
         console.log(`Indexing ${project.name} (${project.root}) ...`);
-        const summary = await runtime.indexer.indexProject(project);
+        // On a multi-thousand-file project the previous "..." silence
+        // looked indistinguishable from a hang. Throttle progress to one
+        // line every 2s — enough to confirm forward motion, not enough
+        // to drown out the summary line in CI logs.
+        let lastReport = Date.now();
+        const summary = await runtime.indexer.indexProject(project, {
+          onProgress: ({ indexed, total }) => {
+            const now = Date.now();
+            if (now - lastReport >= 2000 && indexed > 0 && indexed < total) {
+              const pct = Math.floor((indexed / total) * 100);
+              console.log(`  progress: ${indexed}/${total} (${pct}%)`);
+              lastReport = now;
+            }
+          },
+        });
         console.log(
           `  indexed=${summary.indexed} skipped=${summary.skipped} ` +
             `failed=${summary.failed} (${summary.elapsedSeconds.toFixed(2)}s)`,
