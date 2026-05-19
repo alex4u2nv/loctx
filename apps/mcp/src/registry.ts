@@ -134,6 +134,13 @@ export interface FindDuplicatesInput {
 export interface FindDuplicatesOutput {
   readonly groups: ReadonlyArray<DuplicateGroup>;
   readonly indexHealth: IndexHealth;
+  /**
+   * Non-null when the duplicate-detection analyzer is disabled in
+   * config — surfaces *why* `groups` is empty so an agent can tell
+   * "feature off" from "feature on, nothing found." Names the
+   * exact config knob the user would flip to enable it.
+   */
+  readonly disabled: string | null;
 }
 
 export interface SearchOutput extends SearchResponse {
@@ -286,10 +293,25 @@ export const tools = {
     const v = new Validator(ToolError, "find_duplicates");
     const data = v.requireRecord(input ?? {}, "arguments");
     const minMembers = v.getInt(data, "min_members", { nonNegative: true }) ?? 2;
+    // Empty groups have two unrelated causes: feature disabled, or
+    // feature enabled with no duplicates. Tell the caller which —
+    // an agent reading "groups: []" today can't distinguish them
+    // and might wrongly conclude no duplicates exist when the
+    // analyzer simply hasn't been turned on.
+    const an = runtime.config.analyzers;
+    let disabled: string | null = null;
+    if (!an.backgroundEnabled) {
+      disabled =
+        "analyzers.backgroundEnabled is false in config — enable it and restart the daemon.";
+    } else if (!an.duplicates.enabled) {
+      disabled =
+        "analyzers.duplicates.enabled is false in config — enable it and restart the daemon.";
+    }
     const groups = runtime.state.findDuplicateGroups(Math.max(2, minMembers));
     return Object.freeze({
       groups: Object.freeze(groups),
       indexHealth: currentIndexHealth(runtime),
+      disabled,
     });
   },
 
@@ -385,7 +407,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_duplicates",
     description:
-      "Cross-file duplicate-code detection. Returns groups where the same token-window appears in 2+ files. Heuristic — labelled as such. Requires `analyzers.background_enabled = true` and `analyzers.duplicates.enabled = true` in config; otherwise returns an empty list. Each group: `hash` and `members` (file_id, start/end line range).",
+      "Cross-file duplicate-code detection. Returns groups where the same token-window appears in 2+ files. Heuristic — labelled as such. Requires `analyzers.backgroundEnabled = true` and `analyzers.duplicates.enabled = true` in config. The response's `disabled` field is non-null with the specific reason when either knob is off, so an empty `groups` from feature-disabled vs. feature-enabled-but-no-hits is distinguishable. Each group: `hash` and `members` (file_id, start/end line range).",
     inputSchema: {
       type: "object",
       properties: {
