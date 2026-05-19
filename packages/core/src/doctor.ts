@@ -12,6 +12,7 @@ import type { Config } from "./config.js";
 import { readActiveDaemon } from "./daemon-lock.js";
 import { WorkspaceDiscovery, inventoryProjects } from "./discovery.js";
 import { StateStore } from "./storage/state.js";
+import { isModelTrusted } from "./trusted-models.js";
 import { checkNofile } from "./ulimit.js";
 import type { WatcherRegistry } from "./watcher/registry.js";
 
@@ -164,12 +165,31 @@ export async function runDoctorChecks(
     });
   }
 
+  // The "huggingface-transformers" provider lazily downloads on first
+  // use. Without this check, a user who switched models in config sees
+  // doctor=ok and then waits through a ~90MB download (or fails
+  // offline) on the next `loctx index` / first MCP search. Surface the
+  // pending-download state up-front so the operator knows what to
+  // expect. The `fake` provider used in tests has no download step;
+  // skip the lookup for it.
+  const embeddingDetail = `${config.embedding.provider}/${config.embedding.model} normalize=${config.embedding.normalize}${
+    config.embedding.providerOverride ? ` override=${config.embedding.providerOverride}` : ""
+  }`;
+  // The fake provider override (test harness, LOCTX_EMBEDDING_PROVIDER=fake)
+  // short-circuits real embedding entirely, so a missing trusted-models
+  // entry isn't a real warning — the daemon never touches the HF cache.
+  const usesLocal =
+    config.embedding.provider === "huggingface-transformers" &&
+    config.embedding.providerOverride !== "fake";
+  const downloaded = usesLocal
+    ? isModelTrusted(config.paths.dataDir, config.embedding.model)
+    : true;
   checks.push({
     name: "embedding",
-    status: "ok",
-    detail: `${config.embedding.provider}/${config.embedding.model} normalize=${config.embedding.normalize}${
-      config.embedding.providerOverride ? ` override=${config.embedding.providerOverride}` : ""
-    }`,
+    status: downloaded ? "ok" : "warn",
+    detail: downloaded
+      ? embeddingDetail
+      : `${embeddingDetail} — not yet downloaded; first index/search will trigger a ~90MB pull. Pre-stage with \`loctx model download ${config.embedding.model}\`.`,
   });
 
   checks.push({
