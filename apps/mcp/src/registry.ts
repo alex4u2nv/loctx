@@ -176,10 +176,19 @@ export const tools = {
     const query = v.getStr(data, "query");
     if (!query) throw new ToolError("query is required and must be a non-empty string");
 
+    // Match the HTTP /api/search bounds (#326-era). Without an upper
+    // bound, an agent passing `limit: 1_000_000` could ask the
+    // searcher for a million rows and OOM the daemon — same Searcher
+    // is shared with the admin search where it's already bounded.
+    // Lower bound 1 (not 0) so callers don't accidentally request an
+    // empty payload and assume "no results".
+    const rawLimit = v.getInt(data, "limit", { nonNegative: true }) ?? 10;
+    const limit = Math.min(Math.max(1, rawLimit), 1000);
+
     const response = await runtime.searcher.search({
       query,
       ...(v.getStr(data, "path") !== undefined ? { path: v.getStr(data, "path") as string } : {}),
-      limit: v.getInt(data, "limit", { nonNegative: true }) ?? 10,
+      limit,
       ...(v.getStr(data, "language") !== undefined
         ? { language: v.getStr(data, "language") as string }
         : {}),
