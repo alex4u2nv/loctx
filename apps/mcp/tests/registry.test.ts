@@ -237,6 +237,26 @@ describe("tools.search", () => {
     expect(captured).toMatchObject({ query: "hello", path: "/ws/alpha/src", limit: 3 });
   });
 
+  it("clamps an out-of-range limit to [1, 1000] (#344)", async () => {
+    const captured: Array<{ limit?: number }> = [];
+    const runtime = stubRuntime({
+      searcher: {
+        search: async (req) => {
+          captured.push(req as { limit?: number });
+          return {
+            resolvedScope: { mode: "all", project: null, relPrefix: null, inputPath: null },
+            results: [],
+            warnings: [],
+          };
+        },
+      } as Runtime["searcher"],
+    });
+    await tools.search(runtime, { query: "x", limit: 0 });
+    await tools.search(runtime, { query: "x", limit: 999_999 });
+    expect(captured[0]?.limit).toBe(1);
+    expect(captured[1]?.limit).toBe(1000);
+  });
+
   it("defaults limit to 10 and omits path when caller doesn't provide one", async () => {
     let captured: { path?: string; limit?: number } = {};
     const runtime = stubRuntime({
