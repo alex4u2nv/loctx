@@ -25,6 +25,10 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
       embedding: { provider: "fake", model: "hash", normalize: true },
       watcher: { debounceMs: 300 },
       daemon: { port: 3000, hostname: "localhost" },
+      analyzers: {
+        backgroundEnabled: true,
+        duplicates: { enabled: true },
+      },
     },
     discovery: {
       discoverProjects: () => projects,
@@ -166,6 +170,40 @@ describe("indexHealth surfacing", () => {
     const out = await tools.search(stubRuntime(), { query: "x" });
     expect(out.indexHealth.reconciling).toBe(false);
     expect(out.indexHealth.currentProject).toBeNull();
+  });
+
+  it("find_duplicates reports disabled=null when both knobs are on", async () => {
+    const out = await tools.findDuplicates(stubRuntime(), {});
+    expect(out.disabled).toBeNull();
+    expect(out.groups).toEqual([]);
+  });
+
+  it("find_duplicates names backgroundEnabled when it's off", async () => {
+    const runtime = stubRuntime({
+      config: {
+        ...(stubRuntime().config as Runtime["config"]),
+        analyzers: {
+          backgroundEnabled: false,
+          duplicates: { enabled: true },
+        },
+      } as Runtime["config"],
+    });
+    const out = await tools.findDuplicates(runtime, {});
+    expect(out.disabled).toMatch(/backgroundEnabled/);
+  });
+
+  it("find_duplicates names duplicates.enabled when only that knob is off", async () => {
+    const runtime = stubRuntime({
+      config: {
+        ...(stubRuntime().config as Runtime["config"]),
+        analyzers: {
+          backgroundEnabled: true,
+          duplicates: { enabled: false },
+        },
+      } as Runtime["config"],
+    });
+    const out = await tools.findDuplicates(runtime, {});
+    expect(out.disabled).toMatch(/duplicates\.enabled/);
   });
 });
 
