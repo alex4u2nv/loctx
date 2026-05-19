@@ -52,8 +52,9 @@ export function mountModels(app: Hono, config: Config): void {
       target,
       reindexRequired: true,
       message:
-        "Existing index was built for the previous model — run reset index then index, " +
-        "or expect a CollectionIdentityMismatch on next start.",
+        "Existing index was built for the previous model — restart the daemon, " +
+        "then `loctx reset index --force` and re-index every project. " +
+        "Without the restart, in-flight searches keep hitting the old model.",
     });
   });
 
