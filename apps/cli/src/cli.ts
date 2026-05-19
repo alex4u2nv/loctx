@@ -178,19 +178,11 @@ program
       for (const project of projects) {
         console.log(`Indexing ${project.name} (${project.root}) ...`);
         // On a multi-thousand-file project the previous "..." silence
-        // looked indistinguishable from a hang. Throttle progress to one
-        // line every 2s — enough to confirm forward motion, not enough
-        // to drown out the summary line in CI logs.
-        let lastReport = Date.now();
+        // looked indistinguishable from a hang. Throttle progress to
+        // one line every 2s — enough to confirm forward motion, not
+        // enough to drown out the summary line in CI logs.
         const summary = await runtime.indexer.indexProject(project, {
-          onProgress: ({ indexed, total }) => {
-            const now = Date.now();
-            if (now - lastReport >= 2000 && indexed > 0 && indexed < total) {
-              const pct = Math.floor((indexed / total) * 100);
-              console.log(`  progress: ${indexed}/${total} (${pct}%)`);
-              lastReport = now;
-            }
-          },
+          onProgress: makeProgressLogger(),
         });
         console.log(
           `  indexed=${summary.indexed} skipped=${summary.skipped} ` +
@@ -992,16 +984,8 @@ program
         runtime.state.markProjectRebuildPending(project.id);
         await runtime.vectors.deleteProjectChunks(project.id);
         runtime.state.purgeProjectContents(project.id);
-        let lastReport = Date.now();
         const summary = await runtime.indexer.indexProject(project, {
-          onProgress: ({ indexed, total }) => {
-            const now = Date.now();
-            if (now - lastReport >= 2000 && indexed > 0 && indexed < total) {
-              const pct = Math.floor((indexed / total) * 100);
-              console.log(`  progress: ${indexed}/${total} (${pct}%)`);
-              lastReport = now;
-            }
-          },
+          onProgress: makeProgressLogger(),
         });
         // Rebuild is a strict superset of a reconcile pass — stamp
         // last_reconciled_at so doctor + the projects page don't show
@@ -1060,6 +1044,26 @@ program
       await runtime.close();
     }
   });
+
+/**
+ * Throttled `onProgress` callback for index/rebuild passes. Emits one
+ * `progress: X/Y (Z%)` line to stdout every `intervalMs` (2s default).
+ * Skips the boundary samples (indexed === 0 and indexed === total) so
+ * the start banner and the final summary line stay the contract.
+ */
+function makeProgressLogger(
+  intervalMs = 2000,
+): (event: { readonly indexed: number; readonly total: number }) => void {
+  let last = Date.now();
+  return ({ indexed, total }) => {
+    const now = Date.now();
+    if (now - last >= intervalMs && indexed > 0 && indexed < total) {
+      const pct = Math.floor((indexed / total) * 100);
+      console.log(`  progress: ${indexed}/${total} (${pct}%)`);
+      last = now;
+    }
+  };
+}
 
 /**
  * Translate daemon/HTTP errors to clean one-liners. Returns true when
