@@ -224,15 +224,18 @@ program
         console.log(`refreshed ${s.name}: pruned=${s.pruned} reindexed=${s.reindexed}`);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // /api/refresh returns 409 mid-reconcile (#312) with the live progress.
-      if (msg.includes("409")) {
-        console.error(`[loctx refresh] ${msg}`);
+      // /api/refresh returns 409 mid-reconcile (#312) with the live
+      // progress in the body. Use a typed check, not substring matching,
+      // so a transient 5xx with "409" coincidentally in its body can't
+      // get classified as a soft conflict.
+      if (err instanceof DaemonHttpError && err.status === 409) {
+        console.error(`[loctx refresh] daemon 409: ${err.body.trim()}`);
         console.error(
           "[loctx refresh]   The reconciler is already running — see `loctx status` for progress.",
         );
         process.exit(2);
       }
+      const msg = err instanceof Error ? err.message : String(err);
       console.error(`[loctx refresh] failed: ${msg}`);
       process.exit(1);
     }
