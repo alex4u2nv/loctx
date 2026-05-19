@@ -992,7 +992,17 @@ program
         runtime.state.markProjectRebuildPending(project.id);
         await runtime.vectors.deleteProjectChunks(project.id);
         runtime.state.purgeProjectContents(project.id);
-        const summary = await runtime.indexer.indexProject(project);
+        let lastReport = Date.now();
+        const summary = await runtime.indexer.indexProject(project, {
+          onProgress: ({ indexed, total }) => {
+            const now = Date.now();
+            if (now - lastReport >= 2000 && indexed > 0 && indexed < total) {
+              const pct = Math.floor((indexed / total) * 100);
+              console.log(`  progress: ${indexed}/${total} (${pct}%)`);
+              lastReport = now;
+            }
+          },
+        });
         // Rebuild is a strict superset of a reconcile pass — stamp
         // last_reconciled_at so doctor + the projects page don't show
         // a stale "reconciled —" right after.
