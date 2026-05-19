@@ -39,8 +39,31 @@ export function daemonClient(dataDir: string): DaemonClient {
   // (closes #171).
   const base = `http://${lock.hostname ?? "127.0.0.1"}:${lock.port}`;
 
+  // Cap any single CLI ↔ daemon request. A wedged handler (or a
+  // hot-reload glitch with the HTTP listener still accepting but never
+  // responding) shouldn't hang `loctx search` indefinitely. 30s is
+  // enough headroom for cold-search on a large workspace; everything
+  // else completes in <1s. Override via LOCTX_DAEMON_TIMEOUT_MS for
+  // long-running endpoints under test.
+  const timeoutMs = Number.parseInt(process.env["LOCTX_DAEMON_TIMEOUT_MS"] ?? "30000", 10);
+
   const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
-    const r = await fetch(`${base}${path}`, init);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let r: Response;
+    try {
+      r = await fetch(`${base}${path}`, { ...init, signal: ctrl.signal });
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        throw new DaemonHttpError(
+          504,
+          `request to ${path} exceeded ${timeoutMs}ms (LOCTX_DAEMON_TIMEOUT_MS to raise)`,
+        );
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
     const text = await r.text();
     if (!r.ok) throw new DaemonHttpError(r.status, text);
     return text === "" ? (undefined as T) : (JSON.parse(text) as T);
