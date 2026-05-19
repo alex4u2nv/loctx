@@ -1230,6 +1230,16 @@ modelCmd
     console.error("[loctx model use] the existing index was built for the previous model;");
     console.error("                  run 'loctx reset index' then 'loctx index' to rebuild it,");
     console.error("                  or expect a CollectionIdentityMismatch on next start.");
+    // A running daemon keeps the old model in memory until it restarts.
+    // Without this warning, the user assumes the swap took effect, hits
+    // the daemon, and gets stale-model results until they happen to
+    // restart. Mirrors the /admin disable-reset-while-running posture.
+    if (readActiveDaemon(loadConfigOrFail(getCtx()).paths.dataDir) !== null) {
+      console.error(
+        "[loctx model use] note: a daemon is running and still holds the old model. " +
+          "Run 'loctx restart' after the reset+reindex to apply.",
+      );
+    }
   });
 
 modelCmd
