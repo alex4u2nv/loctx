@@ -1522,6 +1522,14 @@ program.parseAsync(process.argv).catch((err: unknown) => {
   // DaemonHttpError from any verb (rebuild, refresh, search…) gets the
   // same one-liner as withDaemonClient-wrapped commands.
   handleDaemonError(err);
-  console.error(err instanceof Error ? err.message : String(err));
+  // Default to one-line output so unexpected errors don't drown the
+  // user in a Node stack. LOCTX_LOG=debug opts into the full trace
+  // for diagnosing programmer errors (TypeError, undefined-prop reads,
+  // etc.) — the same env-var the daemon's debug logging respects.
+  if (process.env["LOCTX_LOG"] === "debug" && err instanceof Error) {
+    console.error(err.stack ?? err.message);
+  } else {
+    console.error(err instanceof Error ? err.message : String(err));
+  }
   process.exit(1);
 });
