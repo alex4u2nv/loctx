@@ -50,6 +50,17 @@ describe("ProjectFilter", () => {
     expect(freshFilter().shouldIndex(f).reason).toBe(FilterReason.IGNORED_DIRECTORY);
   });
 
+  it("skips a watcher event whose path equals the project root itself", () => {
+    // @parcel/watcher occasionally fires a synthetic event for the root.
+    // The old code passed rel="" to gitignore.ignores(), which throws and
+    // bubbled up to a libc++ SIGABRT that killed the daemon mid-pass.
+    // Reject early as IGNORED_DIRECTORY instead.
+    const decision = freshFilter().shouldIndex(projectRoot);
+    expect(decision.shouldIndex).toBe(false);
+    expect(decision.reason).toBe(FilterReason.IGNORED_DIRECTORY);
+    expect(decision.detail).toBe("<project root>");
+  });
+
   it("skips secret files", () => {
     const f = write(join(projectRoot, ".env"), "API_KEY=hunter2");
     expect(freshFilter().shouldIndex(f).reason).toBe(FilterReason.SECRET);
