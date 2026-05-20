@@ -36,7 +36,7 @@ Edit `~/.config/claude-code/mcp.json` (or your platform equivalent):
 }
 ```
 
-If you've installed via `npm link` from a local clone, the binary is on
+If you've installed via `pnpm --filter @loctx/mcp link --global` (or `npm link`) from a local clone, the binary is on
 `$PATH` and you can drop the `npx`:
 
 ```json

@@ -12,12 +12,15 @@ Three publishable npm packages: `@loctx/core` (indexing engine), `@loctx/cli` (`
 
 ## Install
 
+This repo uses [pnpm](https://pnpm.io/) (>= 9). The fastest way to get it: `corepack enable && corepack prepare pnpm@9.15.9 --activate`.
+
 ```bash
 git clone git@github.com:alex4u2nv/loctx.git
 cd loctx
-npm install
-npm run build
-npm link --workspace @loctx/cli --workspace @loctx/mcp
+pnpm install
+pnpm run build
+pnpm --filter @loctx/cli link --global
+pnpm --filter @loctx/mcp link --global
 ```
 
 `@loctx/web` stays private. The daemon needs the workspace's `apps/web/dist/{client,server}` build output, so run `loctx start` from a clone (or wait for an umbrella package).

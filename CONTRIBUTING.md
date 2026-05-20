@@ -2,20 +2,23 @@
 
 ## Setup
 
+This repo uses [pnpm](https://pnpm.io/) (>= 9). If you have Node 22+, `corepack enable && corepack prepare pnpm@9.15.9 --activate` is the cleanest install.
+
 ```bash
 git clone git@github.com:alex4u2nv/loctx.git
 cd loctx
-npm install
-npm run build
-npm link --workspace @loctx/cli --workspace @loctx/mcp
+pnpm install
+pnpm run build
+pnpm --filter @loctx/cli link --global
+pnpm --filter @loctx/mcp link --global
 ```
 
-`loctx` and `loctx-mcp` are now on `$PATH`. Re-run `npm run build` after source changes.
+`loctx` and `loctx-mcp` are now on `$PATH`. Re-run `pnpm run build` after source changes (or use `pnpm --filter @loctx/cli dev` for the watch loop).
 
 ## Verify
 
 ```bash
-npm run verify   # lint, typecheck, tests
+pnpm run verify   # lint, typecheck, tests
 ```
 
 CI runs the same command. PRs cannot merge until it passes.

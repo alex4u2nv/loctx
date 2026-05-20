@@ -1,5 +1,5 @@
 # Git hooks managed by lefthook. Install once after clone:
-#   npx lefthook install
+#   pnpm exec lefthook install
 #
 # Mirrors the validation gates CI enforces so failures surface
 # locally rather than after a push round-trip. Recent CI breakages
@@ -11,9 +11,9 @@ pre-commit:
   commands:
     biome:
       # Only check files actually staged. Auto-fixes and re-stages so
-      # the commit goes in clean. Matches `npm run lint` scope.
+      # the commit goes in clean. Matches `pnpm run lint` scope.
       glob: "{apps,packages}/**/*.{ts,tsx,js,jsx,json}"
-      run: npx biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+      run: pnpm exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
       stage_fixed: true
 
 pre-push:
@@ -24,4 +24,4 @@ pre-push:
     verify:
       # Full CI gate: build → biome → typecheck → unit tests. Skips
       # Playwright (too slow for a push hook; CI carries it).
-      run: npm run verify
+      run: pnpm run verify

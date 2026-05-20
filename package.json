@@ -4,24 +4,22 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "pnpm": ">=9"
   },
-  "workspaces": [
-    "packages/*",
-    "apps/*"
-  ],
+  "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "pnpm -r --if-present build",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck",
     "lint": "biome check packages apps",
     "format": "biome format --write packages apps",
     "format:check": "biome format --check packages apps",
-    "verify": "npm run build && npm run lint && npm run typecheck && npm test",
+    "verify": "pnpm run build && pnpm run lint && pnpm run typecheck && pnpm test",
     "prepare": "lefthook install",
-    "dev:cli": "npm run dev --workspace @loctx/cli --",
-    "dev:web": "npm run dev --workspace @loctx/web",
-    "dev:mcp": "npm run dev --workspace @loctx/mcp"
+    "dev:cli": "pnpm --filter @loctx/cli dev --",
+    "dev:web": "pnpm --filter @loctx/web dev",
+    "dev:mcp": "pnpm --filter @loctx/mcp dev"
   },
   "license": "Apache-2.0",
   "author": "Alex Mahabir",
@@ -37,5 +35,26 @@
     "tsx": "^4.19.1",
     "typescript": "^5.6.3",
     "vitest": "^2.1.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@biomejs/biome",
+      "@huggingface/transformers",
+      "@lancedb/lancedb",
+      "@parcel/watcher",
+      "better-sqlite3",
+      "esbuild",
+      "lefthook",
+      "onnxruntime-node",
+      "protobufjs",
+      "sharp",
+      "tree-sitter",
+      "tree-sitter-go",
+      "tree-sitter-java",
+      "tree-sitter-javascript",
+      "tree-sitter-python",
+      "tree-sitter-rust",
+      "tree-sitter-typescript"
+    ]
   }
 }

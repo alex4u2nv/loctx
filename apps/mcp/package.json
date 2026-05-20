@@ -24,7 +24,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "start": "node dist/server.js",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "pnpm run build"
   },
   "license": "Apache-2.0",
   "author": "Alex Mahabir",
@@ -51,7 +51,7 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@loctx/core": "^0.1.0",
+    "@loctx/core": "workspace:^",
     "@modelcontextprotocol/sdk": "^1.0.0"
   }
 }

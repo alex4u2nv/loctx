@@ -15,7 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "start": "node dist/cli.js",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "pnpm run build"
   },
   "license": "Apache-2.0",
   "author": "Alex Mahabir",
@@ -45,8 +45,8 @@
   "dependencies": {
     "@hono/node-server": "^1.13.0",
     "@inquirer/prompts": "^8.4.2",
-    "@loctx/core": "^0.1.0",
-    "@loctx/web": "*",
+    "@loctx/core": "workspace:^",
+    "@loctx/web": "workspace:*",
     "commander": "^12.1.0"
   }
 }
