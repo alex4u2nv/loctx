@@ -39,7 +39,8 @@ Cuts from this set become the `0.1.x` line on npm.
 - LanceDB writes serialise through a per-store mutex so the watcher + reconciler don't trip the "Too many concurrent writers" cap on workspaces with many active projects.
 - Reconciliation runs on an exponential-backoff timer (`base × 2^N`, capped at 1h) instead of a fixed `setInterval` that retries failures every tick.
 - `loctx model download <name> --use` switches `embedding.model` in the global config in the same command. Without `--use`, the CLI warns when the just-downloaded model isn't active.
-- Embedding-progress logs write to stdout, not stderr. Stops dev tooling from flagging them as errors.
+- Development workflow switched from npm to **pnpm** (≥ 9). `pnpm-workspace.yaml` replaces the `workspaces` field; cross-workspace deps use `workspace:^` / `workspace:*`. CI + release workflows + lefthook + every doc updated. `pnpm` is required for builds (CONTRIBUTING.md has the `corepack` install snippet).
+- Embedding-progress logs write to **stderr**, not stdout. Stdout is reserved for the JSONRPC channel when running as the stdio MCP server (`loctx-mcp`); any extra stdout write would corrupt the protocol mid-call.
 
 ### Fixed
 
