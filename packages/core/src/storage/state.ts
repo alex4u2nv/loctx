@@ -566,6 +566,51 @@ export class StateStore {
   }
 
   /**
+   * Literal substring search over indexed chunk text. Distinct from
+   * `searcher.search` (ranked / fused vector + lexical) and from
+   * `findSymbol` (exact symbol cross-ref). This is the audit-shape
+   * tool — every line in the indexed chunks that contains `pattern`,
+   * with no ranking, no token splitting, no embedding. See #357.
+   *
+   * `pattern` is matched as a substring; the SQL LIKE wildcards `%`
+   * and `_` and the escape `\` get pre-escaped so callers pass plain
+   * text. Pass `regex` patterns through `findLiteralMatchesRegex`
+   * (slower, JS-side filter); this path stays SQL-native for speed.
+   *
+   * Returns one row per matched line, not per chunk. A chunk that
+   * contains the pattern on three different lines produces three
+   * rows.
+   */
+  findLiteralMatches(
+    pattern: string,
+    opts: { readonly projectId?: ProjectId; readonly relPathPrefix?: string } = {},
+  ): Array<LiteralMatch> {
+    if (pattern.length === 0) return [];
+    const escaped = escapeLikePattern(pattern);
+    const rows = this.readAll<LiteralMatchRow>("find_literal_matches", [`%${escaped}%`]);
+    const out: LiteralMatch[] = [];
+    for (const r of rows) {
+      if (opts.projectId !== undefined && r.project_id !== opts.projectId) continue;
+      if (opts.relPathPrefix !== undefined && !r.rel_path.startsWith(opts.relPathPrefix)) continue;
+      for (const m of extractLineMatches(r.document, pattern, r.start_line)) {
+        out.push({
+          projectId: r.project_id as ProjectId,
+          projectName: r.project_name,
+          relPath: r.rel_path,
+          chunkId: r.chunk_id,
+          chunkKind: r.kind,
+          chunkStartLine: r.start_line,
+          chunkEndLine: r.end_line,
+          line: m.line,
+          column: m.column,
+          lineText: m.lineText,
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
    * Delete a file row + cascade to chunks + chunks_fts in one transaction.
    * Without the cascade, watcher "unlink" events would leave orphaned chunk
    * and FTS rows that no later replaceChunks call could clean up (the file_id
@@ -932,4 +977,70 @@ function chunkStateFromRow(row: ChunkRow): ChunkState {
     kind: row.kind,
     symbols: row.symbols ? Object.freeze(row.symbols.split(",")) : Object.freeze([]),
   };
+}
+
+// ---- find_literal helpers (#357) ----------------------------------------
+
+interface LiteralMatchRow {
+  readonly chunk_id: string;
+  readonly file_id: string;
+  readonly project_id: string;
+  readonly rel_path: string;
+  readonly document: string;
+  readonly start_line: number;
+  readonly end_line: number;
+  readonly kind: string;
+  readonly project_name: string;
+}
+
+export interface LiteralMatch {
+  readonly projectId: ProjectId;
+  readonly projectName: string;
+  readonly relPath: string;
+  readonly chunkId: string;
+  readonly chunkKind: string;
+  readonly chunkStartLine: number;
+  readonly chunkEndLine: number;
+  /** Absolute file line (1-indexed) of the match. */
+  readonly line: number;
+  /** 1-indexed column of the first matching byte on that line. */
+  readonly column: number;
+  /** The full text of the matched line — useful for `eyeball if path is correct`. */
+  readonly lineText: string;
+}
+
+/**
+ * SQL LIKE treats `%`, `_`, `\` as special. We pre-escape them so the
+ * caller passes plain literal text and gets substring semantics. The
+ * SQL query is bound with `ESCAPE '\'` to honor the escape character.
+ */
+function escapeLikePattern(pattern: string): string {
+  return pattern.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
+/**
+ * For each occurrence of `pattern` in `document`, emit one match row
+ * with the file-absolute line + column + full line text. The chunk's
+ * `startLine` (1-indexed) anchors the offset → absolute-line
+ * arithmetic.
+ */
+function extractLineMatches(
+  document: string,
+  pattern: string,
+  chunkStartLine: number,
+): Array<{ line: number; column: number; lineText: string }> {
+  if (pattern.length === 0) return [];
+  const out: Array<{ line: number; column: number; lineText: string }> = [];
+  const lines = document.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    const idx = line.indexOf(pattern);
+    if (idx === -1) continue;
+    out.push({
+      line: chunkStartLine + i,
+      column: idx + 1,
+      lineText: line,
+    });
+  }
+  return out;
 }
