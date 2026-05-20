@@ -77,7 +77,7 @@ export function mountProjects(
     }
     try {
       const inventory = inventoryProjects(discovery, state);
-      const chunkCounts = chunkCountsByProject(state);
+      const chunkCounts = state.chunkCountsByProject();
       const rebuilds = rebuildTracker.snapshot();
       // Persisted rebuild intent (survives daemon restart). Lets the
       // UI render "resuming rebuild…" on rows whose rebuild was
@@ -238,7 +238,7 @@ export function mountProjects(
       const watcherEntry =
         watcherRegistry !== undefined ? watcherRegistry.get(project.id) : null;
       const watcherState = watcherEntry !== null ? watcherEntry.state : null;
-      const chunkCounts = chunkCountsByProject(state);
+      const chunkCounts = state.chunkCountsByProject();
       const rebuild = rebuildTracker.get(project.id);
       const rebuildProgress = toRebuildProgress(rebuild ?? undefined);
       const pendingMap = new Map(
@@ -662,8 +662,3 @@ function extensionOf(relPath: string): string {
   return relPath.slice(lastDot);
 }
 
-function chunkCountsByProject(state: StateStore): Map<string, number> {
-  // Thin adapter so callers can pass the resulting Map keyed by the
-  // ProjectId branded string (they already widen to string elsewhere).
-  return state.chunkCountsByProject() as unknown as Map<string, number>;
-}
