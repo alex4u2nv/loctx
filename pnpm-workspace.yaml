@@ -24,3 +24,16 @@ onlyBuiltDependencies:
   - tree-sitter-python
   - tree-sitter-rust
   - tree-sitter-typescript
+
+# Grammar maintainers haven't aligned: tree-sitter-{go,java,javascript,typescript}
+# declare peer tree-sitter@^0.21, tree-sitter-{python,rust} declare ^0.22.1.
+# No single `tree-sitter` version satisfies all six. We pin 0.22.4 (the
+# highest compatible with the most grammars); the ABI is stable across
+# 0.21 ↔ 0.22 so the warning is cosmetic. Acknowledged here instead of
+# polluting every `pnpm install` log.
+peerDependencyRules:
+  allowedVersions:
+    "tree-sitter-go>tree-sitter": "0.22.x"
+    "tree-sitter-java>tree-sitter": "0.22.x"
+    "tree-sitter-javascript>tree-sitter": "0.22.x"
+    "tree-sitter-typescript>tree-sitter": "0.22.x"
