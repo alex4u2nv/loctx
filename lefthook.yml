@@ -17,11 +17,30 @@ pre-commit:
       stage_fixed: true
 
 pre-push:
-  # Sequential: build outputs are inputs to typecheck/test, and the
-  # vitest workers already parallelize internally.
+  # Sequential: install must finish before verify reads node_modules,
+  # verify's build outputs are inputs to e2e's webServer launch, and
+  # Playwright needs its browser binary before the suite runs.
   parallel: false
   commands:
+    install:
+      # Frozen-lockfile install mirrors CI's `pnpm install --frozen-lockfile`
+      # step. Without it, a contributor whose node_modules still has
+      # hoisted leftovers from a previous package manager can pass
+      # verify locally while CI fails on a missing direct-dep
+      # declaration (#346 caught this). Fast (<5s) when the lockfile
+      # already matches.
+      run: pnpm install --frozen-lockfile
     verify:
-      # Full CI gate: build → biome → typecheck → unit tests. Skips
-      # Playwright (too slow for a push hook; CI carries it).
+      # Full CI gate part 1: build → biome → typecheck → unit tests.
       run: pnpm run verify
+    e2e-browser:
+      # Playwright Chromium download. ~1s no-op when the build is cached,
+      # ~90MB pull on a new machine — same as CI's
+      # `playwright install chromium --with-deps`.
+      run: pnpm --filter @loctx/web exec playwright install chromium
+    e2e:
+      # Full CI gate part 2: admin UI + API + MCP HTTP + Host/Origin
+      # guard suite. ~15s on cached browser. The CI job name is
+      # `lint + typecheck + test + e2e` — this command brings the
+      # local gate to parity with that.
+      run: pnpm --filter @loctx/web test:e2e
