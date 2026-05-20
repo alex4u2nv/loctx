@@ -60,8 +60,16 @@ for (const pkgDir of PACKAGES) {
   const path = resolve(ROOT, pkgDir, "package.json");
   const pkg = readJson(path);
   pkg.version = target;
-  if (pkg.dependencies && pkg.dependencies["@loctx/core"]) {
-    pkg.dependencies["@loctx/core"] = `^${target}`;
+  // We use pnpm workspace:^ for @loctx/core in cli + mcp manifests so
+  // local dev always resolves through the workspace. `pnpm publish`
+  // rewrites workspace:^ to the actual `^X.Y.Z` at publish time. If
+  // the dep is still on a plain semver range (legacy npm style),
+  // bump it inline; otherwise leave workspace:^ alone.
+  if (pkg.dependencies && typeof pkg.dependencies["@loctx/core"] === "string") {
+    const cur = pkg.dependencies["@loctx/core"];
+    if (!cur.startsWith("workspace:")) {
+      pkg.dependencies["@loctx/core"] = `^${target}`;
+    }
   }
   writeJson(path, pkg);
   console.error(`  bumped ${pkg.name} → ${target}`);
