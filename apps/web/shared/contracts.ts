@@ -362,6 +362,38 @@ export interface UsageHit {
   readonly snippet: string;
 }
 
+// ---- find_literal (#357) ----------------------------------------------
+
+export interface FindLiteralPayload {
+  readonly pattern: string;
+  readonly matches: ReadonlyArray<LiteralHit>;
+  /** Distinct files containing at least one match. */
+  readonly fileCount: number;
+  /**
+   * Always populated — reminds callers that the scan covers indexed
+   * chunk text. Lines outside any chunk (chunker gaps — see #360)
+   * are not searched. For total file coverage, supplement with `rg`.
+   */
+  readonly coverageNote: string;
+  /** Same warnings stream other read endpoints use (reconcile, etc.). */
+  readonly warnings: ReadonlyArray<string>;
+}
+
+export interface LiteralHit {
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly relPath: string;
+  readonly chunkKind: string;
+  readonly chunkStartLine: number;
+  readonly chunkEndLine: number;
+  /** Absolute file line (1-indexed). */
+  readonly line: number;
+  /** 1-indexed column of the first matching byte on that line. */
+  readonly column: number;
+  /** Full text of the matched line. */
+  readonly lineText: string;
+}
+
 /**
  * Per-project deep-dive payload behind `GET /api/projects/:id`. The UI
  * uses this for the `/projects/:id` inspect view: header card + stats

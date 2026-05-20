@@ -386,3 +386,31 @@ FROM files
 WHERE project_id = ?
   AND error IS NOT NULL
 ORDER BY rel_path;
+
+-- :name find_literal_matches
+-- Substring scan over indexed chunk text (chunks_fts.document). Used by
+-- find_literal — the audit-shape tool that complements ranked
+-- search_workspace. The escape character is '\' so callers that want
+-- to match a literal %, _, or \ can pre-escape them. ORDER BY keeps
+-- consumers' line-merge logic simple.
+--
+-- Constraint: this scans the FTS5 text, which holds the canonical
+-- chunk body. Lines outside any chunk (chunker gaps — see #360) are
+-- not searched. Callers needing total file coverage should
+-- supplement with a direct fs scan.
+SELECT chunks_fts.chunk_id     AS chunk_id,
+       chunks_fts.file_id      AS file_id,
+       chunks_fts.project_id   AS project_id,
+       chunks_fts.rel_path     AS rel_path,
+       chunks_fts.document     AS document,
+       chunks.start_line       AS start_line,
+       chunks.end_line         AS end_line,
+       chunks.kind             AS kind,
+       projects.name           AS project_name
+FROM chunks_fts
+INNER JOIN chunks   ON chunks.chunk_id   = chunks_fts.chunk_id
+INNER JOIN files    ON files.file_id     = chunks_fts.file_id
+INNER JOIN projects ON projects.id       = chunks_fts.project_id
+WHERE chunks_fts.document LIKE ? ESCAPE '\'
+  AND files.error IS NULL
+ORDER BY chunks_fts.rel_path, chunks.start_line;

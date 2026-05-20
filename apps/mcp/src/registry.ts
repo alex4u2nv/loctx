@@ -147,6 +147,45 @@ export interface SearchOutput extends SearchResponse {
   readonly indexHealth: IndexHealth;
 }
 
+// ---- find_literal (#357) -----------------------------------------------
+
+export interface FindLiteralInput {
+  /** Substring to match. Plain text — SQL LIKE wildcards are pre-escaped. */
+  readonly pattern: string;
+  /** Optional absolute path to scope the audit. */
+  readonly path?: string;
+}
+
+export interface LiteralMatchHit {
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly relPath: string;
+  readonly chunkKind: string;
+  readonly chunkStartLine: number;
+  readonly chunkEndLine: number;
+  /** Absolute file line (1-indexed) of the match. */
+  readonly line: number;
+  /** 1-indexed column of the first matching byte on that line. */
+  readonly column: number;
+  /** Full text of the matched line. */
+  readonly lineText: string;
+}
+
+export interface FindLiteralOutput {
+  readonly pattern: string;
+  readonly matches: ReadonlyArray<LiteralMatchHit>;
+  /** Distinct files containing at least one match. Computed from `matches`. */
+  readonly fileCount: number;
+  readonly indexHealth: IndexHealth;
+  /**
+   * Always present — set by the server to remind callers that the
+   * scan covers indexed chunk text. Lines outside any chunk (per
+   * #360) are not searched. For total file coverage, supplement
+   * with `rg`.
+   */
+  readonly coverageNote: string;
+}
+
 export interface RefreshOutputWithHealth extends RefreshOutput {
   readonly indexHealth: IndexHealth;
 }
@@ -324,6 +363,62 @@ export const tools = {
     });
   },
 
+  async findLiteral(runtime: Runtime, input: unknown): Promise<FindLiteralOutput> {
+    const v = new Validator(ToolError, "find_literal");
+    const data = v.requireRecord(input ?? {}, "arguments");
+    const pattern = v.getStr(data, "pattern");
+    if (pattern === undefined || pattern === "") {
+      throw new ToolError("pattern is required and must be a non-empty string");
+    }
+    if (pattern.length > 1024) {
+      throw new ToolError("pattern exceeds 1024-char limit");
+    }
+    const path = v.getStr(data, "path");
+
+    let projectId: ProjectId | undefined;
+    let relPathPrefix: string | undefined;
+    if (path !== undefined && path !== "") {
+      const scoped = runtime.discovery.resolveProject(path);
+      if (scoped === null) {
+        throw new ToolError(
+          `path ${path} is not inside any indexed project; omit path to search every project.`,
+        );
+      }
+      projectId = scoped.id;
+      // If path is deeper than the project root, narrow further by
+      // prefix. resolveProject returns the project; we re-derive the
+      // sub-prefix from the input path.
+      if (path.startsWith(`${scoped.root}/`)) {
+        relPathPrefix = path.slice(scoped.root.length + 1);
+      }
+    }
+
+    const opts: { projectId?: ProjectId; relPathPrefix?: string } = {};
+    if (projectId !== undefined) opts.projectId = projectId;
+    if (relPathPrefix !== undefined) opts.relPathPrefix = relPathPrefix;
+    const raw = runtime.state.findLiteralMatches(pattern, opts);
+    const matches: LiteralMatchHit[] = raw.map((m) => ({
+      projectId: m.projectId,
+      projectName: m.projectName,
+      relPath: m.relPath,
+      chunkKind: m.chunkKind,
+      chunkStartLine: m.chunkStartLine,
+      chunkEndLine: m.chunkEndLine,
+      line: m.line,
+      column: m.column,
+      lineText: m.lineText,
+    }));
+    const fileCount = new Set(matches.map((m) => `${m.projectId}:${m.relPath}`)).size;
+    return Object.freeze({
+      pattern,
+      matches: Object.freeze(matches),
+      fileCount,
+      indexHealth: currentIndexHealth(runtime),
+      coverageNote:
+        "Scans indexed chunk text. Lines outside any chunk (chunker gaps — see issue #360) are not searched. For total file coverage, supplement with `rg <pattern>`.",
+    });
+  },
+
   async refresh(runtime: Runtime, input: unknown): Promise<RefreshOutputWithHealth> {
     const v = new Validator(ToolError, "refresh_workspace");
     const data = v.requireRecord(input ?? {}, "arguments");
@@ -430,6 +525,27 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "find_literal",
+    description:
+      "**Audit-shape** literal-substring search across indexed chunk text. Returns *every* line that contains `pattern` — no ranking, no token splitting, no embedding. Use this for audits where exhaustiveness matters: 'every file referencing agents/foo.md', 'every config still pointing at the old URL', 'where is the deprecated constant still used'. Complements `search_workspace` (ranked / semantic) and `find_usages` (exact symbol cross-ref). Each hit carries `relPath`, `line`, `column`, `lineText`, and the surrounding chunk's `chunkStartLine`/`chunkEndLine`. Coverage caveat: scans indexed chunk text, so chunker gaps (#360) are blind spots — the response always includes a `coverageNote` reminding callers to supplement with `rg` for total file coverage when the audit is safety-critical.",
+    inputSchema: {
+      type: "object",
+      required: ["pattern"],
+      properties: {
+        pattern: {
+          type: "string",
+          description:
+            "Literal substring to find. Plain text — SQL LIKE wildcards (% _ \\) are pre-escaped, so an agent can pass the raw user-facing string without escaping.",
+        },
+        path: {
+          type: "string",
+          description:
+            "Absolute file or directory path to scope the audit. If a project root, the scan stays inside that project. If a subtree, results are further restricted by relPath prefix. Omit to scan every indexed project.",
+        },
+      },
+    },
+  },
+  {
     name: "refresh_workspace",
     description:
       "Reindex one project (when path is given) or every discovered project. Returns per-project indexed/skipped/failed counts.",
@@ -457,6 +573,7 @@ const TOOL_HANDLERS = {
   refresh_workspace: tools.refresh,
   find_usages: tools.findUsages,
   find_duplicates: tools.findDuplicates,
+  find_literal: tools.findLiteral,
 } as const;
 
 type ToolName = keyof typeof TOOL_HANDLERS;

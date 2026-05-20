@@ -61,7 +61,7 @@ Log out and back in. `loctx doctor` flags this. `loctx start --no-watch` is the 
 { "mcpServers": { "loctx": { "url": "http://localhost:3022/mcp" } } }
 ```
 
-Both transports expose five tools: `search_workspace`, `workspace_status`, `find_usages`, `find_duplicates`, `refresh_workspace`.
+Both transports expose six tools: `search_workspace`, `workspace_status`, `find_usages`, `find_duplicates`, `find_literal`, `refresh_workspace`.
 
 ## Configuration
 

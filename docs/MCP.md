@@ -1,8 +1,8 @@
 # MCP setup
 
-loctx exposes five MCP tools (`search_workspace`, `workspace_status`,
-`find_usages`, `find_duplicates`, `refresh_workspace`) over two
-transports. Pick the one that fits your agent and workflow.
+loctx exposes six MCP tools (`search_workspace`, `workspace_status`,
+`find_usages`, `find_duplicates`, `find_literal`, `refresh_workspace`)
+over two transports. Pick the one that fits your agent and workflow.
 
 ## Tool selection cheat-sheet
 
@@ -15,7 +15,7 @@ call.
 | "Where is `authenticate` defined / called / imported?" (exact code symbol) | `find_usages` | Exact-match, returns every def + ref. No fuzz, no ranking. |
 | "What's the code that does JWT signing?" / "Where do we debounce websocket reconnects?" (semantic) | `search_workspace` | Vector + lexical fusion; top-N ranked. |
 | "Find code about X for a refactor — also include callers" | `search_workspace` with `coverage: true` | Expands top hits via the symbol cross-ref graph. |
-| "List every file containing the literal string `agents/foo.md`" (exhaustive) | `rg`/`grep` (not loctx) | `search_workspace` tokenizes path segments and ranks the result. For exhaustive recall on a literal substring, shell grep wins. |
+| "List every file containing the literal string `agents/foo.md`" (audit, exhaustive) | `find_literal` | Substring scan over indexed chunk text. One row per matching line, with `column` + `lineText`. Coverage caveat: chunker gaps (#360) are blind spots — the response always includes a `coverageNote`. Supplement with `rg` when the audit is safety-critical. |
 | "Are there duplicate code blocks across the workspace?" | `find_duplicates` | Hash-based, cross-file. Requires `analyzers.background_enabled` + `analyzers.duplicates.enabled` in config. |
 | "Is the index up to date? Walk it now." | `refresh_workspace` | Triggers a reconcile. Slow on a cold workspace. |
 | "What projects are indexed and where is the data?" | `workspace_status` | Cheap. Includes `indexHealth` so you know if a reconcile is in flight. |
@@ -128,13 +128,14 @@ and `protocolVersion = "2024-11-05"`. Most clients do this automatically.
 
 ### 2. List tools
 
-You should see exactly five:
+You should see exactly six:
 
 ```
 search_workspace
 workspace_status
 find_usages
 find_duplicates
+find_literal
 refresh_workspace
 ```
 

@@ -752,6 +752,142 @@ describe("StateStore", () => {
     store.close();
   });
 
+  it("findLiteralMatches surfaces every occurrence across files + chunks (#357)", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const fa: FileState = { ...fileState(project), fileId: toFileId("f-a"), relPath: "docs/a.md" };
+    const fb: FileState = { ...fileState(project), fileId: toFileId("f-b"), relPath: "docs/b.md" };
+    const fc: FileState = {
+      ...fileState(project),
+      fileId: toFileId("f-c"),
+      relPath: "code/score_connector.py",
+    };
+    store.upsertFile(fa);
+    store.upsertFile(fb);
+    store.upsertFile(fc);
+    store.replaceChunks(fa.fileId, [
+      {
+        chunkId: "ca1",
+        fileId: fa.fileId,
+        projectId: project.id,
+        relPath: fa.relPath,
+        startLine: 100,
+        endLine: 110,
+        kind: "section",
+        symbols: [],
+        // The literal "agents/foo.md" appears on line 102 (offset 2 in
+        // the chunk, since startLine=100 + 2 lines).
+        document: "intro\nstuff\nsee [foo](agents/foo.md) for details\nmore",
+      },
+    ]);
+    store.replaceChunks(fb.fileId, [
+      {
+        chunkId: "cb1",
+        fileId: fb.fileId,
+        projectId: project.id,
+        relPath: fb.relPath,
+        startLine: 1,
+        endLine: 3,
+        kind: "section",
+        symbols: [],
+        document: "no match here\nalso no match\nfinal line",
+      },
+    ]);
+    // The case study from #357: a constant-definition chunk where the
+    // literal lives at module scope, not in a function body.
+    store.replaceChunks(fc.fileId, [
+      {
+        chunkId: "cc1",
+        fileId: fc.fileId,
+        projectId: project.id,
+        relPath: fc.relPath,
+        startLine: 25,
+        endLine: 30,
+        kind: "declaration",
+        symbols: ["AGENT_MD"],
+        document:
+          "from pathlib import Path\n\n\n\nAGENT_MD = Path(__file__).parent / 'agents/foo.md'\n",
+      },
+    ]);
+
+    const hits = store.findLiteralMatches("agents/foo.md");
+    expect(hits.map((h) => `${h.relPath}:${h.line}:${h.column}`)).toEqual([
+      "code/score_connector.py:29:37",
+      "docs/a.md:102:11",
+    ]);
+    expect(hits[1]?.lineText).toBe("see [foo](agents/foo.md) for details");
+    // The definition site (Test 3 in #357) is included even though it's
+    // module-level — the chunk anchored at startLine=25 placed the
+    // literal at file line 29.
+    expect(hits[0]?.lineText).toContain("AGENT_MD = Path");
+  });
+
+  it("findLiteralMatches escapes SQL LIKE wildcards (#357)", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const fa: FileState = { ...fileState(project), fileId: toFileId("f-a"), relPath: "a.md" };
+    store.upsertFile(fa);
+    store.replaceChunks(fa.fileId, [
+      {
+        chunkId: "c1",
+        fileId: fa.fileId,
+        projectId: project.id,
+        relPath: fa.relPath,
+        startLine: 1,
+        endLine: 4,
+        kind: "section",
+        symbols: [],
+        // Includes a literal `%`, `_`, and `\` — all LIKE-meta characters.
+        document: "value=50% off\nold_field=true\npath=C:\\Program Files\\x\nfinal",
+      },
+    ]);
+    // `%` as literal — should NOT match every other line.
+    expect(store.findLiteralMatches("50%").map((h) => h.line)).toEqual([1]);
+    // `_` as literal — should match only the line with old_field.
+    expect(store.findLiteralMatches("old_field").map((h) => h.line)).toEqual([2]);
+    // `\` as literal — should match the path line.
+    expect(store.findLiteralMatches("\\Program").map((h) => h.line)).toEqual([3]);
+  });
+
+  it("findLiteralMatches filters by relPathPrefix (#357)", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const fa: FileState = { ...fileState(project), fileId: toFileId("f-a"), relPath: "src/a.ts" };
+    const fb: FileState = {
+      ...fileState(project),
+      fileId: toFileId("f-b"),
+      relPath: "tests/a.test.ts",
+    };
+    store.upsertFile(fa);
+    store.upsertFile(fb);
+    const chunkFor = (file: FileState, id: string): ChunkInsert => ({
+      chunkId: id,
+      fileId: file.fileId,
+      projectId: project.id,
+      relPath: file.relPath,
+      startLine: 1,
+      endLine: 1,
+      kind: "function",
+      symbols: [],
+      document: "needle",
+    });
+    store.replaceChunks(fa.fileId, [chunkFor(fa, "c1")]);
+    store.replaceChunks(fb.fileId, [chunkFor(fb, "c2")]);
+
+    expect(
+      store
+        .findLiteralMatches("needle")
+        .map((h) => h.relPath)
+        .sort(),
+    ).toEqual(["src/a.ts", "tests/a.test.ts"]);
+    expect(
+      store.findLiteralMatches("needle", { relPathPrefix: "src/" }).map((h) => h.relPath),
+    ).toEqual(["src/a.ts"]);
+  });
+
   it("findDuplicateGroups groups by hash across files (#65)", () => {
     const project = makeProject();
     const store = new StateStore(join(tmp, "state.db"));

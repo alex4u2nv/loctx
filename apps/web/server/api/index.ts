@@ -10,6 +10,7 @@ import { createRebuildTracker } from "../lib/rebuild-tracker.js";
 import { mountConfig } from "./config.js";
 import { mountDoctor } from "./doctor.js";
 import { mountEvents } from "./events.js";
+import { mountFindLiteral } from "./find-literal.js";
 import { mountFindUsages } from "./find-usages.js";
 import { mountModels } from "./models.js";
 import { mountOps } from "./ops.js";
@@ -36,6 +37,7 @@ export function mountApi(
   mountConfig(app, config);
   mountModels(app, config);
   mountFindUsages(app, config, getRuntime);
+  mountFindLiteral(app, config, getRuntime);
   mountOps(app, config, getRuntime, rebuildTracker);
   mountWatchers(app, watcherRegistry);
 }

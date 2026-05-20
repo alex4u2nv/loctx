@@ -50,6 +50,9 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
         })),
       findDuplicateGroups: () => [],
       findSymbol: () => ({ defs: [], refs: [] }),
+      // #357: literal-substring audit tool. Default stub returns
+      // empty; individual tests override with `state: { ... }`.
+      findLiteralMatches: () => [],
     },
     searcher: {
       search: async () => ({
@@ -102,13 +105,14 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
 // ---- tool catalog ---------------------------------------------------
 
 describe("TOOL_DEFINITIONS", () => {
-  it("exposes the five loctx tools", () => {
+  it("exposes the six loctx tools", () => {
     const names = TOOL_DEFINITIONS.map((t) => t.name);
     expect(names).toEqual([
       "search_workspace",
       "workspace_status",
       "find_usages",
       "find_duplicates",
+      "find_literal",
       "refresh_workspace",
     ]);
   });
@@ -141,6 +145,14 @@ describe("TOOL_DEFINITIONS", () => {
     expect(tool?.description).toMatch(/exact/i);
     expect(tool?.description).toMatch(/symbol/i);
     expect(tool?.description).toMatch(/\bnot\b.*file path|paths|literal/i);
+  });
+
+  it("find_literal description names audit-shape questions + coverage caveat", () => {
+    const tool = TOOL_DEFINITIONS.find((t) => t.name === "find_literal");
+    expect(tool?.description).toMatch(/audit/i);
+    expect(tool?.description).toMatch(/exhaustiv|every/i);
+    expect(tool?.description).toMatch(/literal|substring/i);
+    expect(tool?.description).toMatch(/coverage|#360/i);
   });
 });
 
@@ -339,6 +351,96 @@ describe("tools.refresh", () => {
     const runtime = stubRuntime();
     const out = await tools.refresh(runtime, { path: "/elsewhere/x" });
     expect(out.summaries).toEqual([]);
+  });
+});
+
+// ---- find_literal (#357) -------------------------------------------
+
+describe("tools.findLiteral", () => {
+  function runtimeWithMatches(
+    matches: Array<{
+      projectId: string;
+      projectName: string;
+      relPath: string;
+      chunkKind: string;
+      chunkStartLine: number;
+      chunkEndLine: number;
+      line: number;
+      column: number;
+      lineText: string;
+    }>,
+  ): Runtime {
+    return stubRuntime({
+      state: {
+        findLiteralMatches: () => matches,
+      } as unknown as Runtime["state"],
+    });
+  }
+
+  it("requires a non-empty pattern", async () => {
+    const runtime = stubRuntime();
+    await expect(tools.findLiteral(runtime, {})).rejects.toBeInstanceOf(ToolError);
+    await expect(tools.findLiteral(runtime, { pattern: "" })).rejects.toBeInstanceOf(ToolError);
+  });
+
+  it("rejects an absurdly long pattern", async () => {
+    const runtime = stubRuntime();
+    await expect(
+      tools.findLiteral(runtime, { pattern: "x".repeat(1100) }),
+    ).rejects.toBeInstanceOf(ToolError);
+  });
+
+  it("returns matches with coverageNote + fileCount derived from the hits", async () => {
+    const runtime = runtimeWithMatches([
+      {
+        projectId: "proj-a",
+        projectName: "alpha",
+        relPath: "docs/a.md",
+        chunkKind: "section",
+        chunkStartLine: 100,
+        chunkEndLine: 110,
+        line: 102,
+        column: 11,
+        lineText: "see [foo](agents/foo.md) for details",
+      },
+      {
+        projectId: "proj-a",
+        projectName: "alpha",
+        relPath: "docs/a.md",
+        chunkKind: "section",
+        chunkStartLine: 100,
+        chunkEndLine: 110,
+        line: 105,
+        column: 1,
+        lineText: "agents/foo.md (again)",
+      },
+      {
+        projectId: "proj-a",
+        projectName: "alpha",
+        relPath: "code/score.py",
+        chunkKind: "declaration",
+        chunkStartLine: 25,
+        chunkEndLine: 30,
+        line: 29,
+        column: 37,
+        lineText: "AGENT_MD = Path(__file__).parent / 'agents/foo.md'",
+      },
+    ]);
+    const out = await tools.findLiteral(runtime, { pattern: "agents/foo.md" });
+    expect(out.pattern).toBe("agents/foo.md");
+    expect(out.matches).toHaveLength(3);
+    // fileCount counts distinct files, not matches — two matches in
+    // docs/a.md + one in code/score.py = 2 files.
+    expect(out.fileCount).toBe(2);
+    expect(out.coverageNote).toMatch(/#360|rg/);
+    expect(out.indexHealth).toBeDefined();
+  });
+
+  it("rejects a path that's outside every indexed project", async () => {
+    const runtime = stubRuntime();
+    await expect(
+      tools.findLiteral(runtime, { pattern: "x", path: "/nowhere/outside" }),
+    ).rejects.toBeInstanceOf(ToolError);
   });
 });
 
