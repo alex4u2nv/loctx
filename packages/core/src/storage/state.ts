@@ -524,6 +524,48 @@ export class StateStore {
   }
 
   /**
+   * Per-project chunk counts. Used by the admin projects table — single
+   * GROUP BY join instead of per-row queries, so the page stays cheap on
+   * workspaces with many projects.
+   */
+  chunkCountsByProject(): Map<ProjectId, number> {
+    const rows = this.readAll<{ project_id: string; n: number }>("count_chunks_by_project");
+    return new Map(rows.map((r) => [r.project_id as ProjectId, Number(r.n)]));
+  }
+
+  /**
+   * One row per successfully-indexed file (error IS NULL) with its chunk
+   * count and indexed_at stamp. The admin /api/projects/:id route
+   * aggregates byExtension, topFiles, and recentFiles from this single
+   * pass in JS.
+   */
+  listIndexedFilesWithChunks(
+    projectId: ProjectId,
+  ): Array<{ relPath: string; indexedAt: string | null; chunks: number }> {
+    const rows = this.readAll<{ rel_path: string; indexed_at: string | null; chunks: number }>(
+      "list_indexed_files_with_chunks",
+      [projectId],
+    );
+    return rows.map((r) => ({
+      relPath: r.rel_path,
+      indexedAt: r.indexed_at,
+      chunks: Number(r.chunks),
+    }));
+  }
+
+  /**
+   * Files whose last index attempt errored (error IS NOT NULL). Listed
+   * by /api/projects/:id so operators can see which files won't appear
+   * in search until the underlying problem is fixed.
+   */
+  listFailingFiles(projectId: ProjectId): Array<{ relPath: string; error: string }> {
+    const rows = this.readAll<{ rel_path: string; error: string }>("list_failing_files", [
+      projectId,
+    ]);
+    return rows.map((r) => ({ relPath: r.rel_path, error: r.error }));
+  }
+
+  /**
    * Delete a file row + cascade to chunks + chunks_fts in one transaction.
    * Without the cascade, watcher "unlink" events would leave orphaned chunk
    * and FTS rows that no later replaceChunks call could clean up (the file_id

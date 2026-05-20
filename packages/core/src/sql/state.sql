@@ -356,3 +356,33 @@ SELECT identity FROM collections WHERE name = ?;
 
 -- :name insert_collection
 INSERT INTO collections (name, identity, created_at) VALUES (?, ?, ?);
+
+-- :name count_chunks_by_project
+-- Aggregate chunk counts per project. Used by the admin projects table.
+SELECT files.project_id AS project_id,
+       COUNT(chunks.chunk_id) AS n
+FROM chunks
+INNER JOIN files ON chunks.file_id = files.file_id
+GROUP BY files.project_id;
+
+-- :name list_indexed_files_with_chunks
+-- One row per successfully-indexed file with its chunk count and
+-- indexed_at timestamp. Used by /api/projects/:id stats (byExtension,
+-- topFiles, recentFiles).
+SELECT files.rel_path AS rel_path,
+       files.indexed_at AS indexed_at,
+       COUNT(chunks.chunk_id) AS chunks
+FROM files
+LEFT JOIN chunks ON chunks.file_id = files.file_id
+WHERE files.project_id = ?
+  AND files.error IS NULL
+GROUP BY files.file_id;
+
+-- :name list_failing_files
+-- Files whose last index attempt errored. Used by /api/projects/:id
+-- "files that failed to index" panel.
+SELECT rel_path, error
+FROM files
+WHERE project_id = ?
+  AND error IS NOT NULL
+ORDER BY rel_path;

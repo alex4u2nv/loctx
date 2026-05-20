@@ -604,36 +604,21 @@ function toRebuildProgress(job: RebuildJob | undefined): RebuildProgress | null 
   };
 }
 
-function projectStats(state: StateStore, projectId: string): ProjectStats {
-  // Reach for the raw better-sqlite handle the same way chunkCountsByProject
-  // does. The state store doesn't expose these custom aggregates yet —
-  // if we end up needing them in other places, promote them to
-  // `:name` queries in state.sql.
-  type Db = { prepare(sql: string): { all(...args: unknown[]): Array<unknown> } };
-  const db = (state as unknown as { db: Db })["db"];
-
+function projectStats(state: StateStore, projectId: ProjectId): ProjectStats {
   // One row per indexed file with its chunk count + indexed timestamp.
   // We aggregate byExtension + topFiles + recentFiles from this single
   // pass in JS rather than doing three SQL queries. SQLite has no
   // last-character search primitive (no `reverse()`), and even if it
   // did, doing the extension-extraction in JS is more readable and
   // handles dotfiles + multi-dot names predictably.
-  const fileRows = db
-    .prepare(
-      "SELECT files.rel_path AS rel_path, files.indexed_at AS indexed_at, " +
-        "COUNT(chunks.chunk_id) AS chunks " +
-        "FROM files LEFT JOIN chunks ON chunks.file_id = files.file_id " +
-        "WHERE files.project_id = ? AND files.error IS NULL " +
-        "GROUP BY files.file_id",
-    )
-    .all(projectId) as Array<{ rel_path: string; indexed_at: string | null; chunks: number }>;
+  const fileRows = state.listIndexedFilesWithChunks(projectId);
 
   const byExtMap = new Map<string, { files: number; chunks: number }>();
   for (const r of fileRows) {
-    const ext = extensionOf(r.rel_path);
+    const ext = extensionOf(r.relPath);
     const entry = byExtMap.get(ext) ?? { files: 0, chunks: 0 };
     entry.files += 1;
-    entry.chunks += Number(r.chunks);
+    entry.chunks += r.chunks;
     byExtMap.set(ext, entry);
   }
   const byExtension = Array.from(byExtMap.entries())
@@ -642,38 +627,27 @@ function projectStats(state: StateStore, projectId: string): ProjectStats {
 
   const TOP_LIMIT = 10;
   const topFiles = [...fileRows]
-    .sort((a, b) => Number(b.chunks) - Number(a.chunks) || a.rel_path.localeCompare(b.rel_path))
+    .sort((a, b) => b.chunks - a.chunks || a.relPath.localeCompare(b.relPath))
     .slice(0, TOP_LIMIT)
     .map((r) => ({
-      relPath: r.rel_path,
-      chunks: Number(r.chunks),
-      indexedAt: r.indexed_at,
+      relPath: r.relPath,
+      chunks: r.chunks,
+      indexedAt: r.indexedAt,
     }));
   const recentFiles = [...fileRows]
     .sort((a, b) => {
-      const aTs = a.indexed_at ?? "";
-      const bTs = b.indexed_at ?? "";
-      return bTs.localeCompare(aTs) || a.rel_path.localeCompare(b.rel_path);
+      const aTs = a.indexedAt ?? "";
+      const bTs = b.indexedAt ?? "";
+      return bTs.localeCompare(aTs) || a.relPath.localeCompare(b.relPath);
     })
     .slice(0, TOP_LIMIT)
-    .map((r) => ({ relPath: r.rel_path, indexedAt: r.indexed_at }));
-
-  const failingFileRows = db
-    .prepare(
-      "SELECT rel_path, error FROM files " +
-        "WHERE project_id = ? AND error IS NOT NULL " +
-        "ORDER BY rel_path",
-    )
-    .all(projectId) as Array<{ rel_path: string; error: string }>;
+    .map((r) => ({ relPath: r.relPath, indexedAt: r.indexedAt }));
 
   return {
     byExtension,
     topFiles,
     recentFiles,
-    failingFiles: failingFileRows.map((r) => ({
-      relPath: r.rel_path,
-      error: r.error,
-    })),
+    failingFiles: state.listFailingFiles(projectId),
   };
 }
 
@@ -689,15 +663,7 @@ function extensionOf(relPath: string): string {
 }
 
 function chunkCountsByProject(state: StateStore): Map<string, number> {
-  const db = (state as unknown as { db: { prepare(sql: string): { all(): Array<unknown> } } })[
-    "db"
-  ];
-  const rows = db
-    .prepare(
-      "SELECT files.project_id AS project_id, COUNT(chunks.chunk_id) AS n " +
-        "FROM chunks INNER JOIN files ON chunks.file_id = files.file_id " +
-        "GROUP BY files.project_id",
-    )
-    .all() as Array<{ project_id: string; n: number }>;
-  return new Map(rows.map((r) => [r.project_id, Number(r.n)]));
+  // Thin adapter so callers can pass the resulting Map keyed by the
+  // ProjectId branded string (they already widen to string elsewhere).
+  return state.chunkCountsByProject() as unknown as Map<string, number>;
 }
