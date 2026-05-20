@@ -654,6 +654,104 @@ describe("StateStore", () => {
     expect(updated?.payloadJson).toBeUndefined();
   });
 
+  it("chunkCountsByProject aggregates per-project chunk totals (#350)", () => {
+    const dbPath = join(tmp, "state.db");
+    const store = new StateStore(dbPath);
+    const projA = Object.freeze({ id: projectId("p-a"), name: "a", root: join(tmp, "a") });
+    const projB = Object.freeze({ id: projectId("p-b"), name: "b", root: join(tmp, "b") });
+    store.upsertProject(projA);
+    store.upsertProject(projB);
+    const fA = { ...fileState(projA), fileId: toFileId("file-a") as FileId, projectId: projA.id };
+    const fB = { ...fileState(projB), fileId: toFileId("file-b") as FileId, projectId: projB.id };
+    store.upsertFile(fA);
+    store.upsertFile(fB);
+    const mkChunk = (id: string, file: FileState): ChunkInsert => ({
+      chunkId: id,
+      fileId: file.fileId,
+      projectId: file.projectId,
+      relPath: file.relPath,
+      startLine: 1,
+      endLine: 1,
+      kind: "function",
+      symbols: [],
+      document: id,
+    });
+    store.replaceChunks(fA.fileId, [mkChunk("c1", fA), mkChunk("c2", fA), mkChunk("c3", fA)]);
+    store.replaceChunks(fB.fileId, [mkChunk("c4", fB)]);
+
+    const counts = store.chunkCountsByProject();
+    expect(counts.get(projA.id)).toBe(3);
+    expect(counts.get(projB.id)).toBe(1);
+    store.close();
+  });
+
+  it("listIndexedFilesWithChunks excludes error rows + counts chunks (#350)", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const ok: FileState = {
+      ...fileState(project),
+      fileId: toFileId("file-ok") as FileId,
+      relPath: "good.ts",
+    };
+    const bad: FileState = {
+      ...fileState(project),
+      fileId: toFileId("file-bad") as FileId,
+      relPath: "bad.ts",
+      error: "boom",
+    };
+    store.upsertFile(ok);
+    store.upsertFile(bad);
+    store.replaceChunks(ok.fileId, [
+      {
+        chunkId: "c1",
+        fileId: ok.fileId,
+        projectId: project.id,
+        relPath: ok.relPath,
+        startLine: 1,
+        endLine: 5,
+        kind: "function",
+        symbols: [],
+        document: "x",
+      },
+    ]);
+
+    const rows = store.listIndexedFilesWithChunks(project.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.relPath).toBe("good.ts");
+    expect(rows[0]?.chunks).toBe(1);
+    expect(rows[0]?.indexedAt).toBe("2024-01-01T00:00:00.000Z");
+    store.close();
+  });
+
+  it("listFailingFiles returns only error rows, sorted (#350)", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    store.upsertFile({
+      ...fileState(project),
+      fileId: toFileId("file-ok") as FileId,
+      relPath: "ok.ts",
+    });
+    store.upsertFile({
+      ...fileState(project),
+      fileId: toFileId("file-zerr") as FileId,
+      relPath: "z-err.ts",
+      error: "syntax",
+    });
+    store.upsertFile({
+      ...fileState(project),
+      fileId: toFileId("file-aerr") as FileId,
+      relPath: "a-err.ts",
+      error: "io",
+    });
+
+    const failing = store.listFailingFiles(project.id);
+    expect(failing.map((f) => f.relPath)).toEqual(["a-err.ts", "z-err.ts"]);
+    expect(failing.map((f) => f.error)).toEqual(["io", "syntax"]);
+    store.close();
+  });
+
   it("findDuplicateGroups groups by hash across files (#65)", () => {
     const project = makeProject();
     const store = new StateStore(join(tmp, "state.db"));
