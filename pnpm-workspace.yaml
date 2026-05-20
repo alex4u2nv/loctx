@@ -33,7 +33,4 @@ onlyBuiltDependencies:
 # polluting every `pnpm install` log.
 peerDependencyRules:
   allowedVersions:
-    "tree-sitter-go>tree-sitter": "0.22.x"
-    "tree-sitter-java>tree-sitter": "0.22.x"
-    "tree-sitter-javascript>tree-sitter": "0.22.x"
-    "tree-sitter-typescript>tree-sitter": "0.22.x"
+    tree-sitter: "0.22.x"
