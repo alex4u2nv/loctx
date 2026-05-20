@@ -50,7 +50,7 @@ function buildPayload(config: Config): ConfigPayload {
     },
   ];
   return {
-    raw: deepClone(config),
+    raw: structuredClone(config) as Config,
     globalSource: config.source,
     sources: config.sources as Readonly<Record<string, ConfigSourceKind>>,
     effective,
@@ -116,6 +116,3 @@ function parseRequest(body: unknown): ConfigWriteRequest | null {
   return { patch: patch as Record<string, unknown> };
 }
 
-function deepClone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
