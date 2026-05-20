@@ -145,6 +145,96 @@ describe("TreeSitterCodeChunker — TypeScript", () => {
   });
 });
 
+describe("TreeSitterCodeChunker — coverage-gap fill (#360)", () => {
+  it("covers builder-pattern callback bodies that tree-sitter misses", () => {
+    // Reproduces the cli.ts pattern. Tree-sitter sees the top level
+    // as an expression_statement (the whole `program.command(...).
+    // action(...)` chain), which is NOT in CHUNKABLE_NODES, so it
+    // emits zero chunks for the callback body. The gap-fill catches
+    // it so `findModel(name)` ends up in some chunk's content.
+    const body = Array.from({ length: 25 }, (_, i) => `      const step${i} = ${i};`).join("\n");
+    const source = [
+      "import { Command } from 'commander';",
+      "",
+      "const DAEMON_VERSION = '0.1.0';",
+      "",
+      "const program = new Command();",
+      "program",
+      '  .command("model")',
+      '  .description("manage embedding models")',
+      "  .action(async (name: string) => {",
+      '    const { findModel } = await import("@loctx/core");',
+      "    const info = findModel(name);",
+      body,
+      "    return info;",
+      "  });",
+      "",
+    ].join("\n");
+    const chunks = chunkFile("cli.ts", source);
+    const covered = chunks.some((c) => c.content.includes("findModel(name)"));
+    expect(covered).toBe(true);
+    // The gap-fill produces a `window-fill` chunk (distinct kind so
+    // analytics can tell it apart from line-window emergency
+    // fallback). The DAEMON_VERSION declaration at the top is a
+    // normal `declaration` chunk; the gap-fill picks up the builder
+    // chain below it.
+    expect(chunks.map((c) => c.kind)).toContain("window-fill");
+  });
+
+  it("covers Python module-level assignments between functions", () => {
+    // The #357 case study: a constant defined at module scope between
+    // two function definitions. Python's CHUNKABLE_NODES only has
+    // function_definition + class_definition; assignment is not in
+    // the set. Gap-fill catches the constant.
+    const source = [
+      "from pathlib import Path",
+      "",
+      "",
+      "def first():",
+      "    return 1",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "AGENT_MD = Path(__file__).parent / 'agents' / '06-effort-scoring-agent.md'",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "def second():",
+      "    return AGENT_MD",
+      "",
+    ].join("\n");
+    const chunks = chunkFile("score_connector.py", source);
+    const covered = chunks.some((c) =>
+      c.content.includes("AGENT_MD = Path(__file__).parent / 'agents'"),
+    );
+    expect(covered).toBe(true);
+  });
+
+  it("ignores short gaps (comments between declarations)", () => {
+    // A typical 1-3 line comment block between two functions
+    // shouldn't produce a window-fill chunk — that would pollute
+    // retrieval. Threshold is GAP_THRESHOLD_LINES.
+    const source = [
+      "function a() { return 1; }",
+      "// comment line 1",
+      "// comment line 2",
+      "function b() { return 2; }",
+    ].join("\n");
+    const chunks = chunkFile("a.ts", source);
+    // Only the two functions; no window-fill.
+    expect(chunks.every((c) => c.kind !== "window-fill")).toBe(true);
+  });
+});
+
 describe("TreeSitterCodeChunker — size cap (#279)", () => {
   it("splits chunks larger than the hard cap into line-window sub-chunks", () => {
     const inner: string[] = [];

@@ -239,8 +239,130 @@ export class TreeSitterCodeChunker implements Chunker {
         chunks[0] = withFileImports(first, fileImports);
       }
     }
-    return capChunkSizes(chunks);
+    // #360: tree-sitter only emits chunks for top-level nodes in
+    // CHUNKABLE_NODES. That misses (a) callback bodies in
+    // fluent-builder patterns like `program.command(...).action(async
+    // () => { ... })` — the action body sits inside a call_expression,
+    // not a top-level function_declaration — and (b) Python module-
+    // level assignments like `AGENT_MD = Path(...)`. Both produced
+    // invisible content: find_usages undercounted refs, find_literal
+    // missed the line, retrieval skipped the snippet. Fill any gap
+    // > GAP_THRESHOLD_LINES with the line-window fallback so every
+    // line of source ends up in some chunk. The threshold keeps
+    // 1-3-line comment-only gaps from polluting the index.
+    const filled = fillCoverageGaps(chunks, document, this.fallback, language);
+    return capChunkSizes(filled);
   }
+}
+
+/** A gap shorter than this is almost certainly comments/whitespace; skip. */
+const GAP_THRESHOLD_LINES = 10;
+
+/**
+ * Walk the tree-sitter chunk list, find uncovered line ranges
+ * (`endLine + 1 .. nextStartLine - 1`, plus the head and tail of the
+ * file), and run the fallback line-window chunker over each gap
+ * >= GAP_THRESHOLD_LINES. The output is merged with the tree-sitter
+ * chunks and sorted by start line. Tagged with `kind: "window-fill"`
+ * so analytics can tell line-window-from-gap chunks apart from
+ * tree-sitter's own line-window emergency fallback.
+ */
+function fillCoverageGaps(
+  treeChunks: CodeChunk[],
+  document: SourceDocument,
+  fallback: Chunker,
+  language: string,
+): CodeChunk[] {
+  if (treeChunks.length === 0) return treeChunks;
+  const sorted = [...treeChunks].sort((a, b) => a.startLine - b.startLine);
+  const lines = document.content.split(/\r?\n/);
+  const trailingBlank = lines.at(-1) === "" && lines.length > 1;
+  const totalLines = trailingBlank ? lines.length - 1 : lines.length;
+  if (totalLines <= 0) return treeChunks;
+
+  const out: CodeChunk[] = [];
+  let cursor = 1;
+  for (const c of sorted) {
+    if (c.startLine - 1 >= cursor + GAP_THRESHOLD_LINES - 1) {
+      out.push(...chunkLineRange(document, fallback, cursor, c.startLine - 1, language));
+    }
+    out.push(c);
+    cursor = Math.max(cursor, c.endLine + 1);
+  }
+  if (totalLines - cursor + 1 >= GAP_THRESHOLD_LINES) {
+    out.push(...chunkLineRange(document, fallback, cursor, totalLines, language));
+  }
+  return out.sort((a, b) => a.startLine - b.startLine);
+}
+
+/**
+ * Slice `document` to lines [startLine, endLine] (1-indexed, inclusive)
+ * and run the line-window chunker on the slice. Returned chunks have
+ * their line numbers translated back to the file's coordinate system.
+ * Each window also gets tree-sitter analyzer + symbol_refs extraction
+ * on the slice text — without that step `find_usages` would still
+ * undercount refs sitting in window-fill chunks (the original #360
+ * complaint). tree-sitter is error-tolerant; even if the slice
+ * starts/ends mid-construct, top-level call/import nodes still
+ * yield extractable refs.
+ */
+function chunkLineRange(
+  document: SourceDocument,
+  chunker: Chunker,
+  startLine: number,
+  endLine: number,
+  language: string,
+): CodeChunk[] {
+  const lines = document.content.split(/\r?\n/);
+  const slice = lines.slice(startLine - 1, endLine).join("\n");
+  if (slice.trim() === "") return [];
+  const sliceDoc: SourceDocument = {
+    ...document,
+    content: slice,
+  };
+  const windowChunks = chunker.chunk(sliceDoc);
+  return windowChunks.map((c) => {
+    const refsAndAnalyzer = extractRefsFromSlice(c.content, language);
+    return {
+      ...c,
+      startLine: c.startLine + startLine - 1,
+      endLine: c.endLine + startLine - 1,
+      kind: "window-fill",
+      ...(refsAndAnalyzer.analyzer !== null ? { analyzer: refsAndAnalyzer.analyzer } : {}),
+      ...(refsAndAnalyzer.symbolRefs.length > 0 ? { symbolRefs: refsAndAnalyzer.symbolRefs } : {}),
+    };
+  });
+}
+
+/**
+ * Parse a window-fill slice with tree-sitter (error-tolerant) and pull
+ * analyzer metadata + symbol_refs out of the root. Used so window-fill
+ * chunks carry the same metadata as tree-sitter-native chunks — without
+ * this, find_usages misses any call/import that fell into a chunker
+ * coverage gap.
+ */
+function extractRefsFromSlice(
+  source: string,
+  language: string,
+): {
+  analyzer: ReturnType<typeof extractAnalyzer>;
+  symbolRefs: ReturnType<typeof extractSymbolRefs>;
+} {
+  if (!Object.hasOwn(CHUNKABLE_NODES, language)) {
+    return { analyzer: null, symbolRefs: [] };
+  }
+  const parser = getParser(language);
+  if (parser === null) return { analyzer: null, symbolRefs: [] };
+  let tree: { rootNode: TreeSitterNode };
+  try {
+    tree = parser.parse(source);
+  } catch {
+    return { analyzer: null, symbolRefs: [] };
+  }
+  return {
+    analyzer: extractAnalyzer(tree.rootNode, language),
+    symbolRefs: extractSymbolRefs(tree.rootNode, language),
+  };
 }
 
 // ---- hard size cap (#279) ----------------------------------------------
