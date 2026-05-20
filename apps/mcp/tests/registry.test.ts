@@ -118,6 +118,30 @@ describe("TOOL_DEFINITIONS", () => {
       expect(tool.inputSchema.type).toBe("object");
     }
   });
+
+  // The descriptions are the user-facing API for agent tool selection.
+  // Past bug: an agent that wanted "show me every occurrence of
+  // path/foo.md" reached for grep because search_workspace was
+  // described as "semantic" — the agent didn't realize the lexical
+  // branch could match path tokens. We now state the boundary
+  // explicitly so the agent knows when to use which tool. These
+  // assertions pin the boundary copy so a future doc edit can't
+  // silently drop the routing signal.
+  it("search_workspace description routes literal-string queries to grep", () => {
+    const tool = TOOL_DEFINITIONS.find((t) => t.name === "search_workspace");
+    expect(tool?.description).toMatch(/ranked/i);
+    // Names both the use-cases it handles and the use-case it doesn't.
+    expect(tool?.description).toMatch(/conceptual|semantic/i);
+    expect(tool?.description).toMatch(/coverage/i);
+    expect(tool?.description).toMatch(/\bnot\b.*exhaustive|grep|ripgrep|\brg\b/i);
+  });
+
+  it("find_usages description routes file-path / literal-text queries away", () => {
+    const tool = TOOL_DEFINITIONS.find((t) => t.name === "find_usages");
+    expect(tool?.description).toMatch(/exact/i);
+    expect(tool?.description).toMatch(/symbol/i);
+    expect(tool?.description).toMatch(/\bnot\b.*file path|paths|literal/i);
+  });
 });
 
 // ---- indexHealth surfacing (#43) -----------------------------------
