@@ -17,7 +17,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "npm run build:client && npm run build:server",
+    "build": "pnpm run build:client && pnpm run build:server",
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "dev": "vite",
@@ -30,8 +30,8 @@
     "@fortawesome/free-solid-svg-icons": "^6.7.2",
     "@fortawesome/react-fontawesome": "^0.2.6",
     "@hono/node-server": "^1.13.0",
-    "@loctx/core": "*",
-    "@loctx/mcp": "*",
+    "@loctx/core": "workspace:*",
+    "@loctx/mcp": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "d3-shape": "^3.2.0",
     "hono": "^4.6.0",

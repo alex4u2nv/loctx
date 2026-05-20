@@ -38,9 +38,12 @@ loctx stop
 loctx reset index --force
 rm -rf "$(loctx config show | awk '/dataDir/{print $3}')"
 rm -rf "$(loctx config show | awk '/configDir/{print $3}')"
-npm unlink --workspace @loctx/cli --workspace @loctx/mcp   # local-link installs
+pnpm --filter @loctx/cli unlink --global                   # local-link installs
+pnpm --filter @loctx/mcp unlink --global
 # or
-npm uninstall -g @loctx/cli @loctx/mcp                     # global installs
+npm uninstall -g @loctx/cli @loctx/mcp                     # global npm installs
+# or
+pnpm rm -g @loctx/cli @loctx/mcp                           # global pnpm installs
 ```
 
 The Hugging Face cache (`~/.cache/huggingface/`) is shared with other tools. Delete only if no other tool depends on it.

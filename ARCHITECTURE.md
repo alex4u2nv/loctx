@@ -32,12 +32,13 @@ recovery commands.
 
 ## Project Layout
 
-npm workspaces monorepo. ESM-only TypeScript everywhere. Build with `tsc`,
+pnpm workspaces monorepo. ESM-only TypeScript everywhere. Build with `tsc`,
 test with vitest, lint+format with biome.
 
 ```text
 loctx/                                  # workspace root (private)
-  package.json                          # "workspaces": ["packages/*", "apps/*"]
+  pnpm-workspace.yaml                   # packages: ["packages/*", "apps/*"]
+  package.json                          # pnpm scripts (run, -r, --filter)
   tsconfig.base.json                    # shared compiler options
   biome.json                            # workspace-wide lint+format
 
@@ -235,7 +236,7 @@ loctx
   `verbatimModuleSyntax` + `exactOptionalPropertyTypes`
 - `vitest` — unit + integration tests
 - `@biomejs/biome` — formatter + linter (single tool)
-- `tsx` — dev runner for `npm run dev`
+- `tsx` — dev runner for `pnpm --filter <pkg> dev`
 - ESM-only: `"type": "module"`, NodeNext resolution, `node:` prefix on
   built-ins, top-level await where useful
 

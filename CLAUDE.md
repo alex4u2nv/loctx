@@ -71,15 +71,17 @@ Promote when the second real caller arrives.
 
 ## Build + verify
 
+This repo uses pnpm (>= 9) — npm/yarn aren't tested. `corepack enable && corepack prepare pnpm@9.15.9 --activate` is enough.
+
 ```
-npm run verify        # build + lint + typecheck + test, all workspaces
-npm run build         # build only
-npm run typecheck     # tsc --noEmit, all workspaces
-npm run lint          # biome
-npm test --workspace @loctx/core    # vitest, core only
+pnpm run verify       # build + lint + typecheck + test, all workspaces
+pnpm run build        # build only
+pnpm run typecheck    # tsc --noEmit, all workspaces
+pnpm run lint         # biome
+pnpm --filter @loctx/core test       # vitest, core only
 ```
 
-E2E (web) is `npm run test:e2e --workspace @loctx/web`; needs the
+E2E (web) is `pnpm --filter @loctx/web test:e2e`; needs the
 daemon running.
 
 ## Pointers for future audits

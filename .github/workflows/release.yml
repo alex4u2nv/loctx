@@ -19,21 +19,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+          run_install: false
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           registry-url: "https://registry.npmjs.org"
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build
         # cli + mcp resolve core through dist/, so build before verify.
-        run: npm run build
+        run: pnpm run build
 
       - name: Verify (lint + typecheck + test)
-        run: npm run verify
+        run: pnpm run verify
 
       - name: Verify version matches tag
         run: |
@@ -48,17 +53,21 @@ jobs:
           echo "All package versions match tag v$tag"
 
       - name: Publish @loctx/core
-        run: npm publish --workspace @loctx/core --provenance
+        # `pnpm publish` resolves `workspace:^` deps to the current
+        # workspace versions at publish time, so consumers get plain
+        # semver ranges. --no-git-checks because the tag push leaves
+        # an unclean dist/ tree.
+        run: pnpm --filter @loctx/core publish --access public --provenance --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @loctx/cli
-        run: npm publish --workspace @loctx/cli --provenance
+        run: pnpm --filter @loctx/cli publish --access public --provenance --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @loctx/mcp
-        run: npm publish --workspace @loctx/mcp --provenance
+        run: pnpm --filter @loctx/mcp publish --access public --provenance --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
