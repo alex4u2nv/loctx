@@ -961,12 +961,49 @@ program
     const lock = readActiveDaemon(config.paths.dataDir);
     if (lock !== null) {
       const client = daemonClient(config.paths.dataDir);
-      const r = await client.post<{ summaries: Array<{ name: string; indexed: number }> }>(
-        "/api/rebuild",
-        resolved !== null ? { path: resolved.root } : {},
-      );
-      for (const s of r.summaries) {
-        console.log(`rebuilt ${s.name}: indexed=${s.indexed}`);
+      // /api/rebuild is async — the daemon enqueues per-project rebuilds
+      // and returns 202 (accepted, with the accept/reject split) or 409
+      // (all rejected; same shape). The CLI splits the cases so the
+      // 409 "everything already in progress" path isn't surfaced as a
+      // raw JSON dump by the generic daemon-error handler.
+      type RebuildResponse = {
+        ok: boolean;
+        accepted: Array<{ projectId: string; name: string }>;
+        rejected?: Array<{ projectId: string; name: string; reason: string }>;
+      };
+      let r: RebuildResponse;
+      try {
+        r = await client.post<RebuildResponse>(
+          "/api/rebuild",
+          resolved !== null ? { path: resolved.root } : {},
+        );
+      } catch (err) {
+        // 409 = all rejected — body has the same shape as the success
+        // case, just every entry in `rejected`. Pretty-print instead of
+        // letting the generic handler dump the JSON.
+        if (err instanceof DaemonHttpError && err.status === 409) {
+          try {
+            r = JSON.parse(err.body) as RebuildResponse;
+          } catch {
+            throw err;
+          }
+        } else {
+          throw err;
+        }
+      }
+      for (const a of r.accepted) {
+        console.log(`accepted ${a.name} for rebuild`);
+      }
+      for (const rej of r.rejected ?? []) {
+        console.error(`[loctx rebuild] skipped ${rej.name}: ${rej.reason}`);
+      }
+      if (r.accepted.length > 0) {
+        console.error(
+          `[loctx rebuild] ${r.accepted.length} project(s) enqueued — async. Watch progress with \`loctx status\` or in the admin UI's projects page.`,
+        );
+      } else if ((r.rejected ?? []).length > 0) {
+        console.error("[loctx rebuild] no projects accepted — see reasons above.");
+        process.exit(2);
       }
       return;
     }
