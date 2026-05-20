@@ -31,6 +31,7 @@ import { rmSync } from "node:fs";
 import {
   type Config,
   type Runtime,
+  inventoryProjects,
   makeProject,
   readActiveDaemon,
   resolveUnderWorkspaceRoots,
@@ -183,7 +184,15 @@ export function mountOps(
       // wipe its stored data on disk.
       projects = resolved !== null ? [resolved] : [makeProject(confined)];
     } else {
-      projects = rt.discovery.discoverProjects();
+      // No path → rebuild every ACTIVE project. discoverProjects() also
+      // returns inactive ones (anything under workspace_roots with a
+      // marker) — a user who never opted those projects in shouldn't
+      // pay the ~minutes-to-hours embedding cost on them. Active-only
+      // matches the contract `loctx rebuild --all --force` documents
+      // and aligns with /api/refresh, which the reconciler scopes to
+      // active rows.
+      const active = inventoryProjects(rt.discovery, rt.state).active;
+      projects = active.map((a) => a.project);
     }
 
     // Claim a tracker slot per project before kicking work off. A second
