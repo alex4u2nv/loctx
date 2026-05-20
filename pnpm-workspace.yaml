@@ -1,3 +1,26 @@
 packages:
   - "packages/*"
   - "apps/*"
+
+# pnpm 9.15+ moved settings out of package.json's "pnpm" field. Postinstall
+# scripts run only for explicitly trusted packages — anything else is
+# visibly skipped at install time with a prompt to add it here. This list
+# is therefore the supply-chain audit surface for build-time code execution.
+onlyBuiltDependencies:
+  - "@biomejs/biome"
+  - "@huggingface/transformers"
+  - "@lancedb/lancedb"
+  - "@parcel/watcher"
+  - better-sqlite3
+  - esbuild
+  - lefthook
+  - onnxruntime-node
+  - protobufjs
+  - sharp
+  - tree-sitter
+  - tree-sitter-go
+  - tree-sitter-java
+  - tree-sitter-javascript
+  - tree-sitter-python
+  - tree-sitter-rust
+  - tree-sitter-typescript

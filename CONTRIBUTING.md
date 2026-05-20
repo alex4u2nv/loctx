@@ -21,7 +21,15 @@ pnpm --filter @loctx/mcp link --global
 pnpm run verify   # lint, typecheck, tests
 ```
 
-CI runs the same command. PRs cannot merge until it passes.
+CI runs the same command **plus the Playwright e2e suite**. The pre-push
+git hook also runs both — so a push only goes through after the full CI
+gate succeeds locally. To pre-stage the Playwright browser one time:
+
+```bash
+pnpm --filter @loctx/web exec playwright install chromium
+```
+
+PRs cannot merge until CI passes.
 
 A `LOCTX_E2E_NETWORK=1` suite in `apps/cli/tests/integration/scenarios.test.ts` downloads a real model and runs end to end. CI skips it.
 
