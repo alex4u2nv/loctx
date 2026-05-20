@@ -257,6 +257,16 @@ export class ProjectFilter {
         `${absolute} is not under ${this.project.root}`,
       );
     }
+    // `absolute === project.root` produces `rel === ""`. That happens when
+    // @parcel/watcher emits a synthetic event for the watched root itself
+    // (e.g. when the directory's mtime changes). The `ignore` package
+    // throws `path must not be empty` if we pass it down, which has
+    // crashed the daemon at the libc++ layer (SIGABRT — std::system_error
+    // from the embedder dispose racing with the unhandled rejection).
+    // The project root is never a file we'd index; reject early.
+    if (rel === "") {
+      return decide(false, FilterReason.IGNORED_DIRECTORY, "<project root>");
+    }
 
     // ignored components (everything but the leaf name)
     const parts = rel.split("/");
