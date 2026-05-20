@@ -1,8 +1,24 @@
 # MCP setup
 
-loctx exposes three MCP tools (`search_workspace`, `workspace_status`,
-`refresh_workspace`) over two transports. Pick the one that fits your
-agent and workflow.
+loctx exposes five MCP tools (`search_workspace`, `workspace_status`,
+`find_usages`, `find_duplicates`, `refresh_workspace`) over two
+transports. Pick the one that fits your agent and workflow.
+
+## Tool selection cheat-sheet
+
+The agent picks the wrong tool when the question's shape doesn't match
+the tool's job. Use this table to translate user intent into the right
+call.
+
+| Intent | Right tool | Why |
+|---|---|---|
+| "Where is `authenticate` defined / called / imported?" (exact code symbol) | `find_usages` | Exact-match, returns every def + ref. No fuzz, no ranking. |
+| "What's the code that does JWT signing?" / "Where do we debounce websocket reconnects?" (semantic) | `search_workspace` | Vector + lexical fusion; top-N ranked. |
+| "Find code about X for a refactor — also include callers" | `search_workspace` with `coverage: true` | Expands top hits via the symbol cross-ref graph. |
+| "List every file containing the literal string `agents/foo.md`" (exhaustive) | `rg`/`grep` (not loctx) | `search_workspace` tokenizes path segments and ranks the result. For exhaustive recall on a literal substring, shell grep wins. |
+| "Are there duplicate code blocks across the workspace?" | `find_duplicates` | Hash-based, cross-file. Requires `analyzers.background_enabled` + `analyzers.duplicates.enabled` in config. |
+| "Is the index up to date? Walk it now." | `refresh_workspace` | Triggers a reconcile. Slow on a cold workspace. |
+| "What projects are indexed and where is the data?" | `workspace_status` | Cheap. Includes `indexHealth` so you know if a reconcile is in flight. |
 
 ## Transports
 
@@ -112,11 +128,13 @@ and `protocolVersion = "2024-11-05"`. Most clients do this automatically.
 
 ### 2. List tools
 
-You should see exactly three:
+You should see exactly five:
 
 ```
 search_workspace
 workspace_status
+find_usages
+find_duplicates
 refresh_workspace
 ```
 
