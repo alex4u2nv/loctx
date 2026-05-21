@@ -181,33 +181,25 @@ describe("TreeSitterCodeChunker — coverage-gap fill (#360)", () => {
     expect(chunks.map((c) => c.kind)).toContain("window-fill");
   });
 
-  it("covers Python module-level assignments between functions", () => {
+  it("covers Python module-level assignments between functions (≥ GAP_THRESHOLD lines)", () => {
     // The #357 case study: a constant defined at module scope between
     // two function definitions. Python's CHUNKABLE_NODES only has
     // function_definition + class_definition; assignment is not in
-    // the set. Gap-fill catches the constant.
+    // the set. Gap-fill catches the constant when the surrounding
+    // module-level region is at least GAP_THRESHOLD_LINES (30) long —
+    // a real-world script has comments + the constant + spacing that
+    // adds up to that easily.
+    const padding = Array.from({ length: 32 }, () => "").join("\n");
     const source = [
       "from pathlib import Path",
-      "",
-      "",
+      padding,
+      "AGENT_MD = Path(__file__).parent / 'agents' / '06-effort-scoring-agent.md'",
+      "MODE = 'production'",
+      "DEFAULT_TIMEOUT = 30",
+      padding,
       "def first():",
       "    return 1",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "AGENT_MD = Path(__file__).parent / 'agents' / '06-effort-scoring-agent.md'",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
+      padding,
       "def second():",
       "    return AGENT_MD",
       "",

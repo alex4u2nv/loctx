@@ -255,8 +255,25 @@ export class TreeSitterCodeChunker implements Chunker {
   }
 }
 
-/** A gap shorter than this is almost certainly comments/whitespace; skip. */
-const GAP_THRESHOLD_LINES = 10;
+/**
+ * A gap shorter than this is skipped. Bumped from 10 → 30 (#360
+ * follow-up) so we only chunk *substantial* uncovered regions.
+ * Smaller comment-only gaps don't pollute retrieval.
+ */
+const GAP_THRESHOLD_LINES = 30;
+
+/**
+ * Dedicated line-window chunker for gap-fill — uses LARGER windows
+ * (120 lines, 20 overlap = 100-line step) than the emergency-fallback
+ * default (60/10). Empirically the gap-fill chunks were doubling per-
+ * file chunk counts on builder-heavy files like cli.ts (22 → 50).
+ * Doubling the window halves the gap-fill output without hurting
+ * recall — the embedder sees the same source bytes, just packed into
+ * fewer (larger) chunks. The downside is that BM25 lexical hits land
+ * on coarser chunks. Acceptable for window-fill (the gap-filler is
+ * the safety net, not the primary retrieval path).
+ */
+const GAP_FILL_CHUNKER = new LineWindowChunker({ windowLines: 120, overlapLines: 20 });
 
 /**
  * Walk the tree-sitter chunk list, find uncovered line ranges
@@ -270,7 +287,7 @@ const GAP_THRESHOLD_LINES = 10;
 function fillCoverageGaps(
   treeChunks: CodeChunk[],
   document: SourceDocument,
-  fallback: Chunker,
+  _fallback: Chunker,
   language: string,
 ): CodeChunk[] {
   if (treeChunks.length === 0) return treeChunks;
@@ -284,13 +301,13 @@ function fillCoverageGaps(
   let cursor = 1;
   for (const c of sorted) {
     if (c.startLine - 1 >= cursor + GAP_THRESHOLD_LINES - 1) {
-      out.push(...chunkLineRange(document, fallback, cursor, c.startLine - 1, language));
+      out.push(...chunkLineRange(document, GAP_FILL_CHUNKER, cursor, c.startLine - 1, language));
     }
     out.push(c);
     cursor = Math.max(cursor, c.endLine + 1);
   }
   if (totalLines - cursor + 1 >= GAP_THRESHOLD_LINES) {
-    out.push(...chunkLineRange(document, fallback, cursor, totalLines, language));
+    out.push(...chunkLineRange(document, GAP_FILL_CHUNKER, cursor, totalLines, language));
   }
   return out.sort((a, b) => a.startLine - b.startLine);
 }
