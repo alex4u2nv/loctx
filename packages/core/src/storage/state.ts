@@ -554,6 +554,18 @@ export class StateStore {
   }
 
   /**
+   * Count files committed for `projectId` at or after `since`. Used by
+   * /api/projects to derive live rebuild progress from the files table
+   * — the RebuildTracker isn't updated when the boot reconciler is the
+   * one doing the rebuild work, so the tracker count is unreliable on
+   * its own (#365).
+   */
+  countFilesIndexedSince(projectId: ProjectId, since: string): number {
+    const row = this.readOne<{ n: number }>("count_files_indexed_since", [projectId, since]);
+    return row === undefined ? 0 : Number(row.n);
+  }
+
+  /**
    * Files whose last index attempt errored (error IS NOT NULL). Listed
    * by /api/projects/:id so operators can see which files won't appear
    * in search until the underlying problem is fixed.

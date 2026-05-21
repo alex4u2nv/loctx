@@ -888,6 +888,59 @@ describe("StateStore", () => {
     ).toEqual(["src/a.ts"]);
   });
 
+  it("countFilesIndexedSince scopes to project + since-timestamp (#365)", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    // Three files for the same project, three different indexed_at stamps.
+    const T0 = "2026-05-21T00:00:00.000Z";
+    const T1 = "2026-05-21T00:05:00.000Z";
+    const T2 = "2026-05-21T00:10:00.000Z";
+    store.upsertFile({
+      ...fileState(project),
+      fileId: toFileId("f-early") as FileId,
+      relPath: "early.ts",
+      indexedAt: T0,
+    });
+    store.upsertFile({
+      ...fileState(project),
+      fileId: toFileId("f-mid") as FileId,
+      relPath: "mid.ts",
+      indexedAt: T1,
+    });
+    store.upsertFile({
+      ...fileState(project),
+      fileId: toFileId("f-late") as FileId,
+      relPath: "late.ts",
+      indexedAt: T2,
+    });
+
+    // Sanity: total = 3.
+    expect(store.countFilesIndexedSince(project.id, "1970-01-01T00:00:00.000Z")).toBe(3);
+    // Exactly T1 cutoff: T1 and T2 qualify.
+    expect(store.countFilesIndexedSince(project.id, T1)).toBe(2);
+    // After T2: nothing.
+    expect(store.countFilesIndexedSince(project.id, "2030-01-01T00:00:00.000Z")).toBe(0);
+
+    // Project scoping: a second project's commits don't bleed in.
+    const otherProject = Object.freeze({
+      id: projectId("proj02"),
+      name: "other",
+      root: join(tmp, "other"),
+    });
+    store.upsertProject(otherProject);
+    store.upsertFile({
+      ...fileState(otherProject),
+      fileId: toFileId("f-other") as FileId,
+      projectId: otherProject.id,
+      relPath: "x.ts",
+      indexedAt: T1,
+    });
+    expect(store.countFilesIndexedSince(project.id, T1)).toBe(2); // unchanged
+    expect(store.countFilesIndexedSince(otherProject.id, T1)).toBe(1);
+    store.close();
+  });
+
   it("findDuplicateGroups groups by hash across files (#65)", () => {
     const project = makeProject();
     const store = new StateStore(join(tmp, "state.db"));
