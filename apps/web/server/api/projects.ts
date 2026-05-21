@@ -105,7 +105,12 @@ export function mountProjects(
           watcherRegistry !== undefined ? watcherRegistry.get(project.id as ProjectId) : null;
         const watcherState = watcherEntry !== null ? watcherEntry.state : null;
         const filesCount = files.length;
-        const rebuildProgress = toRebuildProgress(rebuilds.get(project.id));
+        const rebuildProgress = liveRebuildProgress(
+          state,
+          project.id,
+          toRebuildProgress(rebuilds.get(project.id)),
+          rebuildPendingByProject.get(project.id) ?? null,
+        );
         const reconciling =
           reconcileSnap !== null &&
           reconcileSnap.running &&
@@ -240,9 +245,14 @@ export function mountProjects(
       const watcherState = watcherEntry !== null ? watcherEntry.state : null;
       const chunkCounts = state.chunkCountsByProject();
       const rebuild = rebuildTracker.get(project.id);
-      const rebuildProgress = toRebuildProgress(rebuild ?? undefined);
       const pendingMap = new Map(
         state.listProjectsWithRebuildPending().map((p) => [p.id, p.rebuildPendingAt]),
+      );
+      const rebuildProgress = liveRebuildProgress(
+        state,
+        project.id,
+        toRebuildProgress(rebuild ?? undefined),
+        pendingMap.get(project.id) ?? null,
       );
       const detailReconciling =
         detailReconcileSnap !== null &&
@@ -602,6 +612,53 @@ function toRebuildProgress(job: RebuildJob | undefined): RebuildProgress | null 
     completedAt: job.completedAt,
     error: job.error,
   };
+}
+
+/**
+ * Reconcile the in-memory tracker job with the persisted "files
+ * indexed since the rebuild was queued" count. The tracker isn't
+ * updated when the boot reconciler is the one doing the rebuild
+ * (it lives in @loctx/core, the tracker lives in apps/web) — so
+ * the tracker's `indexed` can lag the real progress badly. We pick
+ * whichever count is HIGHER: the tracker (when /api/rebuild is
+ * driving) or the actual committed-files count (when the boot
+ * reconciler is driving). See #365.
+ *
+ * Synthesizes a running tracker shape from rebuild_pending_at when
+ * the tracker has no job at all — common after a daemon restart
+ * resumed an interrupted rebuild from disk.
+ */
+function liveRebuildProgress(
+  state: StateStore,
+  projectId: ProjectId,
+  trackerProgress: RebuildProgress | null,
+  rebuildPendingAt: string | null,
+): RebuildProgress | null {
+  const committedSincePending =
+    rebuildPendingAt !== null ? state.countFilesIndexedSince(projectId, rebuildPendingAt) : 0;
+
+  if (trackerProgress === null) {
+    // No tracker job (likely a post-restart resume by the boot reconciler).
+    // Synthesize one only while the rebuild is genuinely pending.
+    if (rebuildPendingAt === null) return null;
+    const startedAt = Date.parse(rebuildPendingAt);
+    return {
+      status: "running",
+      indexed: committedSincePending,
+      totalFiles: null,
+      startedAt: Number.isFinite(startedAt) ? startedAt : Date.now(),
+      completedAt: null,
+      error: null,
+    };
+  }
+  // Tracker exists. Only overwrite `indexed` when the persisted count
+  // is HIGHER than what the tracker is reporting. Avoids regressing the
+  // displayed number when a successful tracker burst beat the file-
+  // commit poll.
+  if (trackerProgress.status === "running" && committedSincePending > trackerProgress.indexed) {
+    return { ...trackerProgress, indexed: committedSincePending };
+  }
+  return trackerProgress;
 }
 
 function projectStats(state: StateStore, projectId: ProjectId): ProjectStats {

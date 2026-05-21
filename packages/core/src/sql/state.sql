@@ -414,3 +414,16 @@ INNER JOIN projects ON projects.id       = chunks_fts.project_id
 WHERE chunks_fts.document LIKE ? ESCAPE '\'
   AND files.error IS NULL
 ORDER BY chunks_fts.rel_path, chunks.start_line;
+
+-- :name count_files_indexed_since
+-- Number of file rows in a project whose `indexed_at` is at or after
+-- `since`. Used by /api/projects to derive live rebuild progress
+-- from committed work when the in-memory RebuildTracker isn't being
+-- driven (e.g. when the boot reconciler resumes a rebuild_pending
+-- project — the reconciler lives in @loctx/core and doesn't know
+-- about the tracker which lives in apps/web).
+SELECT COUNT(*) AS n
+FROM files
+WHERE project_id = ?
+  AND indexed_at IS NOT NULL
+  AND indexed_at >= ?;
