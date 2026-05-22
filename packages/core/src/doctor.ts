@@ -115,6 +115,26 @@ export async function runDoctorChecks(
               }
             : { name: "index errors", status: "ok", detail: "none" },
         );
+
+        // FTS5 health probe — schema-healthy is not the same as
+        // search-works. Some SQLite builds ship without FTS5; a
+        // crash-corrupted virtual table can also throw on first MATCH.
+        // We catch verbatim so the user sees the SQLite error and can
+        // decide between rebuild-index and rebuild-sqlite.
+        try {
+          const probe = state.probeFts5();
+          checks.push({
+            name: "fts5",
+            status: "ok",
+            detail: `chunks_fts queryable, ${probe.rows} rows indexed`,
+          });
+        } catch (err) {
+          checks.push({
+            name: "fts5",
+            status: "error",
+            detail: `chunks_fts probe failed: ${(err as Error).message}. Lexical search unavailable; if SQLite lacks FTS5 set retrieval.mode = "vector" to bypass.`,
+          });
+        }
       } finally {
         state.close();
       }

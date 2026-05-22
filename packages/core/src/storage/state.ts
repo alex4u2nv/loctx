@@ -717,6 +717,24 @@ export class StateStore {
     );
   }
 
+  // ---- health probes --------------------------------------------------
+
+  /**
+   * Run a benign FTS5 MATCH + count against `chunks_fts` to confirm the
+   * lexical search layer is actually usable. Called by `loctx doctor`
+   * to distinguish "schema looks healthy" from "search will work" —
+   * those can diverge if SQLite was rebuilt without FTS5 (some
+   * embedded/musl builds drop it), or if a power-loss left the virtual
+   * table corrupt. Returns the chunks_fts row count on success; throws
+   * the underlying SQLite error verbatim on failure so doctor can
+   * render an actionable message.
+   */
+  probeFts5(): { rows: number } {
+    this.prepare("probe_fts5_match").get();
+    const row = this.readOne<{ n: number }>("probe_fts5_count");
+    return { rows: row?.n ?? 0 };
+  }
+
   // ---- symbol cross-references (#96) ---------------------------------
 
   /**

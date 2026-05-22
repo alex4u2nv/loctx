@@ -120,6 +120,61 @@ describe("StateStore", () => {
     store.close();
   });
 
+  it("probeFts5 returns rows=0 on an empty database (#222)", () => {
+    const store = new StateStore(join(tmp, "state.db"));
+    const probe = store.probeFts5();
+    expect(probe.rows).toBe(0);
+    store.close();
+  });
+
+  it("probeFts5 counts populated chunks and survives a benign MATCH (#222)", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const fs = fileState(project);
+    store.upsertFile(fs);
+    store.replaceChunks(fs.fileId, [
+      {
+        chunkId: "c1",
+        fileId: fs.fileId,
+        projectId: project.id,
+        relPath: "src/a.py",
+        startLine: 1,
+        endLine: 3,
+        kind: "function",
+        symbols: ["foo"],
+        document: "def foo(): pass",
+      },
+      {
+        chunkId: "c2",
+        fileId: fs.fileId,
+        projectId: project.id,
+        relPath: "src/a.py",
+        startLine: 5,
+        endLine: 7,
+        kind: "function",
+        symbols: ["bar"],
+        document: "def bar(): pass",
+      },
+    ]);
+    const probe = store.probeFts5();
+    expect(probe.rows).toBe(2);
+    store.close();
+  });
+
+  it("probeFts5 throws when chunks_fts is missing (#222)", () => {
+    // Simulate the "FTS5 went missing at runtime" path. Reach past the
+    // public API to drop chunks_fts on the live connection. The doctor
+    // probe must surface the SQLite error verbatim so the operator can
+    // distinguish search-broken from search-empty.
+    const store = new StateStore(join(tmp, "state.db"));
+    type RawDb = { exec(sql: string): void };
+    const db = (store as unknown as { db: RawDb })["db"];
+    db.exec("DROP TABLE chunks_fts");
+    expect(() => store.probeFts5()).toThrow(/chunks_fts|no such table/i);
+    store.close();
+  });
+
   it("creates the chunks_fts FTS5 virtual table on a fresh DB", () => {
     const dbPath = join(tmp, "state.db");
     const store = new StateStore(dbPath);
