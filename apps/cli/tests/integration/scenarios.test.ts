@@ -121,6 +121,8 @@ describe("loctx CLI: hermetic full-flow scenario", () => {
     expect(doc.stdout).toMatch(/\[ ok \]\s+config/);
     expect(doc.stdout).toMatch(/\[ ok \]\s+embedding/);
     expect(doc.stdout).toMatch(/\[ ok \]\s+retrieval/);
+    // FTS5 probe surfaces with a non-zero row count after the index above.
+    expect(doc.stdout).toMatch(/\[ ok \]\s+fts5\s+chunks_fts queryable, \d+ rows indexed/);
   });
 
   it("find-usages locates the definition site of an exported symbol", () => {

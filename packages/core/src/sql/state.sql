@@ -247,6 +247,17 @@ DELETE FROM chunks_fts WHERE file_id = ?;
 -- :name delete_chunks_fts_for_project
 DELETE FROM chunks_fts WHERE project_id = ?;
 
+-- :name probe_fts5_match
+-- Benign FTS5 MATCH used by `loctx doctor` to confirm SQLite was built
+-- with FTS5 support AND the chunks_fts virtual table is queryable. The
+-- token "_loctx_probe_" is unlikely to appear in real content; returns
+-- 0 rows on a healthy index regardless of size, and throws if the
+-- FTS5 module is missing or the table is corrupt.
+SELECT chunk_id FROM chunks_fts WHERE chunks_fts MATCH '_loctx_probe_' LIMIT 1;
+
+-- :name probe_fts5_count
+SELECT count(*) AS n FROM chunks_fts;
+
 -- :name delete_chunks_for_project
 DELETE FROM chunks WHERE file_id IN (SELECT file_id FROM files WHERE project_id = ?);
 
