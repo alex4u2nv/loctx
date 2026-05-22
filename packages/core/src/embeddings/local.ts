@@ -15,7 +15,12 @@ export const DEFAULT_LOCAL_MODEL = "Xenova/all-MiniLM-L6-v2";
 
 type FeatureExtractionPipeline = (
   texts: string | string[],
-  options: { pooling: "mean" | "cls"; normalize: boolean },
+  options: {
+    pooling: "mean" | "cls";
+    normalize: boolean;
+    /** When true, the tokenizer caps at the model's max_position_embeddings (#365). */
+    truncation?: boolean;
+  },
 ) => Promise<{ data: Float32Array; dims: number[]; tolist(): number[][] }>;
 
 export interface ProgressEvent {
@@ -25,6 +30,20 @@ export interface ProgressEvent {
   readonly loaded?: number; // bytes
   readonly total?: number; // bytes
 }
+
+/**
+ * Maximum number of inputs sent to the ONNX pipeline in a single call.
+ * See `embedDocuments` for the reasoning — the pipeline batches inputs
+ * into one fused tensor, so the per-call cost grows roughly as
+ * `batch_size * sequence_length^2`. 8 keeps the worst-case batch
+ * predictable on the CPU-only path; tune via LOCTX_EMBED_BATCH_SIZE.
+ */
+const EMBED_BATCH_SIZE = (() => {
+  const raw = process.env["LOCTX_EMBED_BATCH_SIZE"];
+  if (raw === undefined || raw === "") return 8;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 8;
+})();
 
 export interface LocalProviderOptions {
   readonly modelName?: string;
@@ -101,8 +120,33 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     if (texts.length === 0) return [];
     await this.ensureReady();
     const pipe = await this.getPipeline();
-    const result = await pipe([...texts], { pooling: "mean", normalize: this.normalize });
-    return result.tolist();
+    // Two guards against the long-batch pause pattern in #365:
+    //
+    // 1. `truncation: true` — without it, transformers.js will tokenize
+    //    very long inputs through a sliding window or refuse, both of
+    //    which produce unpredictable latency. With it the tokenizer
+    //    caps at the model's max_position_embeddings (512 for
+    //    MiniLM-L6-v2). Tail content beyond that is dropped; the
+    //    leading 512 tokens are usually the most signal-dense part of
+    //    a code chunk anyway (function header, class definition).
+    //
+    // 2. Internal batching at `EMBED_BATCH_SIZE` (default 8) — sending
+    //    a 38-chunk file as one batch made ONNX build an attention
+    //    matrix proportional to (N * seq_len^2), causing 5+ minute
+    //    pauses when N was large and chunks were near max-length.
+    //    Splitting into chunks of 8 means worst-case batch cost is
+    //    predictable. Override via LOCTX_EMBED_BATCH_SIZE for tuning.
+    const out: number[][] = [];
+    for (let i = 0; i < texts.length; i += EMBED_BATCH_SIZE) {
+      const slice = texts.slice(i, i + EMBED_BATCH_SIZE);
+      const result = await pipe([...slice], {
+        pooling: "mean",
+        normalize: this.normalize,
+        truncation: true,
+      });
+      out.push(...result.tolist());
+    }
+    return out;
   }
 
   async embedQuery(text: string): Promise<number[]> {
