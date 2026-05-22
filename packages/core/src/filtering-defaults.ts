@@ -63,10 +63,14 @@ export const FILTERING_DEFAULTS = {
     // caches
     ".cache",
     ".sass-cache",
-    // ai tooling state
-    ".claude",
-    ".cursor",
-    ".aider",
+    // NOTE on `.claude`, `.cursor`, `.aider`, etc. (#371): these
+    // directories used to be in ignored_dirs as "AI tooling state",
+    // but they hold canonical project rules — CLAUDE.md, slash
+    // commands, agent definitions — that are part of the workspace's
+    // intent. find_literal silently missed them on audit queries.
+    // Removed from ignored_dirs so they're treated like any other
+    // source-tree subdirectory. Genuine transcript noise still gets
+    // caught by noise_globs + size caps.
   ],
   secret_globs: [
     // env files
