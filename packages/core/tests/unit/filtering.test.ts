@@ -50,6 +50,31 @@ describe("ProjectFilter", () => {
     expect(freshFilter().shouldIndex(f).reason).toBe(FilterReason.IGNORED_DIRECTORY);
   });
 
+  it("indexes .claude/CLAUDE.md (#371) — was wrongly excluded as 'AI tooling state'", () => {
+    // The empirical replay in #371 showed find_literal silently
+    // missing CLAUDE.md in .claude/ — the canonical rules file for
+    // the project. .claude / .cursor / .aider used to be in
+    // ignored_dirs; we removed them because their content is
+    // project intent, not noise.
+    const f = write(join(projectRoot, ".claude", "CLAUDE.md"), "# Project Claude rules\n");
+    expect(freshFilter().shouldIndex(f).shouldIndex).toBe(true);
+  });
+
+  it("indexes .claude/commands/new-blueprint.md (#371) — slash-command definitions", () => {
+    const f = write(
+      join(projectRoot, ".claude", "commands", "new-blueprint.md"),
+      "# new-blueprint slash command",
+    );
+    expect(freshFilter().shouldIndex(f).shouldIndex).toBe(true);
+  });
+
+  it("indexes .cursor/ + .aider/ contents too (#371 follow-on)", () => {
+    const cursor = write(join(projectRoot, ".cursor", "rules.md"), "# cursor rules");
+    expect(freshFilter().shouldIndex(cursor).shouldIndex).toBe(true);
+    const aider = write(join(projectRoot, ".aider", "conventions.md"), "# aider conventions");
+    expect(freshFilter().shouldIndex(aider).shouldIndex).toBe(true);
+  });
+
   it("skips a watcher event whose path equals the project root itself", () => {
     // @parcel/watcher occasionally fires a synthetic event for the root.
     // The old code passed rel="" to gitignore.ignores(), which throws and
