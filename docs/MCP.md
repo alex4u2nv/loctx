@@ -10,15 +10,36 @@ The agent picks the wrong tool when the question's shape doesn't match
 the tool's job. Use this table to translate user intent into the right
 call.
 
-| Intent | Right tool | Why |
+**Always start with `workspace_status` on an unfamiliar repo.** If the
+repo isn't listed, every other loctx tool returns empty for it — fall
+back to `grep`/`find`. If it is listed, the comparisons below show
+where loctx beats `grep` (and where it doesn't).
+
+| Intent | Right tool | Beats `grep` because… |
 |---|---|---|
-| "Where is `authenticate` defined / called / imported?" (exact code symbol) | `find_usages` | Exact-match, returns every def + ref. No fuzz, no ranking. |
-| "What's the code that does JWT signing?" / "Where do we debounce websocket reconnects?" (semantic) | `search_workspace` | Vector + lexical fusion; top-N ranked. |
-| "Find code about X for a refactor — also include callers" | `search_workspace` with `coverage: true` | Expands top hits via the symbol cross-ref graph. |
-| "List every file containing the literal string `agents/foo.md`" (audit, exhaustive) | `find_literal` | Substring scan over indexed chunk text. One row per matching line, with `column` + `lineText`. Coverage caveat: chunker gaps (#360) are blind spots — the response always includes a `coverageNote`. Supplement with `rg` when the audit is safety-critical. |
-| "Are there duplicate code blocks across the workspace?" | `find_duplicates` | Hash-based, cross-file. Requires `analyzers.background_enabled` + `analyzers.duplicates.enabled` in config. |
-| "Is the index up to date? Walk it now." | `refresh_workspace` | Triggers a reconcile. Slow on a cold workspace. |
-| "What projects are indexed and where is the data?" | `workspace_status` | Cheap. Includes `indexHealth` so you know if a reconcile is in flight. |
+| "Is loctx even on the table for this repo?" | `workspace_status` | Pre-flight check. One call decides the rest. |
+| "Where is `authenticate` defined / called / imported?" (symbol) | `find_usages` | Each hit is classified `def`/`call`/`import`/`reference`, not a raw text match. Surrounding chunk replaces a follow-up `Read`. |
+| "Where do we debounce websocket reconnects?" / "Where does this feature get documented?" (semantic) | `search_workspace` | Surfaces relevant chunks that contain **no token match** with the query — a doc that *describes* the feature without naming it. `grep` can't do that. |
+| "Find code about X for a refactor — also include callers" | `search_workspace` with `coverage: true` | Top hits expand via the symbol cross-ref graph; each expansion carries a `coverageReason`. |
+| "Every file containing the literal string `agents/foo.md`" (audit, exhaustive) | `find_literal` **+ cross-check with `rg`** | Structured per-line hits + chunk metadata. **Does NOT** beat `grep` for safety-critical audits — chunker gaps and excluded-by-default dirs (`.git`, `node_modules`, build outputs) are blind spots. Read the `coverageNote` in the response. |
+| "Are there duplicate code blocks across the workspace?" | `find_duplicates` | Hash-based on token windows, finds duplicates that aren't byte-identical. `grep` can't do that. Requires `analyzers.background_enabled` + `analyzers.duplicates.enabled`. |
+| "Walk the index now" | `refresh_workspace` | Slow on a cold workspace. Usually unnecessary — the watcher catches changes live. |
+
+### When `grep` is the right answer
+
+- Small repos you've already explored — the loctx call overhead exceeds the win.
+- Safety-critical audits — `find_literal`'s `coverageNote` is honest that chunker gaps exist; cross-check with `rg`.
+- Anything outside indexed projects — `workspace_status` lets you confirm coverage in one call.
+
+### 0-hit semantics
+
+A 0-hit response from loctx is **not** the same as `grep` returning nothing.
+
+- 0 hits + `indexHealth.reconciling: true` → re-index in flight; retry in a few seconds.
+- 0 hits + `indexHealth.reconciling: false` + repo *is* in `workspace_status.projects` → the symbol / substring genuinely isn't there.
+- 0 hits + repo **not** in `workspace_status.projects` → loctx isn't indexing this code. Use `grep`/`find`.
+
+Don't silently fall back to `grep` on the first 0-hit — you'll lose the signal that the index is the problem, not the query.
 
 ## Transports
 

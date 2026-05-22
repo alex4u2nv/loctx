@@ -154,6 +154,36 @@ describe("TOOL_DEFINITIONS", () => {
     expect(tool?.description).toMatch(/literal|substring/i);
     expect(tool?.description).toMatch(/coverage|#360/i);
   });
+
+  // Framing pins from #370: every tool description should LEAD with a
+  // trigger ("Use when ...") or, for workspace_status, a "call me first"
+  // directive. The previous descriptions opened with the return shape,
+  // and an empirical replay showed agents skipping loctx entirely
+  // because they never noticed they'd hit a triggering signal.
+  it("workspace_status leads with a pre-flight directive", () => {
+    const tool = TOOL_DEFINITIONS.find((t) => t.name === "workspace_status");
+    // First sentence (up to first period) must announce the trigger.
+    const firstSentence = tool?.description.split(". ")[0] ?? "";
+    expect(firstSentence).toMatch(/pre-flight|call.*first|call.*once|before/i);
+    // Names the fallback so agents know what to do if the repo isn't listed.
+    expect(tool?.description).toMatch(/grep|find\b/i);
+  });
+
+  it("retrieval tools open with 'Use when' triggers (#370)", () => {
+    for (const name of ["search_workspace", "find_usages", "find_literal", "find_duplicates"]) {
+      const tool = TOOL_DEFINITIONS.find((t) => t.name === name);
+      expect(tool?.description, `${name} should open with 'Use when'`).toMatch(/^\*?\*?Use when/i);
+    }
+  });
+
+  it("symbol/literal tools state 0-hit semantics so agents don't silently fall back (#370 #4)", () => {
+    for (const name of ["find_usages", "find_literal"]) {
+      const tool = TOOL_DEFINITIONS.find((t) => t.name === name);
+      expect(tool?.description, `${name} must mention 0-hit / reconciling semantics`).toMatch(
+        /0-hit|reconciling/i,
+      );
+    }
+  });
 });
 
 // ---- indexHealth surfacing (#43) -----------------------------------
