@@ -93,7 +93,12 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
         total: 0,
       }),
     },
-    rules: {},
+    rules: {
+      ignoredDirs: new Set([".git", "node_modules"]),
+      noiseGlobs: ["package-lock.json", "pnpm-lock.yaml"],
+      secretGlobs: [".env", "*.pem"],
+      allowedNamedFiles: new Set(["Pipfile.lock"]),
+    },
     embeddings: {},
     vectors: {},
     close: () => undefined,
@@ -357,6 +362,17 @@ describe("tools.status", () => {
     const runtime = stubRuntime();
     const out = await tools.status(runtime, { include_indexed_counts: true });
     expect(out.indexedFileCounts).toEqual({ "proj-a": 3, "proj-b": 1 });
+  });
+
+  it("surfaces exclusion rules so agents know what's NOT covered (#371)", async () => {
+    const runtime = stubRuntime();
+    const out = await tools.status(runtime, {});
+    // ignoredDirs comes through as a sorted array (not the underlying Set).
+    expect(out.exclusions.ignoredDirs).toEqual([".git", "node_modules"]);
+    expect(out.exclusions.noiseGlobs).toContain("package-lock.json");
+    expect(out.exclusions.secretGlobs).toContain(".env");
+    // allowedNamedFiles surfaces as a sorted array too.
+    expect(Array.isArray(out.exclusions.allowedNamedFiles)).toBe(true);
   });
 });
 

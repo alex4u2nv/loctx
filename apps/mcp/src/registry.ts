@@ -92,6 +92,25 @@ export interface StatusOutput {
   readonly projects: ReadonlyArray<ProjectStatusEntry>;
   readonly indexedFileCounts?: Readonly<Record<string, number>>;
   readonly indexHealth: IndexHealth;
+  /**
+   * What loctx is NOT indexing — directly observable so agents know
+   * when to fall back to `grep`/`find` without guessing. Sourced from
+   * the resolved filtering rules. #371: an agent doing an audit
+   * should be able to see `.git/`, `node_modules/`, lockfiles in here
+   * and conclude "if my target is in one of these, I need grep."
+   */
+  readonly exclusions: ExclusionRules;
+}
+
+export interface ExclusionRules {
+  /** Directory names skipped wherever they appear (e.g. `.git`, `node_modules`). */
+  readonly ignoredDirs: ReadonlyArray<string>;
+  /** Basename glob patterns marked as noise (lockfiles, build outputs). */
+  readonly noiseGlobs: ReadonlyArray<string>;
+  /** Basename glob patterns marked as potentially secret (env files, key materials). */
+  readonly secretGlobs: ReadonlyArray<string>;
+  /** Whitelisted basenames that override `noiseGlobs` (e.g. `Pipfile.lock`). */
+  readonly allowedNamedFiles: ReadonlyArray<string>;
 }
 
 export interface RefreshOutput {
@@ -287,6 +306,14 @@ export const tools = {
       workspaceRoots: runtime.config.workspaceRoots,
       projects: entries,
       indexHealth,
+      exclusions: Object.freeze({
+        // Sets aren't JSON-serializable on the wire; emit as a sorted
+        // array so the response stays stable across runs.
+        ignoredDirs: Object.freeze([...runtime.rules.ignoredDirs].sort()),
+        noiseGlobs: Object.freeze([...runtime.rules.noiseGlobs]),
+        secretGlobs: Object.freeze([...runtime.rules.secretGlobs]),
+        allowedNamedFiles: Object.freeze([...runtime.rules.allowedNamedFiles].sort()),
+      }),
     };
     if (!includeCounts) return baseline;
 
@@ -415,7 +442,7 @@ export const tools = {
       fileCount,
       indexHealth: currentIndexHealth(runtime),
       coverageNote:
-        "Scans indexed chunk text. Lines outside any chunk (chunker gaps — see issue #360) are not searched. For total file coverage, supplement with `rg <pattern>`.",
+        "Scans indexed chunk text only. **Blind spots:** (1) chunker-gap regions inside indexed files (#360 — the gap-fill landed in #362/#364 but doesn't cover 100% of lines); (2) files under directories the filtering rules exclude — typically `.git/`, `node_modules/`, build outputs (`dist/`, `build/`, `coverage/`), and lockfiles by basename (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`). Inspect the exact list via `workspace_status` → `exclusions`. For safety-critical audits ('is this stale URL referenced anywhere'), cross-check with `rg <pattern>`.",
     });
   },
 
