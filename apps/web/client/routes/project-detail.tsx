@@ -11,7 +11,9 @@
  */
 
 import type {
+  FindLiteralPayload,
   FindUsagesPayload,
+  LiteralHit,
   ProjectDetailPayload,
   SearchHit,
   SearchPayload,
@@ -227,9 +229,22 @@ function FailingTable({ rows }: { rows: ProjectDetailPayload["stats"]["failingFi
   );
 }
 
-// ---- scoped search / find-usages panel ---------------------------------
+// ---- scoped search / find-usages / find-literal panel ------------------
 
-type Tab = "search" | "find-usages";
+type Tab = "search" | "find-usages" | "find-literal";
+
+/**
+ * Resolve a free-text subtree input against the project root.
+ * Empty subtree → project root (full project scope).
+ * Subtree like "apps/cli" → projectRoot/apps/cli (subtree scope).
+ * Absolute path → passed through as-is (advanced use).
+ */
+function resolveSubtree(projectRoot: string, subtree: string): string {
+  const s = subtree.trim().replace(/^\/+|\/+$/g, "");
+  if (s === "") return projectRoot;
+  if (s.startsWith("/")) return s;
+  return `${projectRoot}/${s}`;
+}
 
 function ScopedSearchPanel({ projectRoot }: { projectRoot: string }) {
   const [tab, setTab] = useState<Tab>("search");
@@ -246,11 +261,16 @@ function ScopedSearchPanel({ projectRoot }: { projectRoot: string }) {
         <TabButton active={tab === "find-usages"} onClick={() => setTab("find-usages")}>
           find-usages
         </TabButton>
+        <TabButton active={tab === "find-literal"} onClick={() => setTab("find-literal")}>
+          find-literal
+        </TabButton>
       </div>
       {tab === "search" ? (
         <ScopedSearch projectRoot={projectRoot} />
-      ) : (
+      ) : tab === "find-usages" ? (
         <ScopedFindUsages projectRoot={projectRoot} />
+      ) : (
+        <ScopedFindLiteral projectRoot={projectRoot} />
       )}
     </>
   );
@@ -285,12 +305,21 @@ function ScopedSearch({ projectRoot }: { projectRoot: string }) {
   const [results, setResults] = useState<SearchPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const submit = async (query: string): Promise<void> => {
-    if (query === "") return;
+  const submit = async (args: {
+    query: string;
+    subtree: string;
+    coverage: boolean;
+  }): Promise<void> => {
+    if (args.query === "") return;
     setBusy(true);
     setError(null);
     try {
-      const r = await api.search({ query, path: projectRoot, limit: 25 });
+      const r = await api.search({
+        query: args.query,
+        path: resolveSubtree(projectRoot, args.subtree),
+        limit: 25,
+        ...(args.coverage ? { coverage: true } : {}),
+      });
       setResults(r);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -301,19 +330,65 @@ function ScopedSearch({ projectRoot }: { projectRoot: string }) {
   };
   return (
     <>
-      <QueryForm
-        busy={busy}
-        submitLabel="Search"
-        fields={[
-          {
-            id: "scoped-search-q",
-            name: "q",
-            label: "query",
-            placeholder: "semantic + lexical search across this project",
-          },
-        ]}
-        onSubmit={(values) => void submit(values["q"] ?? "")}
-      />
+      <form
+        className="search-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const fd = new FormData(e.currentTarget);
+          void submit({
+            query: String(fd.get("q") ?? "").trim(),
+            subtree: String(fd.get("subtree") ?? "").trim(),
+            coverage: fd.get("coverage") === "on",
+          });
+        }}
+      >
+        <div className="field">
+          <label htmlFor="scoped-search-q">query</label>
+          <input
+            id="scoped-search-q"
+            className="input"
+            type="text"
+            name="q"
+            placeholder="semantic + lexical search across this project"
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="scoped-search-subtree">
+            subtree <span className="dim">(optional)</span>
+          </label>
+          <input
+            id="scoped-search-subtree"
+            className="input"
+            type="text"
+            name="subtree"
+            list="scoped-subtree-suggestions"
+            placeholder="e.g. apps/cli or src"
+            style={{ width: "16rem" }}
+          />
+          <datalist id="scoped-subtree-suggestions">
+            {["src", "apps", "packages", "lib", "tests", "docs"].map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+        </div>
+        <div className="field">
+          <label
+            htmlFor="scoped-search-coverage"
+            title="Expand top hits with their callers + importers via the symbol cross-reference graph. Useful for refactor planning."
+          >
+            <input
+              id="scoped-search-coverage"
+              type="checkbox"
+              name="coverage"
+              style={{ marginRight: "0.4rem" }}
+            />
+            coverage
+          </label>
+        </div>
+        <button type="submit" className="btn btn-primary field-submit" disabled={busy}>
+          {busy ? "Searching…" : "Search"}
+        </button>
+      </form>
       {error !== null ? (
         <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
           {error}
@@ -436,6 +511,8 @@ function ScopedFindUsages({ projectRoot }: { projectRoot: string }) {
     setBusy(true);
     setError(null);
     try {
+      // find_usages is project-scoped by design — subtree filter
+      // wouldn't change recall here, so this stays a single field.
       const r = await api.findUsages({ symbol, path: projectRoot });
       setResults(r);
     } catch (e) {
@@ -468,6 +545,123 @@ function ScopedFindUsages({ projectRoot }: { projectRoot: string }) {
       {results !== null ? (
         <UsageResults defs={results.defs} refs={results.refs} symbol={results.symbol} />
       ) : null}
+    </>
+  );
+}
+
+function ScopedFindLiteral({ projectRoot }: { projectRoot: string }) {
+  const [results, setResults] = useState<FindLiteralPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (args: { pattern: string; subtree: string }): Promise<void> => {
+    if (args.pattern === "") return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.findLiteral({
+        pattern: args.pattern,
+        path: resolveSubtree(projectRoot, args.subtree),
+      });
+      setResults(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setResults(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <form
+        className="search-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const fd = new FormData(e.currentTarget);
+          void submit({
+            pattern: String(fd.get("pattern") ?? "").trim(),
+            subtree: String(fd.get("subtree") ?? "").trim(),
+          });
+        }}
+      >
+        <div className="field">
+          <label htmlFor="scoped-fl-pattern">pattern</label>
+          <input
+            id="scoped-fl-pattern"
+            className="input"
+            type="text"
+            name="pattern"
+            placeholder="literal substring — paths, urls, identifiers"
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="scoped-fl-subtree">
+            subtree <span className="dim">(optional)</span>
+          </label>
+          <input
+            id="scoped-fl-subtree"
+            className="input"
+            type="text"
+            name="subtree"
+            list="scoped-subtree-suggestions"
+            placeholder="e.g. apps/cli"
+            style={{ width: "16rem" }}
+          />
+        </div>
+        <button type="submit" className="btn btn-primary field-submit" disabled={busy}>
+          {busy ? "Scanning…" : "Find"}
+        </button>
+      </form>
+      {error !== null ? (
+        <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
+          {error}
+        </p>
+      ) : null}
+      {results !== null ? <LiteralResults response={results} /> : null}
+    </>
+  );
+}
+
+function LiteralResults({ response }: { response: FindLiteralPayload }) {
+  if (response.matches.length === 0) {
+    return (
+      <p className="pullquote">
+        No occurrences of <code>{response.pattern}</code> in indexed chunks for this project.
+        <br />
+        <span className="dim">{response.coverageNote}</span>
+      </p>
+    );
+  }
+  // Same per-file grouping as the standalone /find-literal page.
+  const byFile = new Map<string, LiteralHit[]>();
+  for (const m of response.matches) {
+    const arr = byFile.get(m.relPath) ?? [];
+    arr.push(m);
+    byFile.set(m.relPath, arr);
+  }
+  return (
+    <>
+      <p className="summary dim">
+        {response.matches.length} occurrence{response.matches.length === 1 ? "" : "s"} across{" "}
+        {response.fileCount} file{response.fileCount === 1 ? "" : "s"}.
+      </p>
+      <p className="pullquote" style={{ borderLeftColor: "var(--muted)" }}>
+        <span className="dim">{response.coverageNote}</span>
+      </p>
+      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        {Array.from(byFile.entries()).map(([relPath, hits]) => (
+          <li key={relPath} className="result">
+            <div className="result-meta">
+              <span className="result-path">{relPath}</span>
+              <span className="dim">
+                {hits.length} hit{hits.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            <pre className="snippet">
+              {hits.map((h) => `${h.line}:${h.column}\t${h.lineText}`).join("\n")}
+            </pre>
+          </li>
+        ))}
+      </ul>
     </>
   );
 }
