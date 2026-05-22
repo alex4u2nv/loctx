@@ -12,6 +12,7 @@ export function SearchPage() {
   const path = params.get("path") ?? "";
   const limit = Number.parseInt(params.get("limit") ?? "10", 10) || 10;
   const language = params.get("language") ?? "";
+  const coverage = params.get("coverage") === "1";
 
   const [response, setResponse] = useState<SearchPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -20,12 +21,19 @@ export function SearchPage() {
   const projectsCall = useFetch(() => api.projects(), []);
 
   const submit = useCallback(
-    async (next: { q: string; path: string; limit: number; language: string }) => {
+    async (next: {
+      q: string;
+      path: string;
+      limit: number;
+      language: string;
+      coverage: boolean;
+    }) => {
       const newParams = new URLSearchParams();
       if (next.q) newParams.set("q", next.q);
       if (next.path) newParams.set("path", next.path);
       if (next.limit !== 10) newParams.set("limit", String(next.limit));
       if (next.language) newParams.set("language", next.language);
+      if (next.coverage) newParams.set("coverage", "1");
       setParams(newParams);
       if (!next.q) {
         setResponse(null);
@@ -38,6 +46,7 @@ export function SearchPage() {
           ...(next.path ? { path: next.path } : {}),
           limit: next.limit,
           ...(next.language ? { language: next.language } : {}),
+          ...(next.coverage ? { coverage: true } : {}),
         });
         setResponse(r);
         setError(null);
@@ -60,11 +69,11 @@ export function SearchPage() {
   const lastFired = useRef<string>("");
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — fire once per URL-derived state
   useEffect(() => {
-    const key = `${query}|${path}|${limit}|${language}`;
+    const key = `${query}|${path}|${limit}|${language}|${coverage}`;
     if (!query || lastFired.current === key) return;
     lastFired.current = key;
-    void submit({ q: query, path, limit, language });
-  }, [query, path, limit, language]);
+    void submit({ q: query, path, limit, language, coverage });
+  }, [query, path, limit, language, coverage]);
 
   return (
     <section>
@@ -85,6 +94,7 @@ export function SearchPage() {
             path: String(fd.get("path") ?? "").trim(),
             limit: Number.parseInt(String(fd.get("limit") ?? "10"), 10) || 10,
             language: String(fd.get("language") ?? "").trim(),
+            coverage: fd.get("coverage") === "on",
           });
         }}
       >
@@ -111,9 +121,21 @@ export function SearchPage() {
             placeholder="project root or subtree"
           />
           <datalist id="loctx-project-paths">
-            {projectsCall.data?.active.map((a) => (
-              <option key={a.id} value={a.root} label={a.name} />
-            ))}
+            {projectsCall.data?.active.flatMap((a) => [
+              // Project root — broadest reasonable scope.
+              <option key={a.id} value={a.root} label={a.name} />,
+              // Common subtrees inside each project. Browsers ignore
+              // duplicates, so this is harmless if a project happens
+              // to not contain one of these. Mirrors the conventions
+              // most JS/TS/Python workspaces follow.
+              ...["src", "apps", "packages", "lib", "tests"].map((sub) => (
+                <option
+                  key={`${a.id}:${sub}`}
+                  value={`${a.root}/${sub}`}
+                  label={`${a.name}/${sub}`}
+                />
+              )),
+            ])}
           </datalist>
         </div>
         <div className="field">
@@ -141,6 +163,18 @@ export function SearchPage() {
             style={{ width: "8rem" }}
           />
         </div>
+        <div className="field">
+          <label htmlFor="coverage" title="Expand top hits with their callers + importers via the symbol cross-reference graph. Useful for refactor planning ('what else touches X')">
+            <input
+              id="coverage"
+              type="checkbox"
+              name="coverage"
+              defaultChecked={coverage}
+              style={{ marginRight: "0.4rem" }}
+            />
+            coverage
+          </label>
+        </div>
         <button type="submit" className="btn btn-primary field-submit" disabled={loading}>
           {loading ? "Searching…" : "Search"}
         </button>
@@ -163,6 +197,25 @@ export function SearchPage() {
 
 function Results({ response }: { response: SearchPayload }) {
   const { selected, open, close } = useSnippetSelection<SearchHit>();
+  const [, setParams] = useSearchParams();
+  const narrowTo = useCallback(
+    (absPath: string | null) => {
+      // Use the hit's absolute path's directory as the new subtree
+      // scope. Single-file scopes aren't useful here so we strip the
+      // basename. Falls back to no-op when absPath isn't present
+      // (shouldn't happen for indexed hits, but the type allows it).
+      if (absPath === null) return;
+      const slash = absPath.lastIndexOf("/");
+      if (slash === -1) return;
+      const target = absPath.slice(0, slash);
+      setParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("path", target);
+        return next;
+      });
+    },
+    [setParams],
+  );
   const warnings = (
     <>
       {response.warnings.map((w) => (
@@ -233,6 +286,26 @@ function Results({ response }: { response: SearchPayload }) {
             {r.matchReasons.length > 0 ? (
               <div className="dim" style={{ marginTop: "0.25rem", fontSize: "0.85em" }}>
                 why: {r.matchReasons.join(", ")}
+              </div>
+            ) : null}
+            {r.coverageReason !== null ? (
+              <div
+                className="dim"
+                style={{ marginTop: "0.25rem", fontSize: "0.85em", color: "var(--accent)" }}
+              >
+                via coverage: {r.coverageReason}
+              </div>
+            ) : null}
+            {r.absPath !== null ? (
+              <div style={{ marginTop: "0.25rem", fontSize: "0.85em" }}>
+                <button
+                  type="button"
+                  className="btn-link dim"
+                  onClick={() => narrowTo(r.absPath)}
+                  title={`Re-run scoped to ${r.relPath.includes("/") ? r.relPath.slice(0, r.relPath.lastIndexOf("/")) : r.projectName}/`}
+                >
+                  ↳ narrow to this subtree
+                </button>
               </div>
             ) : null}
             {r.enrichments.lizard !== null ? (

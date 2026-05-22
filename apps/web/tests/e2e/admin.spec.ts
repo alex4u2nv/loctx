@@ -96,6 +96,17 @@ test.describe("loctx admin UI", () => {
     await expect(page.getByRole("row").filter({ hasText: "active" }).first()).toBeVisible();
   });
 
+  test("find-literal scans the indexed workspace for an exact substring", async ({ page }) => {
+    await page.goto("/find-literal");
+    await expect(page.getByRole("heading", { name: "Find literal" })).toBeVisible();
+    await page.getByLabel("pattern").fill("authentication");
+    await page.getByRole("button", { name: "Find" }).click();
+    // Fixture's src/auth.ts has the word "authentication" in its
+    // docstring. find_literal should surface it with file:line:column.
+    await expect(page.getByText("src/auth.ts").first()).toBeVisible();
+    await expect(page.getByText(/coverage|chunker/i).first()).toBeVisible();
+  });
+
   test("find-usages returns the seeded authenticate symbol", async ({ page }) => {
     await page.goto("/find-usages");
     await expect(page.getByRole("heading", { name: "Find usages" })).toBeVisible();
@@ -145,6 +156,7 @@ test.describe("loctx admin UI", () => {
       "projects",
       "search",
       "find-usages",
+      "find-literal",
       "doctor",
       "models",
       "config",
