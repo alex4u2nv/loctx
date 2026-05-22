@@ -81,7 +81,12 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
         total: 0,
       }),
     },
-    rules: {},
+    rules: {
+      ignoredDirs: new Set([".git", "node_modules"]),
+      noiseGlobs: ["package-lock.json"],
+      secretGlobs: [".env"],
+      allowedNamedFiles: new Set(),
+    },
     embeddings: {},
     vectors: {},
     close: () => undefined,

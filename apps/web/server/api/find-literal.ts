@@ -22,7 +22,7 @@ import { reconcileWarnings } from "../lib/index-health-warnings.js";
 import { parseString } from "../lib/request-validation.js";
 
 const COVERAGE_NOTE =
-  "Scans indexed chunk text. Lines outside any chunk (chunker gaps — see issue #360) are not searched. For total file coverage, supplement with `rg <pattern>`.";
+  "Scans indexed chunk text only. Blind spots: (1) chunker-gap regions inside indexed files (#360 — gap-fill in #362/#364 doesn't cover 100% of lines); (2) files under directories the filtering rules exclude — typically `.git/`, `node_modules/`, build outputs (`dist/`, `build/`, `coverage/`), and lockfiles by basename. Inspect the exact list via `workspace_status` → `exclusions`. For safety-critical audits, cross-check with `rg <pattern>`.";
 
 export function mountFindLiteral(
   app: Hono,
