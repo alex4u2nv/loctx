@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeEmbeddingProvider } from "../../src/embeddings/index.js";
 import { ProjectFilter, loadFilteringRules } from "../../src/filtering.js";
+import { combinedGitignore } from "../../src/gitignore.js";
 import { ProjectIndexer } from "../../src/indexing/indexer.js";
 import { type Project, projectId } from "../../src/models.js";
 import { StateStore, type VectorStore, createVectorStore } from "../../src/storage/index.js";
@@ -34,7 +35,7 @@ beforeEach(async () => {
   projectRoot = join(tmp, "demo");
   const dataDir = join(tmp, ".data");
   mkdirSync(join(projectRoot, "src"), { recursive: true });
-  mkdirSync(join(projectRoot, ".git"), { recursive: true });
+  mkdirSync(join(projectRoot, ".git", "info"), { recursive: true });
   mkdirSync(join(projectRoot, ".claude", "commands"), { recursive: true });
   mkdirSync(join(projectRoot, ".cursor"), { recursive: true });
   mkdirSync(dataDir, { recursive: true });
@@ -71,24 +72,32 @@ beforeEach(async () => {
     ].join("\n"),
   );
 
+  // Simulate the real-world #375 case: ~/.gitignore_global on most
+  // developer machines lists `.claude/`, `.cursor/`, `.aider/` to keep
+  // AI tooling state out of git. We can't touch the actual
+  // ~/.gitignore_global from a test, but `.git/info/exclude` feeds the
+  // same root layer in `combinedGitignore`. If the auto-include works
+  // here, it works for ~/.gitignore_global too.
+  writeFileSync(
+    join(projectRoot, ".git", "info", "exclude"),
+    ".claude/\n.cursor/\n.aider/\n",
+    "utf-8",
+  );
+
   state = new StateStore(join(dataDir, "state.sqlite3"));
   const embeddings = new FakeEmbeddingProvider({ dimension: 8, normalize: true });
   await embeddings.ensureReady?.();
   vectors = createVectorStore(join(dataDir, "vectors"), embeddings.identity, state);
   const rules = loadFilteringRules();
-  // Intentionally pass `null` for the gitignore layer instead of
-  // calling combinedGitignore(p.root). combinedGitignore reads the
-  // user's `~/.gitignore_global`, which commonly lists `.claude/`,
-  // `.cursor/`, `.aider/` to keep AI tooling state out of git. That
-  // is a SEPARATE precedence problem from the one #373 fixed — the
-  // user's gitignore is authoritative by design. This test isolates
-  // the filter-level fix (`ignored_dirs` no longer skips these
-  // dirs); the gitignore override is a follow-up.
+  // Real-world flow: `combinedGitignore(p.root)`. This exercises the
+  // built-in auto-include (#375) — without it, the .git/info/exclude
+  // entries above would cause `.claude/`, `.cursor/`, `.aider/` files
+  // to be skipped, regressing #371/#373 silently.
   indexer = new ProjectIndexer(
     state,
     vectors,
     embeddings,
-    (p: Project) => new ProjectFilter(p, rules, null),
+    (p: Project) => new ProjectFilter(p, rules, combinedGitignore(p.root)),
   );
 });
 

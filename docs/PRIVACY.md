@@ -14,6 +14,19 @@ Files under `workspace_roots`, filtered by built-in rules plus `.gitignore` and 
 
 Run `loctx config show` for the effective rules.
 
+### AI-tooling directories (`.claude/`, `.cursor/`, `.aider/`)
+
+These hold project intent — rules, slash commands, prompts — that loctx is built to surface. Many developers list these dirs in `~/.gitignore_global` to keep AI tooling state out of git commits; loctx re-includes them at the indexer layer so that VCS posture doesn't silently hide project rules from search.
+
+To exclude one of these dirs from indexing for a specific project, add it to that project's `.loctxignore`:
+
+```
+# .loctxignore
+.claude/
+```
+
+`.loctxignore` evaluates after the built-in re-include, so the project's intent wins.
+
 ## Where loctx stores it
 
 Resolved via [`env-paths`](https://github.com/sindresorhus/env-paths). Override with `LOCTX_DATA_DIR` and `LOCTX_CONFIG_DIR`. `loctx status` prints the resolved paths.

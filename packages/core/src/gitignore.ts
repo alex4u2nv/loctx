@@ -1,18 +1,27 @@
 /**
  * Gitignore-aware path matching.
  *
- * What we honor (in matching order; later layers can ADD ignores but
- * never un-ignore):
+ * What we honor (in matching order; later patterns can negate earlier
+ * ones, gitignore-style):
  *
  *   1. Git's global excludes (`git config --global core.excludesFile`,
  *      falling back to `~/.config/git/ignore`).
- *   2. Per-project `.git/info/exclude` and the project-root `.gitignore`.
- *   3. Per-project `.loctxignore` — same syntax, addressed at loctx
- *      specifically (e.g. tracked-by-git fixtures we don't want indexed).
- *   4. **Nested** `.gitignore` / `.loctxignore` / `.cursorignore` /
- *      `.aiderignore` / `.ignore` files in any subdirectory. Patterns in
- *      a nested file scope to that subdirectory's subtree, exactly as
- *      `git` itself applies them.
+ *   2. Per-project `.git/info/exclude`.
+ *   3. **Built-in negation for AI-tooling state dirs** (#375). Most
+ *      developers list `.claude/`, `.cursor/`, `.aider/` in their
+ *      `~/.gitignore_global` to keep AI tooling state out of git
+ *      commits. That's a VCS posture — but for loctx those dirs hold
+ *      project intent (rules, prompts, slash commands) that should be
+ *      searchable. We re-include them here so the common case "just
+ *      works". A project that genuinely doesn't want them indexed by
+ *      loctx can still ignore them via `.loctxignore` below.
+ *   4. Per-project root rule files (`.gitignore`, `.loctxignore`,
+ *      `.cursorignore`, `.aiderignore`, `.ignore`). These come AFTER
+ *      the built-in re-include, so `.loctxignore: .claude/` wins over
+ *      the auto-include.
+ *   5. **Nested** versions of the rule files in any subdirectory.
+ *      Patterns in a nested file scope to that subdirectory's subtree,
+ *      exactly as `git` itself applies them.
  *
  * Why .cursorignore / .aiderignore / .ignore: same syntax as gitignore;
  * `.cursorignore` and `.aiderignore` carry an explicit "don't feed this
@@ -57,6 +66,27 @@ export const RULE_FILENAMES = [
 export const LOCTXIGNORE_FILENAME = ".loctxignore";
 
 /**
+ * Built-in re-include patterns for AI-tooling state directories — see
+ * file header (#375). These are injected into the root layer between
+ * the global/git-info excludes and the project-root rule files. A user
+ * who wants loctx to skip these dirs can override via `.loctxignore`,
+ * which evaluates after this list.
+ *
+ * Each dir needs both the dir-form (`!path/`) and the contents-form
+ * (`!path/**`) because gitignore's "can't re-include children of an
+ * ignored parent" rule means we have to un-ignore the directory first
+ * before its contents become visible to subsequent matchers.
+ */
+export const AI_TOOLING_AUTO_INCLUDE: readonly string[] = Object.freeze([
+  "!.claude/",
+  "!.claude/**",
+  "!.cursor/",
+  "!.cursor/**",
+  "!.aider/",
+  "!.aider/**",
+]);
+
+/**
  * What ProjectFilter consumes. Both the single-Ignore (legacy) and the
  * layered nested-aware impl satisfy this contract.
  */
@@ -93,6 +123,11 @@ export function combinedGitignore(root: string): GitignoreSpec | null {
     ...readLines(gitGlobalExcludesFile()),
     ...readLines(DEFAULT_FALLBACK),
     ...readLines(join(root, ".git", "info", "exclude")),
+    // Built-in re-include — see AI_TOOLING_AUTO_INCLUDE docstring.
+    // Order matters: this sits after the global/info layers (so it
+    // negates them) but before the per-project rule files (so a
+    // .loctxignore entry can re-ignore if the user really wants it).
+    ...AI_TOOLING_AUTO_INCLUDE,
   ];
   for (const name of RULE_FILENAMES) {
     rootLines.push(...readLines(join(root, name)));

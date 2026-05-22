@@ -102,6 +102,42 @@ describe("combinedGitignore", () => {
     expect(spec?.ignores("apps/api/fixtures/big.json")).toBe(false);
   });
 
+  it("auto-includes .claude/.cursor/.aider/ even when global excludes list them (#375)", () => {
+    // `.git/info/exclude` is the test-controllable proxy for the
+    // "global gitignore" layer (the real ~/.gitignore_global can't be
+    // touched from a test). Both layers feed the same rootLines array
+    // and the built-in negation sits between them and the per-project
+    // rule files — so if this test passes for .git/info/exclude, the
+    // same fix applies to ~/.gitignore_global.
+    writeFileSync(join(root, ".git", "info", "exclude"), ".claude/\n.cursor/\n.aider/\n", "utf-8");
+    const spec = combinedGitignore(root);
+    expect(spec).not.toBeNull();
+    // The dirs themselves are re-included.
+    expect(spec?.ignores(".claude/CLAUDE.md")).toBe(false);
+    expect(spec?.ignores(".cursor/rules.md")).toBe(false);
+    expect(spec?.ignores(".aider/conf.yml")).toBe(false);
+    // Nested files under the auto-included dirs also surface.
+    expect(spec?.ignores(".claude/commands/new-blueprint.md")).toBe(false);
+  });
+
+  it("`.loctxignore` can still exclude .claude/ when the user really wants that (#375)", () => {
+    // Same global-style exclusion as above, but the project explicitly
+    // adds `.claude/` to .loctxignore. .loctxignore evaluates AFTER the
+    // built-in re-include, so the project's intent wins.
+    writeFileSync(join(root, ".git", "info", "exclude"), ".claude/\n", "utf-8");
+    writeFileSync(join(root, LOCTXIGNORE_FILENAME), ".claude/\n", "utf-8");
+    const spec = combinedGitignore(root);
+    expect(spec?.ignores(".claude/CLAUDE.md")).toBe(true);
+  });
+
+  it("auto-include does NOT pollute non-AI-tooling directories (#375)", () => {
+    // Sanity: the negation patterns are exact-dir, they must not
+    // accidentally re-include arbitrary excluded directories.
+    writeFileSync(join(root, ".git", "info", "exclude"), "secret-stuff/\n", "utf-8");
+    const spec = combinedGitignore(root);
+    expect(spec?.ignores("secret-stuff/notes")).toBe(true);
+  });
+
   it("skips noisy directories (node_modules) when discovering nested rule files", () => {
     mkdirSync(join(root, "node_modules", "foo"), { recursive: true });
     // A .gitignore deep inside node_modules should NOT load — we'd
