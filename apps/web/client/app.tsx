@@ -27,6 +27,9 @@ const SearchPage = lazy(() =>
 const FindUsagesPage = lazy(() =>
   import("./routes/find-usages").then((m) => ({ default: m.FindUsagesPage })),
 );
+const FindLiteralPage = lazy(() =>
+  import("./routes/find-literal").then((m) => ({ default: m.FindLiteralPage })),
+);
 const DoctorPage = lazy(() =>
   import("./routes/doctor").then((m) => ({ default: m.DoctorPage })),
 );
@@ -60,6 +63,7 @@ export function App() {
           <NavLink to="/projects">projects</NavLink>
           <NavLink to="/search">search</NavLink>
           <NavLink to="/find-usages">find-usages</NavLink>
+          <NavLink to="/find-literal">find-literal</NavLink>
           <NavLink to="/doctor">doctor</NavLink>
           <NavLink to="/models">models</NavLink>
           <NavLink to="/config">config</NavLink>
@@ -86,6 +90,7 @@ export function App() {
             <Route path="/projects/:id" element={<ProjectDetailPage />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/find-usages" element={<FindUsagesPage />} />
+            <Route path="/find-literal" element={<FindLiteralPage />} />
             <Route path="/doctor" element={<DoctorPage />} />
             <Route path="/models" element={<ModelsPage />} />
             <Route path="/config" element={<ConfigPage />} />

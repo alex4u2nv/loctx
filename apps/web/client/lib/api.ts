@@ -9,6 +9,7 @@ import type {
   ConfigWriteRequest,
   ConfigWriteResponse,
   DoctorPayload,
+  FindLiteralPayload,
   FindUsagesPayload,
   FindUsagesRequest,
   ModelsPayload,
@@ -80,6 +81,8 @@ export const api = {
     postJson<{ ok: true; name: string }>("/api/models/download", { name }),
   findUsages: (body: FindUsagesRequest) =>
     postJson<FindUsagesPayload>("/api/find-usages", body),
+  findLiteral: (body: { pattern: string; path?: string }) =>
+    postJson<FindLiteralPayload>("/api/find-literal", body),
   index: (path?: string) =>
     postJson<{
       ok: true;
