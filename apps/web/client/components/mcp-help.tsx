@@ -13,7 +13,9 @@
  * in components/confirm.tsx) instead of pulling in a dialog library.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { McpToolInfo } from "@shared/contracts";
+import { api } from "../lib/api";
 import { Icon } from "./icon";
 import { Modal } from "./modal";
 
@@ -96,6 +98,23 @@ export function McpHelpModal({ onClose }: { onClose: () => void }) {
   const examples = buildExamples(httpUrl);
   const [activeId, setActiveId] = useState<string>(examples[0]?.id ?? "");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [tools, setTools] = useState<readonly McpToolInfo[] | null>(null);
+  const [toolsError, setToolsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .mcpTools()
+      .then((p) => {
+        if (!cancelled) setTools(p.tools);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setToolsError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const active = examples.find((e) => e.id === activeId) ?? examples[0];
   if (active === undefined) return null;
@@ -164,6 +183,31 @@ export function McpHelpModal({ onClose }: { onClose: () => void }) {
             </div>
           );
         })}
+
+        <section className="mcp-tools-section" aria-labelledby="mcp-tools-heading">
+          <h3 id="mcp-tools-heading" className="mcp-tools-heading">
+            Tools your agent will see after connecting
+          </h3>
+          {toolsError !== null ? (
+            <p className="mcp-tools-error">Couldn't load tool list: {toolsError}</p>
+          ) : tools === null ? (
+            <p className="mcp-tools-loading">Loading…</p>
+          ) : (
+            <ul className="mcp-tools-list">
+              {tools.map((tool) => (
+                <li key={tool.name}>
+                  <details className="mcp-tool">
+                    <summary className="mcp-tool-summary">
+                      <code className="mcp-tool-name">{tool.name}</code>
+                      <Icon name="chevron-down" className="mcp-tool-chevron" />
+                    </summary>
+                    <p className="mcp-tool-description">{tool.description}</p>
+                  </details>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <div className="modal-actions">
           <button type="button" className="btn" onClick={onClose}>

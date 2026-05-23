@@ -12,6 +12,7 @@ import type {
   FindLiteralPayload,
   FindUsagesPayload,
   FindUsagesRequest,
+  McpToolsPayload,
   ModelsPayload,
   ProjectDetailPayload,
   ProjectsPayload,
@@ -45,6 +46,7 @@ export const api = {
   projects: () => getJson<ProjectsPayload>("/api/projects"),
   search: (body: SearchRequestBody) => postJson<SearchPayload>("/api/search", body),
   doctor: () => getJson<DoctorPayload>("/api/doctor"),
+  mcpTools: () => getJson<McpToolsPayload>("/api/mcp-tools"),
   config: () => getJson<ConfigPayload>("/api/config"),
   configWrite: async (body: ConfigWriteRequest): Promise<ConfigWriteResponse> => {
     // Server returns 400 + ConfigWriteError on validation failure; surface
