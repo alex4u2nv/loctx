@@ -11,7 +11,7 @@
  * the eval-harness plan.
  */
 
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -59,13 +59,26 @@ export function resolveGitSource(
   if (existsSync(absRepo) && existsSync(join(absRepo, ".git"))) {
     return { kind: "local", path: absRepo };
   }
-  // Search-root probes
-  for (const root of searchRoots) {
-    if (existsSync(join(root, ".git"))) {
-      return { kind: "local", path: root };
-    }
+  // Search-root probes: walk each up to the filesystem root looking
+  // for a `.git`. Picks up CI checkouts, dev clones run from any
+  // subdirectory, and worktree siblings without forcing the caller
+  // to compute the repo root themselves.
+  for (const start of searchRoots) {
+    const root = findRepoRoot(start);
+    if (root !== null) return { kind: "local", path: root };
   }
   return { kind: "url", url: repo };
+}
+
+function findRepoRoot(start: string): string | null {
+  let cur = resolve(start);
+  for (let i = 0; i < 64; i += 1) {
+    if (existsSync(join(cur, ".git"))) return cur;
+    const parent = resolve(cur, "..");
+    if (parent === cur) return null;
+    cur = parent;
+  }
+  return null;
 }
 
 export interface CorpusSnapshot {
@@ -114,11 +127,15 @@ export async function snapshotCorpus(
     return Object.freeze({
       root: worktreePath,
       cleanup: () => {
+        // Best-effort: remove the worktree registration first so the
+        // source repo doesn't accumulate "prunable" entries, then
+        // drop the tmp dir. We swallow worktree-remove failures —
+        // the rmSync still cleans the filesystem either way, and a
+        // user can always `git worktree prune` to clear stale refs.
         try {
-          // Best-effort: remove the worktree first so the registration
-          // is cleaned, then drop the tmp dir. If the worktree command
-          // fails (e.g. the source repo moved), the rmSync still wins.
-          execFile("git", ["-C", source.path, "worktree", "remove", "--force", worktreePath]);
+          execFileSync("git", ["-C", source.path, "worktree", "remove", "--force", worktreePath], {
+            stdio: "ignore",
+          });
         } catch {
           // Intentional — see comment above.
         }

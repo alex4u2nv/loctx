@@ -1,0 +1,11 @@
+# v1 corpus pin.
+#
+# Eval runs against a frozen sha of the loctx repo so a refactor of loctx
+# itself doesn't move metrics underneath the gold set. Bumping the sha is
+# a v2 concern — see golden/v1/README.md for the audit/refresh policy.
+
+[corpus]
+name = "loctx-self"
+repo = "https://github.com/alex4u2nv/loctx"
+sha = "0648fcf1d59ac51a0b5d62b26820c0f60f97bfde"
+index_config = "default"
