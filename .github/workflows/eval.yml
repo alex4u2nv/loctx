@@ -1,0 +1,101 @@
+name: eval
+
+# Retrieval-quality eval harness. Report-only in v1 — surfaces a
+# Markdown report + run artifact on every PR that touches retrieval
+# code or the harness itself. Gating is a follow-up once we have a few
+# weeks of baseline data; right now the goal is to make ranking-quality
+# regressions visible before they ship.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/core/src/retrieval/**"
+      - "packages/core/src/chunking/**"
+      - "packages/core/src/embeddings/**"
+      - "packages/core/src/indexing/**"
+      - "packages/eval/**"
+      - ".github/workflows/eval.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  run-eval:
+    name: run + report
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The corpus snapshot uses `git worktree add` against the local
+          # repo when possible. A shallow checkout works fine — the
+          # pinned sha is fetched explicitly below.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all workspaces
+        # @loctx/eval imports @loctx/core through `dist/index.js`; the
+        # core build must complete before the eval CLI can index a
+        # corpus. The `-r --if-present build` script handles the
+        # workspace order via pnpm's topological resolution.
+        run: pnpm run build
+
+      - name: Ensure pinned corpus sha is fetchable
+        # `git worktree add --detach <path> <sha>` only succeeds if the
+        # sha exists in the local object database. Pull requests against
+        # main always have main + the PR head, but the v1 corpus sha
+        # (`0648fcf`) was the main HEAD at PR creation time and may
+        # not be reachable from the PR head if main has moved forward.
+        # Fetch unshallow + the specific sha to make sure.
+        run: |
+          set -euo pipefail
+          sha=$(grep -E '^sha\s*=' packages/eval/golden/v1/corpus.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "v1 corpus sha: $sha"
+          if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
+            git fetch --no-tags origin "$sha" || git fetch --no-tags origin
+          fi
+
+      - name: Run eval (v1 gold set)
+        run: pnpm eval run v1
+        env:
+          # FakeEmbeddingProvider is deterministic and avoids the ~90MB
+          # ONNX model download. v1 measures pipeline plumbing + lexical
+          # branch; switching to the real embedder is a follow-up flag.
+          LOCTX_EMBEDDING_PROVIDER: fake
+
+      - name: Render report
+        # Latest *.json in the runs dir gets a `*.report.md` sibling.
+        run: pnpm eval report packages/eval/runs
+
+      - name: Upload run artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-run-${{ github.event.pull_request.number }}
+          path: packages/eval/runs
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Post report as PR comment
+        # The harness writes `<runId>.report.md` alongside the JSON.
+        # Glob picks it up regardless of timestamp; the latest run's
+        # report is the only one in this fresh CI runner.
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: loctx-eval-v1
+          path: packages/eval/runs/*.report.md

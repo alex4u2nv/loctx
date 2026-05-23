@@ -65,9 +65,27 @@ Promote when the second real caller arrives.
 ## Workspaces
 
 - `packages/core` — runtime: indexer, watcher, embeddings, retrieval.
+- `packages/eval` — offline retrieval-quality eval harness. Versioned
+  gold sets, TREC run files, Markdown reports. See its README.
 - `apps/cli` — `loctx` binary.
 - `apps/mcp` — MCP server (stdio + HTTP via `@loctx/web`).
 - `apps/web` — admin UI (React + Hono). Has client + server halves.
+
+### Retrieval changes: regenerate the eval baseline
+
+Any PR that touches `packages/core/src/{retrieval,chunking,embeddings,indexing}/**`
+needs to run the eval harness and post the report. CI does this
+automatically on the PR via `.github/workflows/eval.yml`. Locally:
+
+```
+pnpm eval run v1
+pnpm eval report packages/eval/runs
+```
+
+The CI workflow is report-only in v1 — no regression gating yet.
+Treat large drops in `Hit@10` / `MRR@10` / `nDCG@10` as a soft
+blocker pending human review. Bumping the gold set version (`v1 → v2`)
+is a separate PR — never edit `golden/v1/` in place.
 
 ## Build + verify
 
