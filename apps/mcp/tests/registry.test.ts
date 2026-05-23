@@ -174,6 +174,23 @@ describe("TOOL_DEFINITIONS", () => {
     expect(tool?.description).toMatch(/grep|find\b/i);
   });
 
+  // Pin the natural-language framing. loctx indexes more than code —
+  // runbooks, prompts, skill files, business-process docs — and agents
+  // were observed routing those queries to grep because the tool
+  // descriptions read as code-only. search_workspace and find_literal
+  // must explicitly name non-code content classes so an agent doing
+  // "where is the vendor-onboarding process documented" can recognize
+  // the trigger.
+  it("search_workspace + find_literal advertise non-code content (#226 alignment)", () => {
+    const NON_CODE_HINTS = /docs?|runbook|prompt|skill|process|workflow|business/i;
+    const search = TOOL_DEFINITIONS.find((t) => t.name === "search_workspace");
+    expect(search?.description, "search_workspace must name non-code content").toMatch(
+      NON_CODE_HINTS,
+    );
+    const literal = TOOL_DEFINITIONS.find((t) => t.name === "find_literal");
+    expect(literal?.description, "find_literal must name non-code content").toMatch(NON_CODE_HINTS);
+  });
+
   it("retrieval tools open with 'Use when' triggers (#370)", () => {
     for (const name of ["search_workspace", "find_usages", "find_literal", "find_duplicates"]) {
       const tool = TOOL_DEFINITIONS.find((t) => t.name === name);
