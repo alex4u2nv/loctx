@@ -1616,6 +1616,56 @@ h3 {
 
 .modal-mcp {
   max-width: 640px;
+  max-height: calc(100vh - var(--space-5));
+  display: flex;
+  flex-direction: column;
+}
+
+/* Inner scroll wrapper so the title + view toggle stay pinned and only
+ * the long content (snippets or tools accordion) scrolls. Keeps the
+ * modal usable on short viewports. */
+.mcp-modal-scroll {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-bottom: var(--space-3);
+}
+
+/* Top-level Setup / Tools split. Segmented control sits below the
+ * title and above the per-view content. */
+.mcp-view-toggle {
+  display: inline-flex;
+  gap: 0;
+  margin: 0 0 var(--space-3);
+  padding: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-inner);
+  align-self: flex-start;
+}
+
+.mcp-view-toggle-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-inner) - 2px);
+  padding: 4px 14px;
+  color: var(--subtle);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.mcp-view-toggle-btn:hover {
+  color: var(--text);
+}
+
+.mcp-view-toggle-btn.is-active {
+  background: var(--surface-elevated);
+  border-color: var(--border);
+  color: var(--text);
+  box-shadow: var(--shadow-soft, 0 1px 2px rgba(0, 0, 0, 0.15));
 }
 
 .mcp-tabs {
@@ -1699,16 +1749,22 @@ h3 {
 /* ---- MCP tools accordion (#222 follow-up) -------------------------- */
 
 .mcp-tools-section {
-  margin-top: var(--space-4);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border);
+  margin: 0;
 }
 
-.mcp-tools-heading {
-  margin: 0 0 var(--space-2);
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text);
+.mcp-tools-intro {
+  margin: 0 0 var(--space-3);
+  font-size: 0.82rem;
+  color: var(--subtle);
+  line-height: 1.5;
+}
+
+.mcp-tools-intro code {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  background: var(--surface-2);
+  padding: 1px 4px;
+  border-radius: 3px;
 }
 
 .mcp-tools-loading,
