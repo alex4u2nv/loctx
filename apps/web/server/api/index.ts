@@ -12,6 +12,7 @@ import { mountDoctor } from "./doctor.js";
 import { mountEvents } from "./events.js";
 import { mountFindLiteral } from "./find-literal.js";
 import { mountFindUsages } from "./find-usages.js";
+import { mountMcpTools } from "./mcp-tools.js";
 import { mountModels } from "./models.js";
 import { mountOps } from "./ops.js";
 import { mountProjects } from "./projects.js";
@@ -40,4 +41,5 @@ export function mountApi(
   mountFindLiteral(app, config, getRuntime);
   mountOps(app, config, getRuntime, rebuildTracker);
   mountWatchers(app, watcherRegistry);
+  mountMcpTools(app);
 }

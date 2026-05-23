@@ -255,6 +255,19 @@ export interface SearchPayload {
 
 export type DoctorCheckStatus = "ok" | "warn" | "error";
 
+export interface McpToolInfo {
+  readonly name: string;
+  readonly description: string;
+}
+
+export interface McpToolsPayload {
+  /** Same shape MCP hosts see via `tools/list`. Surfaces tool name +
+   * full description so the web "Add loctx as an MCP server" modal can
+   * preview what's installed. inputSchema is intentionally omitted —
+   * the modal's audience is humans, not agents. */
+  readonly tools: ReadonlyArray<McpToolInfo>;
+}
+
 export interface DoctorPayload {
   readonly checks: ReadonlyArray<{
     readonly name: string;

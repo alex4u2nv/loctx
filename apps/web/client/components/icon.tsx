@@ -9,6 +9,7 @@ import {
   faBell,
   faBolt,
   faCheckCircle,
+  faChevronDown,
   faCircleXmark,
   faCopy,
   faEraser,
@@ -39,6 +40,7 @@ const ICONS = {
   err: faCircleXmark,
   live: faWifi,
   bell: faBell,
+  "chevron-down": faChevronDown,
 } as const;
 
 export type IconName = keyof typeof ICONS;
