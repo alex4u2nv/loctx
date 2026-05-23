@@ -1,0 +1,39 @@
+{
+  "name": "@loctx/eval",
+  "version": "0.0.1",
+  "description": "Offline retrieval-quality eval harness for loctx. Versioned gold sets, TREC run files, Hit/MRR/nDCG/Recall metrics, Markdown reports.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "loctx-eval": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "golden"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/cli.js",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "eval": "tsx src/cli.ts"
+  },
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@loctx/core": "workspace:^",
+    "commander": "^12.1.0",
+    "yaml": "^2.6.0"
+  }
+}
