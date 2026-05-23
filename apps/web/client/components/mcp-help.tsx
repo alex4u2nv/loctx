@@ -93,9 +93,12 @@ function buildExamples(httpUrl: string): readonly Example[] {
   ];
 }
 
+type View = "setup" | "tools";
+
 export function McpHelpModal({ onClose }: { onClose: () => void }) {
   const httpUrl = `${window.location.origin}/mcp`;
   const examples = buildExamples(httpUrl);
+  const [view, setView] = useState<View>("setup");
   const [activeId, setActiveId] = useState<string>(examples[0]?.id ?? "");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [tools, setTools] = useState<readonly McpToolInfo[] | null>(null);
@@ -137,77 +140,106 @@ export function McpHelpModal({ onClose }: { onClose: () => void }) {
       className="modal-mcp"
     >
       <>
-        <p className="modal-body" style={{ marginBottom: "var(--space-3)" }}>
-          Prefer <strong>HTTP</strong> when the daemon is running — it reuses
-          the loaded embedding model and DB handle. Use <strong>stdio</strong>{" "}
-          when the daemon may not be up; each client then spawns its own
-          short-lived loctx-mcp process.
-        </p>
-
-        <div className="mcp-tabs" role="tablist" aria-label="MCP client">
-          {examples.map((ex) => (
-            <button
-              key={ex.id}
-              type="button"
-              role="tab"
-              aria-selected={ex.id === active.id}
-              className={`mcp-tab ${ex.id === active.id ? "is-active" : ""}`}
-              onClick={() => setActiveId(ex.id)}
-            >
-              {ex.label}
-            </button>
-          ))}
+        <div className="mcp-view-toggle" role="tablist" aria-label="MCP modal view">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "setup"}
+            className={`mcp-view-toggle-btn ${view === "setup" ? "is-active" : ""}`}
+            onClick={() => setView("setup")}
+          >
+            Setup
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "tools"}
+            className={`mcp-view-toggle-btn ${view === "tools" ? "is-active" : ""}`}
+            onClick={() => setView("tools")}
+          >
+            Tools{tools !== null ? ` (${tools.length})` : ""}
+          </button>
         </div>
 
-        <p className="mcp-hint">{active.hint}</p>
-
-        {active.snippets.map((snip) => {
-          const key = `${active.id}.${snip.transport}`;
-          return (
-            <div key={key} className="mcp-snippet-block">
-              <p className={`mcp-transport-label mcp-transport-${snip.transport}`}>
-                {TRANSPORT_LABEL[snip.transport]}
+        <div className="mcp-modal-scroll">
+          {view === "setup" ? (
+            <>
+              <p className="modal-body" style={{ marginBottom: "var(--space-3)" }}>
+                Prefer <strong>HTTP</strong> when the daemon is running — it
+                reuses the loaded embedding model and DB handle. Use{" "}
+                <strong>stdio</strong> when the daemon may not be up; each
+                client then spawns its own short-lived loctx-mcp process.
               </p>
-              <div className="mcp-snippet-wrap">
-                <pre className="mcp-snippet">{snip.body}</pre>
-                <button
-                  type="button"
-                  className="btn mcp-copy"
-                  onClick={() => copy(snip.body, key)}
-                  aria-label={`Copy ${snip.transport} snippet`}
-                >
-                  <Icon name="copy" />
-                  <span>{copiedKey === key ? "Copied" : "Copy"}</span>
-                </button>
-              </div>
-            </div>
-          );
-        })}
 
-        <section className="mcp-tools-section" aria-labelledby="mcp-tools-heading">
-          <h3 id="mcp-tools-heading" className="mcp-tools-heading">
-            Tools your agent will see after connecting
-          </h3>
-          {toolsError !== null ? (
-            <p className="mcp-tools-error">Couldn't load tool list: {toolsError}</p>
-          ) : tools === null ? (
-            <p className="mcp-tools-loading">Loading…</p>
+              <div className="mcp-tabs" role="tablist" aria-label="MCP client">
+                {examples.map((ex) => (
+                  <button
+                    key={ex.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={ex.id === active.id}
+                    className={`mcp-tab ${ex.id === active.id ? "is-active" : ""}`}
+                    onClick={() => setActiveId(ex.id)}
+                  >
+                    {ex.label}
+                  </button>
+                ))}
+              </div>
+
+              <p className="mcp-hint">{active.hint}</p>
+
+              {active.snippets.map((snip) => {
+                const key = `${active.id}.${snip.transport}`;
+                return (
+                  <div key={key} className="mcp-snippet-block">
+                    <p className={`mcp-transport-label mcp-transport-${snip.transport}`}>
+                      {TRANSPORT_LABEL[snip.transport]}
+                    </p>
+                    <div className="mcp-snippet-wrap">
+                      <pre className="mcp-snippet">{snip.body}</pre>
+                      <button
+                        type="button"
+                        className="btn mcp-copy"
+                        onClick={() => copy(snip.body, key)}
+                        aria-label={`Copy ${snip.transport} snippet`}
+                      >
+                        <Icon name="copy" />
+                        <span>{copiedKey === key ? "Copied" : "Copy"}</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
           ) : (
-            <ul className="mcp-tools-list">
-              {tools.map((tool) => (
-                <li key={tool.name}>
-                  <details className="mcp-tool">
-                    <summary className="mcp-tool-summary">
-                      <code className="mcp-tool-name">{tool.name}</code>
-                      <Icon name="chevron-down" className="mcp-tool-chevron" />
-                    </summary>
-                    <p className="mcp-tool-description">{tool.description}</p>
-                  </details>
-                </li>
-              ))}
-            </ul>
+            <section className="mcp-tools-section" aria-labelledby="mcp-tools-heading">
+              <p id="mcp-tools-heading" className="mcp-tools-intro">
+                These are the tools your agent receives via{" "}
+                <code>tools/list</code> after connecting — same descriptions
+                MCP hosts surface to the model.
+              </p>
+              {toolsError !== null ? (
+                <p className="mcp-tools-error">Couldn't load tool list: {toolsError}</p>
+              ) : tools === null ? (
+                <p className="mcp-tools-loading">Loading…</p>
+              ) : (
+                <ul className="mcp-tools-list">
+                  {tools.map((tool) => (
+                    <li key={tool.name}>
+                      <details className="mcp-tool">
+                        <summary className="mcp-tool-summary">
+                          <code className="mcp-tool-name">{tool.name}</code>
+                          <Icon name="chevron-down" className="mcp-tool-chevron" />
+                        </summary>
+                        <p className="mcp-tool-description">{tool.description}</p>
+                      </details>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           )}
-        </section>
+        </div>
 
         <div className="modal-actions">
           <button type="button" className="btn" onClick={onClose}>
