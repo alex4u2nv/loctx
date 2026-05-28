@@ -625,18 +625,66 @@ export function registerTools(server: Server, runtime: Runtime): void {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    const startedAt = Date.now();
     try {
       if (!isToolName(name)) throw new ToolError(`Unknown tool: ${name}`);
       const result = await TOOL_HANDLERS[name](runtime, args);
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-      };
+      const text = JSON.stringify(result, null, 2);
+      recordMcpRequest(runtime, name, args, {
+        responseJson: text,
+        error: null,
+        ok: true,
+        elapsedMs: Date.now() - startedAt,
+      });
+      return { content: [{ type: "text" as const, text }] };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      recordMcpRequest(runtime, name, args, {
+        responseJson: null,
+        error: message,
+        ok: false,
+        elapsedMs: Date.now() - startedAt,
+      });
       return {
         isError: true,
         content: [{ type: "text" as const, text: message }],
       };
     }
   });
+}
+
+/**
+ * Persist one `tools/call` to the request log for the admin Logs page.
+ * Best-effort: a logging failure (or a non-serializable argument blob)
+ * must never bubble into the tool response, so everything here is
+ * swallowed. Skipped when `mcp.logMaxRows` is 0 (logging disabled).
+ */
+function recordMcpRequest(
+  runtime: Runtime,
+  tool: string,
+  args: unknown,
+  outcome: {
+    readonly responseJson: string | null;
+    readonly error: string | null;
+    readonly ok: boolean;
+    readonly elapsedMs: number;
+  },
+): void {
+  // Read defensively: logging is observability, and a runtime assembled
+  // without an `mcp` config section (older callers, test fixtures) must
+  // still serve tool calls. Absent config => logging off.
+  const maxRows = runtime.config.mcp?.logMaxRows ?? 0;
+  if (maxRows <= 0) return;
+  try {
+    let argumentsJson: string;
+    try {
+      argumentsJson = JSON.stringify(args ?? {});
+    } catch {
+      argumentsJson = '"<unserializable arguments>"';
+    }
+    runtime.state.logMcpRequest({ tool, argumentsJson, ...outcome }, maxRows);
+  } catch {
+    // Logging is observability, not correctness — never fail a tool call
+    // because the request couldn't be recorded.
+  }
 }

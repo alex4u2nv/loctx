@@ -22,7 +22,7 @@ import {
 } from "../models.js";
 import { loadQueries } from "../sql/loader.js";
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 /**
  * Raised when the on-disk schema version is newer than this build's
@@ -164,6 +164,33 @@ export interface LexicalMatch {
   readonly document: string;
   /** SQLite BM25 rank — lower is a better match. */
   readonly rank: number;
+}
+
+/**
+ * One row to persist for an MCP `tools/call` (#380-era). The registry
+ * dispatch builds this from the request + handler result so the admin
+ * "logs" page can show real agent traffic for quality tuning. The
+ * payloads are stored verbatim — full request arguments + full response
+ * — capped only by the row-count bound (`mcp.log_max_rows`).
+ */
+export interface McpRequestLogInput {
+  readonly tool: string;
+  /** Full request arguments, JSON-serialized. */
+  readonly argumentsJson: string;
+  /** Full response payload, JSON-serialized. Null when the call errored. */
+  readonly responseJson: string | null;
+  /** Error message when the call failed. Null on success. */
+  readonly error: string | null;
+  readonly ok: boolean;
+  readonly elapsedMs: number;
+  /** Defaults to now. */
+  readonly requestedAt?: string;
+}
+
+/** A persisted MCP request row read back by {@link StateStore.listMcpRequests}. */
+export interface McpRequestLogEntry extends McpRequestLogInput {
+  readonly id: number;
+  readonly requestedAt: string;
 }
 
 export class StateStore {
@@ -322,6 +349,15 @@ export class StateStore {
       if (!this.columnExists("projects", "rebuild_pending_at")) {
         this.db.exec(schemaV7);
       }
+    }
+
+    if (current < 8) {
+      const schemaV8 = QUERIES["schema_v8"];
+      if (schemaV8 === undefined) throw new Error("Missing schema_v8 in state.sql");
+      // schema_v8 adds the mcp_requests table + index. Both use
+      // IF NOT EXISTS, so the block is safe to re-run on a sandbox that
+      // walks user_version backwards between cases.
+      this.db.exec(schemaV8);
     }
 
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -880,6 +916,51 @@ export class StateStore {
     return out;
   }
 
+  // ---- MCP request log (#380-era) -------------------------------------
+
+  /**
+   * Append one MCP `tools/call` to the request log and trim the table
+   * back to the newest `maxRows` entries, both in a single transaction.
+   * `maxRows <= 0` is a no-op (logging disabled via `mcp.log_max_rows: 0`)
+   * — callers that respect that knob shouldn't reach here, but guarding
+   * keeps a misconfigured caller from inserting then immediately deleting
+   * its own row. Best-effort by contract: callers wrap this so a logging
+   * failure never affects the tool response.
+   */
+  logMcpRequest(entry: McpRequestLogInput, maxRows: number): void {
+    if (maxRows <= 0) return;
+    const requestedAt = entry.requestedAt ?? new Date().toISOString();
+    const tx = this.db.transaction(() => {
+      this.write("insert_mcp_request", [
+        requestedAt,
+        entry.tool,
+        entry.argumentsJson,
+        entry.responseJson,
+        entry.error,
+        entry.ok ? 1 : 0,
+        entry.elapsedMs,
+      ]);
+      this.write("trim_mcp_requests", [maxRows]);
+    });
+    tx();
+  }
+
+  /** Newest-first MCP request rows, capped at `limit`. */
+  listMcpRequests(limit: number): McpRequestLogEntry[] {
+    return this.readAll<McpRequestRow>("list_mcp_requests", [Math.max(1, limit)]).map(
+      mcpRequestEntryFromRow,
+    );
+  }
+
+  countMcpRequests(): number {
+    const row = this.readOne<{ n: number }>("count_mcp_requests");
+    return row === undefined ? 0 : Number(row.n);
+  }
+
+  clearMcpRequests(): void {
+    this.write("delete_all_mcp_requests");
+  }
+
   // ---- collections ----------------------------------------------------
 
   registerCollection(name: string, identity: EmbeddingIdentity): void {
@@ -963,6 +1044,30 @@ function symbolRefHitFromRow(row: SymbolRefRow): SymbolRefHit {
     chunkStartLine: row.chunk_start,
     chunkEndLine: row.chunk_end,
     document: row.document,
+  });
+}
+
+interface McpRequestRow {
+  id: number;
+  requested_at: string;
+  tool: string;
+  arguments_json: string;
+  response_json: string | null;
+  error: string | null;
+  ok: number;
+  elapsed_ms: number;
+}
+
+function mcpRequestEntryFromRow(row: McpRequestRow): McpRequestLogEntry {
+  return Object.freeze({
+    id: Number(row.id),
+    requestedAt: row.requested_at,
+    tool: row.tool,
+    argumentsJson: row.arguments_json,
+    responseJson: row.response_json,
+    error: row.error,
+    ok: row.ok !== 0,
+    elapsedMs: Number(row.elapsed_ms),
   });
 }
 

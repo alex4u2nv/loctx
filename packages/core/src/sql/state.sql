@@ -141,6 +141,34 @@ UPDATE projects SET active = 1;
 -- rebuild…". Cleared by the indexer on a successful pass.
 ALTER TABLE projects ADD COLUMN rebuild_pending_at TEXT;
 
+-- :name schema_v8
+-- MCP request log (#380-era). One row per `tools/call` an agent issues,
+-- captured in the shared registry dispatch so both the stdio binary and
+-- the web /mcp transport feed the same table. Powers the admin "logs"
+-- page for quality-tuning tool descriptions against real agent traffic.
+--
+--   tool            — wire tool name (search_workspace, find_usages, ...).
+--   arguments_json  — the full request arguments the agent sent.
+--   response_json   — the full result payload returned (NULL on error).
+--   error           — error message when the call failed (NULL on success).
+--   ok              — 1 success / 0 error, so the UI can filter without
+--                     re-parsing the payload.
+--   elapsed_ms      — wall-clock handler time.
+--
+-- Bounded by `mcp.log_max_rows` (default 200): each insert trims the
+-- table back to the newest N rows by `id` (see trim_mcp_requests).
+CREATE TABLE IF NOT EXISTS mcp_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    requested_at TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    arguments_json TEXT NOT NULL,
+    response_json TEXT,
+    error TEXT,
+    ok INTEGER NOT NULL,
+    elapsed_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_requests_at ON mcp_requests(requested_at);
+
 -- :name pragma_enable_foreign_keys
 PRAGMA foreign_keys = ON;
 
@@ -438,3 +466,28 @@ FROM files
 WHERE project_id = ?
   AND indexed_at IS NOT NULL
   AND indexed_at >= ?;
+
+-- :name insert_mcp_request
+INSERT INTO mcp_requests (requested_at, tool, arguments_json, response_json, error, ok, elapsed_ms)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- :name trim_mcp_requests
+-- Keep only the newest `?` rows (highest ids). Run after every insert so
+-- the table never grows past `mcp.log_max_rows`. Cheap: the subquery
+-- scans an already-tiny table ordered by the integer primary key.
+DELETE FROM mcp_requests
+WHERE id NOT IN (
+    SELECT id FROM mcp_requests ORDER BY id DESC LIMIT ?
+);
+
+-- :name list_mcp_requests
+SELECT id, requested_at, tool, arguments_json, response_json, error, ok, elapsed_ms
+FROM mcp_requests
+ORDER BY id DESC
+LIMIT ?;
+
+-- :name count_mcp_requests
+SELECT COUNT(*) AS n FROM mcp_requests;
+
+-- :name delete_all_mcp_requests
+DELETE FROM mcp_requests;

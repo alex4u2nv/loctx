@@ -215,6 +215,24 @@ export const CONFIG_SCHEMA: ReadonlyArray<SectionSchema> = Object.freeze([
     ],
   },
   {
+    id: "mcp",
+    label: "MCP",
+    help: "MCP server behaviour.",
+    yamlSection: "mcp",
+    fields: [
+      {
+        key: "mcp.logMaxRows",
+        yamlPath: ["mcp", "log_max_rows"],
+        label: "log_max_rows",
+        help: "Rolling row cap on the MCP request log shown on the Logs page. Oldest rows are trimmed past this count. Set to 0 to disable logging.",
+        type: "int",
+        default: 200,
+        min: 0,
+        max: 100_000,
+      },
+    ],
+  },
+  {
     id: "analyzers",
     label: "Analyzers",
     help: "Background code-analysis runners.",

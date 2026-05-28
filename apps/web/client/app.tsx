@@ -42,6 +42,9 @@ const ConfigPage = lazy(() =>
 const AdminPage = lazy(() =>
   import("./routes/admin").then((m) => ({ default: m.AdminPage })),
 );
+const LogsPage = lazy(() =>
+  import("./routes/logs").then((m) => ({ default: m.LogsPage })),
+);
 
 const ROUTE_FALLBACK = <p className="pullquote">Loading…</p>;
 
@@ -67,6 +70,7 @@ export function App() {
           <NavLink to="/doctor">doctor</NavLink>
           <NavLink to="/models">models</NavLink>
           <NavLink to="/config">config</NavLink>
+          <NavLink to="/logs">logs</NavLink>
           <NavLink to="/admin">admin</NavLink>
         </nav>
         <span className="nav-meta">
@@ -94,6 +98,7 @@ export function App() {
             <Route path="/doctor" element={<DoctorPage />} />
             <Route path="/models" element={<ModelsPage />} />
             <Route path="/config" element={<ConfigPage />} />
+            <Route path="/logs" element={<LogsPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Routes>
         </Suspense>

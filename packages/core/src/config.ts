@@ -163,6 +163,18 @@ export interface DiscoveryConfig {
   readonly maxDepth: number;
 }
 
+/**
+ * MCP server behaviour. Currently just the request-log retention bound.
+ *
+ *   - `logMaxRows`  rolling row cap on the `mcp_requests` table. Each
+ *                   `tools/call` is appended and the oldest rows are
+ *                   trimmed back to this many. Default 200. Set to `0`
+ *                   to disable request logging entirely.
+ */
+export interface McpConfig {
+  readonly logMaxRows: number;
+}
+
 export type ConfigSource = "default" | "global" | "env";
 
 /** Where each leaf came from. Keyed by dot-path (e.g. "embedding.model"). */
@@ -178,6 +190,7 @@ export interface Config {
   readonly reconciliation: ReconciliationConfig;
   readonly discovery: DiscoveryConfig;
   readonly analyzers: AnalyzerConfig;
+  readonly mcp: McpConfig;
   /** Path of the global YAML if loaded; null when only defaults applied. */
   readonly source: string | null;
   readonly sources: ConfigSources;
@@ -214,6 +227,11 @@ const DEFAULT_DISCOVERY: DiscoveryConfig = Object.freeze({
 const DEFAULT_RECONCILIATION: ReconciliationConfig = Object.freeze({
   runOnStart: true,
   intervalSeconds: 600,
+});
+
+const DEFAULT_MCP_LOG_MAX_ROWS = 200;
+const DEFAULT_MCP: McpConfig = Object.freeze({
+  logMaxRows: DEFAULT_MCP_LOG_MAX_ROWS,
 });
 
 const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
@@ -292,6 +310,7 @@ export function loadConfig(options?: string | LoadConfigOptions): Config {
     reconciliation: merged.reconciliation,
     discovery: merged.discovery,
     analyzers: merged.analyzers,
+    mcp: merged.mcp,
     source: globalRaw === null ? null : globalPath,
     sources: Object.freeze(sources),
   });
@@ -404,6 +423,7 @@ interface MergedFields {
   readonly reconciliation: ReconciliationConfig;
   readonly discovery: DiscoveryConfig;
   readonly analyzers: AnalyzerConfig;
+  readonly mcp: McpConfig;
 }
 
 function mergeFields(
@@ -421,7 +441,18 @@ function mergeFields(
     reconciliation: mergeReconciliation(global, sources),
     discovery: mergeDiscovery(global, sources),
     analyzers: mergeAnalyzers(global, sources),
+    mcp: mergeMcp(global, sources),
   };
+}
+
+function mergeMcp(
+  global: Record<string, unknown> | null,
+  sources: Record<string, ConfigSource>,
+): McpConfig {
+  const pick = makePicker(sectionRecord(global, "mcp", "<global>"), sources);
+  return Object.freeze({
+    logMaxRows: pick("mcp.logMaxRows", "log_max_rows", INT_NON_NEG, DEFAULT_MCP.logMaxRows),
+  });
 }
 
 function mergeEmbedding(
@@ -718,4 +749,9 @@ retrieval:
   mode: hybrid
   # Reciprocal rank fusion constant; 60 is the literature default.
   rrf_k: 60
+
+mcp:
+  # Rolling row cap on the MCP request log (the admin "logs" page).
+  # Oldest rows are trimmed past this count. Set to 0 to disable logging.
+  log_max_rows: 200
 `;
