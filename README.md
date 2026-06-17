@@ -17,11 +17,12 @@ This repo uses [pnpm](https://pnpm.io/) (>= 9). The fastest way to get it: `core
 ```bash
 git clone git@github.com:alex4u2nv/loctx.git
 cd loctx
-pnpm install
-pnpm run build
-pnpm --filter @loctx/cli link --global
-pnpm --filter @loctx/mcp link --global
+./scripts/install.sh
 ```
+
+`scripts/install.sh` runs `pnpm install`, builds every workspace, and symlinks the `loctx` and `loctx-mcp` binaries into `~/.local/bin` (override with `LOCTX_BIN_DIR`). The links point at `dist/`, so a later `pnpm run build` is picked up with no relink; `./scripts/install.sh --uninstall` removes them. We symlink rather than `pnpm link --global` because pnpm won't link packages from inside a workspace.
+
+If the script reports that the bin directory is not on your PATH, add it (e.g. `export PATH="$HOME/.local/bin:$PATH"`) and restart your shell.
 
 `@loctx/web` stays private. The daemon needs the workspace's `apps/web/dist/{client,server}` build output, so run `loctx start` from a clone (or wait for an umbrella package).
 
