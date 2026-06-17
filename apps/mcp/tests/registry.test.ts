@@ -601,3 +601,114 @@ describe("tools.findUsages", () => {
     expect(out.projects.map((p) => p.projectId)).toEqual(["proj-a"]);
   });
 });
+
+// ---- inner-project scope fallback (#276) ---------------------------
+//
+// A `path` pointing into an unindexed inner project (e.g. a monorepo
+// `packages/core` with its own package.json) must scope to the indexed
+// parent that actually holds data, not to the empty inner project. The
+// fallback is surfaced via `warnings` so it's never silent. Regression
+// for the find_usages / find_literal scoping bug.
+
+describe("inner-project scope fallback (#276)", () => {
+  // discovery.resolveProject claims the inner marker; state.listProjects
+  // knows only the indexed parent — exactly the monorepo shape.
+  function nestedRuntime(overrides: Partial<Runtime> = {}): Runtime {
+    return stubRuntime({
+      discovery: {
+        discoverProjects: () => [{ id: "proj-a", name: "alpha", root: "/ws/alpha" }],
+        resolveProject: (path: string) => {
+          if (path.startsWith("/ws/alpha/packages/core")) {
+            return { id: "inner", name: "core", root: "/ws/alpha/packages/core" };
+          }
+          return path.startsWith("/ws/alpha")
+            ? { id: "proj-a", name: "alpha", root: "/ws/alpha" }
+            : null;
+        },
+      } as unknown as Runtime["discovery"],
+      state: {
+        listProjects: () => [
+          {
+            id: "proj-a",
+            name: "alpha",
+            root: "/ws/alpha",
+            lastIndexedAt: "2026-05-08T00:00:00.000Z",
+            lastReconciledAt: null,
+            active: true,
+          },
+        ],
+        ...overrides.state,
+      } as unknown as Runtime["state"],
+    });
+  }
+
+  it("find_literal scopes to the indexed parent with a subtree prefix", async () => {
+    let captured: { projectId?: string; relPathPrefix?: string } | undefined;
+    const runtime = nestedRuntime({
+      state: {
+        findLiteralMatches: (
+          _pattern: string,
+          opts: { projectId?: string; relPathPrefix?: string },
+        ) => {
+          captured = opts;
+          return [
+            {
+              projectId: "proj-a",
+              projectName: "alpha",
+              relPath: "packages/core/src/state.ts",
+              chunkKind: "window",
+              chunkStartLine: 1,
+              chunkEndLine: 5,
+              line: 3,
+              column: 1,
+              lineText: "import Database from 'better-sqlite3';",
+            },
+          ];
+        },
+      } as unknown as Runtime["state"],
+    });
+    const out = await tools.findLiteral(runtime, {
+      pattern: "better-sqlite3",
+      path: "/ws/alpha/packages/core/src",
+    });
+    // Before the fix this returned zero matches scoped to the empty
+    // inner project. Now it scopes to proj-a + a subtree prefix.
+    expect(captured?.projectId).toBe("proj-a");
+    expect(captured?.relPathPrefix).toBe("packages/core/src/");
+    expect(out.matches).toHaveLength(1);
+    expect(out.warnings.some((w) => /unindexed inner project/.test(w))).toBe(true);
+  });
+
+  it("find_usages scopes to the indexed parent instead of returning empty", async () => {
+    const runtime = nestedRuntime({
+      state: {
+        findSymbol: (id: string) =>
+          id === "proj-a"
+            ? {
+                defs: [
+                  {
+                    symbol: "SchemaTooNewError",
+                    projectId: "proj-a",
+                    fileId: "f",
+                    chunkId: "c",
+                    line: 33,
+                    kind: "def" as const,
+                    relPath: "packages/core/src/state.ts",
+                    chunkStartLine: 33,
+                    chunkEndLine: 33,
+                  },
+                ],
+                refs: [],
+              }
+            : { defs: [], refs: [] },
+      } as unknown as Runtime["state"],
+    });
+    const out = await tools.findUsages(runtime, {
+      symbol: "SchemaTooNewError",
+      path: "/ws/alpha/packages/core",
+    });
+    expect(out.projects.map((p) => p.projectId)).toEqual(["proj-a"]);
+    expect(out.projects[0]?.defs[0]?.relPath).toBe("packages/core/src/state.ts");
+    expect(out.warnings.some((w) => /unindexed inner project/.test(w))).toBe(true);
+  });
+});
