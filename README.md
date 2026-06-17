@@ -17,17 +17,15 @@ This repo uses [pnpm](https://pnpm.io/) (>= 9). The fastest way to get it: `core
 ```bash
 git clone git@github.com:alex4u2nv/loctx.git
 cd loctx
+pnpm install
 pnpm run install:local
 ```
 
-`pnpm run install:local` (the cross-platform `scripts/install.mjs`) runs `pnpm install`, builds every workspace, and exposes the `loctx` and `loctx-mcp` binaries on your PATH:
+`pnpm run install:local` builds every workspace and runs `npm install -g ./apps/cli ./apps/mcp`. npm symlinks the two local packages into its global bin directory (already on your PATH, with the right shims on Windows), so `loctx` and `loctx-mcp` work from anywhere. Remove them with `npm rm -g @loctx/cli @loctx/mcp`.
 
-- **macOS / Linux** — symlinks into `~/.local/bin`.
-- **Windows** — writes `.cmd` + `.ps1` shims into `%LOCALAPPDATA%\loctx\bin`.
+This is a from-clone install by design. Because npm links the local directories, the binaries resolve against the workspace's `node_modules` — including the private `@loctx/web` build that `loctx start` loads at runtime. A published `npm i -g @loctx/cli` won't work for the same reason: `@loctx/web` stays private, so it's never on the registry. Run from a clone (or wait for an umbrella package).
 
-Override the target directory with `LOCTX_BIN_DIR`. The links/shims invoke the in-place `dist/` build, so a later `pnpm run build` is picked up with no re-link; `node scripts/install.mjs --uninstall` removes them. If the installer reports the bin directory is not on your PATH, add it and restart your shell.
-
-This is a from-clone install by design. `loctx start` loads the private `@loctx/web` server build at runtime, and the CLI references its workspace siblings via the `workspace:` protocol, so neither `pnpm link --global` nor a published `npm i -g` yields a working daemon. Run from a clone (or wait for an umbrella package).
+If `npm i -g` fails with a permissions error, your npm prefix isn't user-writable. Set a user-level prefix (`npm config set prefix ~/.npm-global`, then add `~/.npm-global/bin` to PATH) or use a Node version manager (nvm, fnm, volta).
 
 ## Quick start
 
