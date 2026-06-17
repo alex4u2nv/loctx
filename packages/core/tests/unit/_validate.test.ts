@@ -3,9 +3,9 @@ import {
   BOOL,
   INT,
   INT_NON_NEG,
+  type Spec,
   STR,
   STR_ARRAY,
-  type Spec,
   Validator,
 } from "../../src/_validate.js";
 

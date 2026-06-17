@@ -1,4 +1,3 @@
-export { type WatcherServiceOptions, WatcherService } from "./service.js";
 export {
   type RebuildBusEvent,
   type WatcherEvent,
@@ -8,7 +7,8 @@ export {
 } from "./bus.js";
 export {
   type WatcherEntry,
+  WatcherRegistry,
   type WatcherSnapshot,
   type WatcherState,
-  WatcherRegistry,
 } from "./registry.js";
+export { WatcherService, type WatcherServiceOptions } from "./service.js";

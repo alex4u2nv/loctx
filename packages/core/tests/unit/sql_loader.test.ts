@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SqlLoadError, loadQueries } from "../../src/sql/loader.js";
+import { loadQueries, SqlLoadError } from "../../src/sql/loader.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
 
 let tmp: string;

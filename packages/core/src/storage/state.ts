@@ -7,15 +7,15 @@ import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import {
   type AnalyzerMetadata,
+  analyzerMetadataFromJson,
+  analyzerMetadataToJson,
   type EmbeddingIdentity,
   type FileId,
+  identityToString,
   type Project,
   type ProjectId,
   type SymbolRef,
   type SymbolRefKind,
-  analyzerMetadataFromJson,
-  analyzerMetadataToJson,
-  identityToString,
   chunkId as toChunkId,
   fileId as toFileId,
   projectId as toProjectId,

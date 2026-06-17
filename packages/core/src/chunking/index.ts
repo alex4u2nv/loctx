@@ -2,21 +2,21 @@
  * Chunking entry points. Top-level `chunkFile()` selects strategy by extension.
  */
 
-import { type Chunker, type CodeChunk, type SourceDocument, chunkShaFor } from "./base.js";
-import { LANGUAGE_BY_EXTENSION, TreeSitterCodeChunker, detectLanguage } from "./code.js";
+import { type Chunker, type CodeChunk, chunkShaFor, type SourceDocument } from "./base.js";
+import { detectLanguage, LANGUAGE_BY_EXTENSION, TreeSitterCodeChunker } from "./code.js";
 import { MarkdownChunker } from "./markdown.js";
 import { LineWindowChunker } from "./prose.js";
 
 export {
   type Chunker,
   type CodeChunk,
-  type SourceDocument,
   chunkShaFor,
+  detectLanguage,
   LANGUAGE_BY_EXTENSION,
   LineWindowChunker,
   MarkdownChunker,
+  type SourceDocument,
   TreeSitterCodeChunker,
-  detectLanguage,
 };
 
 const TREE_SITTER_CHUNKER = new TreeSitterCodeChunker();

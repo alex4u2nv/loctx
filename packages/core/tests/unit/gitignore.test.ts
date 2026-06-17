@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LOCTXIGNORE_FILENAME, combinedGitignore } from "../../src/gitignore.js";
+import { combinedGitignore, LOCTXIGNORE_FILENAME } from "../../src/gitignore.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
 
 let root: string;

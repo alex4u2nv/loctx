@@ -2,12 +2,12 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeEmbeddingProvider } from "../../src/embeddings/index.js";
-import { ProjectFilter, loadFilteringRules } from "../../src/filtering.js";
+import { loadFilteringRules, ProjectFilter } from "../../src/filtering.js";
 import { combinedGitignore } from "../../src/gitignore.js";
 import { ProjectIndexer } from "../../src/indexing/indexer.js";
 import { Reconciler } from "../../src/indexing/reconciler.js";
 import { type Project, projectId } from "../../src/models.js";
-import { StateStore, createVectorStore } from "../../src/storage/index.js";
+import { createVectorStore, StateStore } from "../../src/storage/index.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
 
 let tmp: string;

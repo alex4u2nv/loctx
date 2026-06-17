@@ -1,10 +1,10 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  DaemonLockHeldError,
-  LockFileTamperedError,
   acquireDaemonLock,
+  DaemonLockHeldError,
   daemonLockPath,
+  LockFileTamperedError,
   readActiveDaemon,
   stopActiveDaemon,
 } from "../../src/daemon-lock.js";

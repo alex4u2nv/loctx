@@ -6,26 +6,26 @@
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 import {
+  buildRuntime,
   type Config,
   ConfigError,
   DaemonHttpError,
   DaemonLockHeldError,
-  NoDaemonError,
-  type Project,
-  SearcherError,
-  StateStore,
-  WatcherService,
-  WorkspaceDiscovery,
-  buildRuntime,
   daemonClient,
   defaultConfigFile,
   findContainingProject,
   inventoryProjects,
   loadConfig,
   makeProject,
+  NoDaemonError,
+  type Project,
   readActiveDaemon,
   runDoctorChecks,
+  SearcherError,
+  StateStore,
   stopActiveDaemon,
+  WatcherService,
+  WorkspaceDiscovery,
   worstStatus,
 } from "@loctx/core";
 import { Command } from "commander";

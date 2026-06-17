@@ -1,9 +1,9 @@
 export {
   type ResolvedScope,
   type Scope,
+  SearcherError,
   type SearchRequest,
   type SearchResponse,
   type SearchResult,
-  SearcherError,
   WorkspaceSearcher,
 } from "./searcher.js";

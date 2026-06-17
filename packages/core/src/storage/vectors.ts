@@ -16,10 +16,10 @@ import { mkdirSync } from "node:fs";
 import { Field, FixedSizeList, Float32, Int32, Schema, Utf8 } from "apache-arrow";
 import {
   type ChunkId,
+  collectionSuffix,
   type EmbeddingIdentity,
   type FileId,
   type ProjectId,
-  collectionSuffix,
 } from "../models.js";
 import type { StateStore } from "./state.js";
 

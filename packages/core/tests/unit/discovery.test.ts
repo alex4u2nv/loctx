@@ -2,12 +2,12 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  DEFAULT_PROJECT_MARKERS,
-  WorkspaceDiscovery,
   chunkIdFor,
+  DEFAULT_PROJECT_MARKERS,
   fileIdFor,
   makeProject,
   projectIdFor,
+  WorkspaceDiscovery,
 } from "../../src/discovery.js";
 import type { FileId } from "../../src/models.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";

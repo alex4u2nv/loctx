@@ -10,7 +10,7 @@ import { existsSync, statSync } from "node:fs";
 import { detectLizard } from "./analyzers/index.js";
 import type { Config } from "./config.js";
 import { readActiveDaemon } from "./daemon-lock.js";
-import { WorkspaceDiscovery, inventoryProjects } from "./discovery.js";
+import { inventoryProjects, WorkspaceDiscovery } from "./discovery.js";
 import { StateStore } from "./storage/state.js";
 import { isModelTrusted } from "./trusted-models.js";
 import { checkNofile } from "./ulimit.js";

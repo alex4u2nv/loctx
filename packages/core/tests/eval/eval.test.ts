@@ -15,7 +15,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Config } from "../../src/config.js";
-import { type Runtime, WorkspaceDiscovery, buildRuntime, defaultPaths } from "../../src/index.js";
+import { buildRuntime, defaultPaths, type Runtime, WorkspaceDiscovery } from "../../src/index.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
 import { FIXTURE_PROJECTS, writeFixtureWorkspace } from "./fixtures.js";
 import { EVAL_CASES } from "./queries.js";

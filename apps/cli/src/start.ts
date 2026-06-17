@@ -14,23 +14,23 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  type Config,
-  type DaemonLock,
-  DaemonLockHeldError,
-  type Project,
-  type Runtime,
-  WatcherRegistry,
-  WatcherService,
   acquireDaemonLock,
   buildRuntime,
+  type Config,
   checkNofile,
+  type DaemonLock,
+  DaemonLockHeldError,
   findLegacyProjectConfig,
   inspectDaemonLockfile,
   inventoryProjects,
   looksLikeFdExhaustion,
   nofileBumpHint,
+  type Project,
+  type Runtime,
   stopActiveDaemon,
   summarizeLegacyProjectConfig,
+  WatcherRegistry,
+  WatcherService,
 } from "@loctx/core";
 
 const DAEMON_VERSION = "0.1.0";
@@ -442,11 +442,9 @@ async function startWeb(
     }): { fetch: (req: Request) => Promise<Response> };
   };
   type HonoNodeServerModule = {
-    serve(opts: {
-      fetch: (req: Request) => Promise<Response>;
-      port?: number;
-      hostname?: string;
-    }): { close(cb: (err?: Error) => void): void };
+    serve(opts: { fetch: (req: Request) => Promise<Response>; port?: number; hostname?: string }): {
+      close(cb: (err?: Error) => void): void;
+    };
   };
   const { createWebApp } = (await import(serverModule)) as WebServerModule;
   const { serve } = (await import("@hono/node-server")) as HonoNodeServerModule;

@@ -14,12 +14,12 @@
 
 import {
   type DuplicateGroup,
+  inventoryProjects,
   type ProjectId,
   type Runtime,
   type SearchResponse,
   type SymbolRefHit,
   Validator,
-  inventoryProjects,
 } from "@loctx/core";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";

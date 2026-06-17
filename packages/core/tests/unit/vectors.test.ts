@@ -2,15 +2,15 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type ChunkId,
+  chunkId,
   type EmbeddingIdentity,
   type FileId,
-  type ProjectId,
-  chunkId,
   fileId,
+  type ProjectId,
   projectId,
 } from "../../src/models.js";
 import { StateStore } from "../../src/storage/state.js";
-import { type EmbeddedChunk, createVectorStore } from "../../src/storage/vectors.js";
+import { createVectorStore, type EmbeddedChunk } from "../../src/storage/vectors.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
 
 const DIM = 4;

@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { WorkspaceDiscovery, inventoryProjects, makeProject } from "../../src/discovery.js";
+import { inventoryProjects, makeProject, WorkspaceDiscovery } from "../../src/discovery.js";
 import { type Project, projectId } from "../../src/models.js";
 import { StateStore } from "../../src/storage/state.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";

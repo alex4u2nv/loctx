@@ -7,11 +7,11 @@ import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import {
   type ChunkId,
+  chunkId,
   type FileId,
+  fileId,
   type Project,
   type ProjectId,
-  chunkId,
-  fileId,
   projectId,
 } from "./models.js";
 import type { StateStore } from "./storage/state.js";

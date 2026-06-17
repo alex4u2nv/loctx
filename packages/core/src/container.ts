@@ -14,14 +14,14 @@
 import { readFileSync } from "node:fs";
 import {
   AST_GREP_VERSION,
+  computeDuplicateWindows,
   DUPLICATES_VERSION,
   EnrichmentQueue,
   LIZARD_VERSION,
-  SEMGREP_VERSION,
-  computeDuplicateWindows,
   runAstGrep,
   runLizard,
   runSemgrep,
+  SEMGREP_VERSION,
 } from "./analyzers/index.js";
 import type { Config } from "./config.js";
 import { DEFAULT_PROJECT_MARKERS, type MarkerSpec, WorkspaceDiscovery } from "./discovery.js";
@@ -30,12 +30,12 @@ import {
   FakeEmbeddingProvider,
   LocalEmbeddingProvider,
 } from "./embeddings/index.js";
-import { type FilteringRules, ProjectFilter, loadFilteringRules } from "./filtering.js";
+import { type FilteringRules, loadFilteringRules, ProjectFilter } from "./filtering.js";
 import { combinedGitignore } from "./gitignore.js";
 import { ProjectIndexer, Reconciler } from "./indexing/index.js";
 import type { Project } from "./models.js";
 import { WorkspaceSearcher } from "./retrieval/index.js";
-import { StateStore, type VectorStore, createVectorStore } from "./storage/index.js";
+import { createVectorStore, StateStore, type VectorStore } from "./storage/index.js";
 
 export interface Runtime {
   readonly config: Config;

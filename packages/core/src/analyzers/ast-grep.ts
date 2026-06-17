@@ -23,10 +23,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
-  type RulePackFileResult,
-  type RulePackFinding,
   capFindings,
   normalizeSeverity,
+  type RulePackFileResult,
+  type RulePackFinding,
 } from "./rule-pack.js";
 
 export const AST_GREP_VERSION = 1;
