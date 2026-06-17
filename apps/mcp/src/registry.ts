@@ -17,6 +17,7 @@ import {
   inventoryProjects,
   type ProjectId,
   type Runtime,
+  resolveProjectScope,
   type SearchResponse,
   type SymbolRefHit,
   Validator,
@@ -142,6 +143,12 @@ export interface FindUsagesOutput {
     readonly defs: ReadonlyArray<SymbolRefHit>;
     readonly refs: ReadonlyArray<SymbolRefHit>;
   }>;
+  /**
+   * Scope-resolution notes, e.g. when a `path` inside an unindexed inner
+   * project was scoped to its indexed parent (#276). Empty in the common
+   * case. Surfaced so a broadened scope is never silent.
+   */
+  readonly warnings: ReadonlyArray<string>;
   readonly indexHealth: IndexHealth;
 }
 
@@ -195,6 +202,12 @@ export interface FindLiteralOutput {
   readonly matches: ReadonlyArray<LiteralMatchHit>;
   /** Distinct files containing at least one match. Computed from `matches`. */
   readonly fileCount: number;
+  /**
+   * Scope-resolution notes, e.g. when a `path` inside an unindexed inner
+   * project was scoped to its indexed parent (#276). Empty in the common
+   * case. Surfaced so a narrowed/broadened scope is never silent.
+   */
+  readonly warnings: ReadonlyArray<string>;
   readonly indexHealth: IndexHealth;
   /**
    * Always present — set by the server to remind callers that the
@@ -335,15 +348,20 @@ export const tools = {
     const path = v.getStr(data, "path");
 
     // Scope: if path given, narrow to one project. Otherwise sweep all.
+    // resolveProjectScope prefers the deepest *indexed* ancestor over an
+    // unindexed inner marker (e.g. a monorepo `packages/core`), so a path
+    // inside a nested package still finds usages in the indexed parent
+    // instead of returning an empty list (#276).
+    const warnings: string[] = [];
     let projects = runtime.discovery.discoverProjects();
     if (path !== undefined) {
-      const scoped = runtime.discovery.resolveProject(path);
-      if (scoped === null) {
+      const scope = resolveProjectScope(runtime.discovery, runtime.state, path, warnings);
+      if (scope.project === null) {
         throw new ToolError(
           `path ${path} is not inside any indexed project; omit path to search every project.`,
         );
       }
-      projects = [scoped];
+      projects = [scope.project];
     }
 
     const out: Array<{
@@ -360,6 +378,7 @@ export const tools = {
     return Object.freeze({
       symbol,
       projects: Object.freeze(out),
+      warnings: Object.freeze(warnings),
       indexHealth: currentIndexHealth(runtime),
     });
   },
@@ -402,22 +421,23 @@ export const tools = {
     }
     const path = v.getStr(data, "path");
 
+    // resolveProjectScope prefers the deepest *indexed* ancestor over an
+    // unindexed inner marker and derives the subtree prefix, so a path
+    // inside a nested package (e.g. `packages/core`) scopes to the indexed
+    // parent with a `packages/core/` prefix instead of an empty inner
+    // project that returns zero matches (#276).
+    const warnings: string[] = [];
     let projectId: ProjectId | undefined;
     let relPathPrefix: string | undefined;
     if (path !== undefined && path !== "") {
-      const scoped = runtime.discovery.resolveProject(path);
-      if (scoped === null) {
+      const scope = resolveProjectScope(runtime.discovery, runtime.state, path, warnings);
+      if (scope.project === null) {
         throw new ToolError(
           `path ${path} is not inside any indexed project; omit path to search every project.`,
         );
       }
-      projectId = scoped.id;
-      // If path is deeper than the project root, narrow further by
-      // prefix. resolveProject returns the project; we re-derive the
-      // sub-prefix from the input path.
-      if (path.startsWith(`${scoped.root}/`)) {
-        relPathPrefix = path.slice(scoped.root.length + 1);
-      }
+      projectId = scope.project.id;
+      if (scope.relPrefix !== null) relPathPrefix = scope.relPrefix;
     }
 
     const opts: { projectId?: ProjectId; relPathPrefix?: string } = {};
@@ -440,6 +460,7 @@ export const tools = {
       pattern,
       matches: Object.freeze(matches),
       fileCount,
+      warnings: Object.freeze(warnings),
       indexHealth: currentIndexHealth(runtime),
       coverageNote:
         "Scans indexed chunk text only. **Blind spots:** (1) chunker-gap regions inside indexed files (#360 — the gap-fill landed in #362/#364 but doesn't cover 100% of lines); (2) files under directories the filtering rules exclude — typically `.git/`, `node_modules/`, build outputs (`dist/`, `build/`, `coverage/`), and lockfiles by basename (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`). Inspect the exact list via `workspace_status` → `exclusions`. For safety-critical audits ('is this stale URL referenced anywhere'), cross-check with `rg <pattern>`.",
