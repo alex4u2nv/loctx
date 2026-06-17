@@ -27,6 +27,31 @@ This is a from-clone install by design. Because npm links the local directories,
 
 If `npm i -g` fails with a permissions error, your npm prefix isn't user-writable. Set a user-level prefix (`npm config set prefix ~/.npm-global`, then add `~/.npm-global/bin` to PATH) or use a Node version manager (nvm, fnm, volta).
 
+### Troubleshooting: native build behind a TLS proxy or firewall
+
+`loctx` depends on `better-sqlite3`, a native module. On `pnpm install` it downloads a prebuilt binary (no compiler needed) for your Node ABI; 12.x ships prebuilds for Node 22, 24, 25, and 26. If the download is unavailable it falls back to compiling from source via `node-gyp`.
+
+A corporate proxy or a tool like Socket Firewall that intercepts TLS will break both paths with:
+
+```
+prebuild-install warn install unable to get local issuer certificate
+gyp ERR! stack FetchError: ... reason: unable to get local issuer certificate
+```
+
+The interceptor re-signs HTTPS with a root CA that Node doesn't trust — Node uses its own CA bundle and ignores the system keychain. Point Node at the trust store so the prebuilt binary downloads (still no compiler needed):
+
+```bash
+# macOS: export the keychain (incl. any corporate/Socket root CA) to a PEM
+security find-certificate -a -p \
+  /Library/Keychains/System.keychain \
+  /System/Library/Keychains/SystemRootCertificates.keychain \
+  > ~/.config/node-extra-ca.pem
+export NODE_EXTRA_CA_CERTS=~/.config/node-extra-ca.pem
+pnpm install
+```
+
+On Linux, point `NODE_EXTRA_CA_CERTS` at your org's root CA PEM. Alternatively, allowlist `github.com`, `objects.githubusercontent.com`, and `nodejs.org` in the interceptor so those downloads pass through unmodified. If you must, `NODE_TLS_REJECT_UNAUTHORIZED=0 pnpm install` bypasses verification — insecure, and it defeats the point of a scanning firewall.
+
 ## Quick start
 
 ```bash
