@@ -16,6 +16,7 @@
     "format": "biome format --write packages apps",
     "format:check": "biome format --check packages apps",
     "verify": "pnpm run build && pnpm run lint && pnpm run typecheck && pnpm test",
+    "install:local": "node scripts/install.mjs",
     "prepare": "lefthook install",
     "dev:cli": "pnpm --filter @loctx/cli dev --",
     "dev:web": "pnpm --filter @loctx/web dev",
