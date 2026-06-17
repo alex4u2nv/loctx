@@ -19,13 +19,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, parse as parsePath, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { BOOL, INT_NON_NEG, STR, STR_ARRAY, type Spec, Validator } from "./_validate.js";
+import { BOOL, INT_NON_NEG, type Spec, STR, STR_ARRAY, Validator } from "./_validate.js";
 import {
-  type PathOrigin,
-  type StoragePaths,
   defaultPaths,
   ensurePaths,
+  type PathOrigin,
   pathOrigin,
+  type StoragePaths,
 } from "./paths.js";
 
 const DEFAULT_DEBOUNCE_MS = 500;

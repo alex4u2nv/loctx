@@ -13,14 +13,14 @@
  */
 
 import {
-  type Stats,
   closeSync,
   existsSync,
   lstatSync,
   openSync,
+  readdirSync,
   readFileSync,
   readSync,
-  readdirSync,
+  type Stats,
   statSync,
 } from "node:fs";
 import { homedir } from "node:os";

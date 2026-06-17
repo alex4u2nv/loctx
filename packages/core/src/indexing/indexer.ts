@@ -3,14 +3,13 @@
  */
 
 import { createHash } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
-import { type Dirent, opendirSync } from "node:fs";
+import { type Dirent, opendirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { type CodeChunk, chunkFile, detectLanguage } from "../chunking/index.js";
 import { chunkIdFor, fileIdFor } from "../discovery.js";
 import type { EmbeddingProvider } from "../embeddings/index.js";
 import type { ProjectFilter } from "../filtering.js";
-import { type ChunkId, type FileId, type Project, identityToString } from "../models.js";
+import { type ChunkId, type FileId, identityToString, type Project } from "../models.js";
 import type {
   ChunkInsert,
   EmbeddedChunk,

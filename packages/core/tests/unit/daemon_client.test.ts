@@ -10,10 +10,10 @@
  * path; mocking fetch wouldn't catch the actual timer/abort wiring.
  */
 
-import { type Server, createServer } from "node:http";
+import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DaemonHttpError, NoDaemonError, daemonClient } from "../../src/daemon-client.js";
+import { DaemonHttpError, daemonClient, NoDaemonError } from "../../src/daemon-client.js";
 import { acquireDaemonLock } from "../../src/daemon-lock.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
 
@@ -93,7 +93,6 @@ describe("daemonClient", () => {
       await expect(client.get("/api/ok")).resolves.toEqual({ ok: true });
     } finally {
       console.error = origErr;
-      // biome-ignore lint/performance/noDelete: env var must be absent to test the production default
       if (prev === undefined) delete process.env["LOCTX_DAEMON_TIMEOUT_MS"];
       else process.env["LOCTX_DAEMON_TIMEOUT_MS"] = prev;
     }
@@ -128,7 +127,6 @@ describe("daemonClient", () => {
         status: 504,
       });
     } finally {
-      // biome-ignore lint/performance/noDelete: env var must be absent to test the production default
       if (prev === undefined) delete process.env["LOCTX_DAEMON_TIMEOUT_MS"];
       else process.env["LOCTX_DAEMON_TIMEOUT_MS"] = prev;
     }

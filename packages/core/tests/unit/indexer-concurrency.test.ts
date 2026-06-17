@@ -18,11 +18,11 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeEmbeddingProvider } from "../../src/embeddings/index.js";
-import { ProjectFilter, loadFilteringRules } from "../../src/filtering.js";
+import { loadFilteringRules, ProjectFilter } from "../../src/filtering.js";
 import { combinedGitignore } from "../../src/gitignore.js";
 import { ProjectIndexer } from "../../src/indexing/indexer.js";
 import { type Project, projectId } from "../../src/models.js";
-import { StateStore, type VectorStore, createVectorStore } from "../../src/storage/index.js";
+import { createVectorStore, StateStore, type VectorStore } from "../../src/storage/index.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
 
 let tmp: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MarkdownChunker, chunkFile } from "../../src/chunking/index.js";
+import { chunkFile, MarkdownChunker } from "../../src/chunking/index.js";
 
 describe("MarkdownChunker", () => {
   const chunker = new MarkdownChunker();

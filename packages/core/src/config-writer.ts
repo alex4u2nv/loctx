@@ -19,8 +19,8 @@ import { Document, parseDocument } from "yaml";
 import {
   CONFIG_SCHEMA,
   type FieldSchema,
-  type ValidationError,
   getField,
+  type ValidationError,
   validatePatch,
 } from "./config-schema.js";
 

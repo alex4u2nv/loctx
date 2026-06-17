@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  LANGUAGE_BY_EXTENSION,
-  LineWindowChunker,
   chunkFile,
   chunkShaFor,
   detectLanguage,
+  LANGUAGE_BY_EXTENSION,
+  LineWindowChunker,
 } from "../../src/chunking/index.js";
 
 describe("detectLanguage", () => {

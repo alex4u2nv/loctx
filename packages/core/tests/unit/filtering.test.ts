@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeProject } from "../../src/discovery.js";
 import {
-  FilterReason,
   type FilteringRules,
-  ProjectFilter,
+  FilterReason,
   loadFilteringRules,
+  ProjectFilter,
   withOverrides,
 } from "../../src/filtering.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";

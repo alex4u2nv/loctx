@@ -1,42 +1,42 @@
 export {
-  type EnrichmentQueueOptions,
-  type EnrichmentResult,
-  type EnrichmentStatus,
-  type EnrichmentTask,
-  EnrichmentQueue,
-} from "./queue.js";
+  AST_GREP_VERSION,
+  detectAstGrep,
+  parseAstGrepJson,
+  type RunAstGrepOptions,
+  runAstGrep,
+} from "./ast-grep.js";
 export {
+  computeDuplicateWindows,
+  DUPLICATES_VERSION,
+  type DuplicatesOptions,
+  type DuplicatesPayload,
+  type DuplicateWindow,
+} from "./duplicates.js";
+export {
+  detectLizard,
+  LIZARD_VERSION,
   type LizardFileResult,
   type LizardFunctionMetric,
-  LIZARD_VERSION,
-  detectLizard,
   parseLizardCsv,
   runLizard,
 } from "./lizard.js";
 export {
-  type DuplicateWindow,
-  type DuplicatesOptions,
-  type DuplicatesPayload,
-  DUPLICATES_VERSION,
-  computeDuplicateWindows,
-} from "./duplicates.js";
+  EnrichmentQueue,
+  type EnrichmentQueueOptions,
+  type EnrichmentResult,
+  type EnrichmentStatus,
+  type EnrichmentTask,
+} from "./queue.js";
 export {
-  type RulePackFileResult,
-  type RulePackFinding,
   capFindings,
   normalizeSeverity,
+  type RulePackFileResult,
+  type RulePackFinding,
 } from "./rule-pack.js";
 export {
-  type RunSemgrepOptions,
-  SEMGREP_VERSION,
   detectSemgrep,
   parseSemgrepJson,
+  type RunSemgrepOptions,
   runSemgrep,
+  SEMGREP_VERSION,
 } from "./semgrep.js";
-export {
-  type RunAstGrepOptions,
-  AST_GREP_VERSION,
-  detectAstGrep,
-  parseAstGrepJson,
-  runAstGrep,
-} from "./ast-grep.js";

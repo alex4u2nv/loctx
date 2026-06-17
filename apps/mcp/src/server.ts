@@ -10,12 +10,11 @@
  * Logging goes to stderr — stdout is reserved for the JSON-RPC stream.
  */
 
-import { type Runtime, buildRuntime, loadConfig } from "@loctx/core";
+import { buildRuntime, loadConfig, type Runtime } from "@loctx/core";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerTools } from "./registry.js";
 
-export { TOOL_DEFINITIONS, ToolError, registerTools, tools } from "./registry.js";
 export type {
   RefreshInput,
   RefreshOutput,
@@ -23,6 +22,7 @@ export type {
   StatusInput,
   StatusOutput,
 } from "./registry.js";
+export { registerTools, TOOL_DEFINITIONS, ToolError, tools } from "./registry.js";
 
 const SERVER_INFO = { name: "loctx", version: "0.1.0" };
 

@@ -1,6 +1,7 @@
 export {
   type ChunkInsert,
   type ChunkState,
+  CollectionIdentityMismatch,
   type DuplicateGroup,
   type DuplicateMember,
   type FileEnrichmentRow,
@@ -9,16 +10,15 @@ export {
   type LexicalQuery,
   type McpRequestLogEntry,
   type McpRequestLogInput,
-  type SymbolRefHit,
-  CollectionIdentityMismatch,
   SCHEMA_VERSION,
   StateStore,
+  type SymbolRefHit,
 } from "./state.js";
 export {
+  collectionNameFor,
+  createVectorStore,
   type EmbeddedChunk,
   type VectorMatch,
   type VectorQuery,
   type VectorStore,
-  collectionNameFor,
-  createVectorStore,
 } from "./vectors.js";

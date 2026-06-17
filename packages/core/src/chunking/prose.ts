@@ -2,7 +2,7 @@
  * Line-window chunker for prose, configs, and unsupported languages.
  */
 
-import { type Chunker, type CodeChunk, type SourceDocument, chunkShaFor } from "./base.js";
+import { type Chunker, type CodeChunk, chunkShaFor, type SourceDocument } from "./base.js";
 
 export interface LineWindowOptions {
   readonly windowLines?: number;

@@ -51,13 +51,13 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.0.0",
+    "@huggingface/transformers": "^3.8.1",
     "@lancedb/lancedb": "^0.27.2",
+    "@parcel/watcher": "^2.5.6",
     "apache-arrow": "^18.1.0",
-    "better-sqlite3": "^11.5.0",
-    "@parcel/watcher": "^2.5.0",
-    "env-paths": "^3.0.0",
-    "ignore": "^6.0.2",
+    "better-sqlite3": "^12.11.1",
+    "env-paths": "^4.0.0",
+    "ignore": "^7.0.5",
     "tree-sitter": "0.22.4",
     "tree-sitter-go": "0.23.4",
     "tree-sitter-java": "0.23.5",
@@ -65,9 +65,9 @@
     "tree-sitter-python": "0.23.6",
     "tree-sitter-rust": "0.23.3",
     "tree-sitter-typescript": "0.23.2",
-    "yaml": "^2.6.0"
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.11"
+    "@types/better-sqlite3": "^7.6.13"
   }
 }
