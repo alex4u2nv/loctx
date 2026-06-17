@@ -87,6 +87,86 @@ describe("StateStore", () => {
     store.close();
   });
 
+  it("logs MCP requests newest-first and reads them back", () => {
+    const store = new StateStore(join(tmp, "state.db"));
+    store.logMcpRequest(
+      {
+        tool: "search_workspace",
+        argumentsJson: JSON.stringify({ query: "auth" }),
+        responseJson: JSON.stringify({ results: [] }),
+        error: null,
+        ok: true,
+        elapsedMs: 12,
+        requestedAt: "2024-01-01T00:00:00.000Z",
+      },
+      200,
+    );
+    store.logMcpRequest(
+      {
+        tool: "find_usages",
+        argumentsJson: JSON.stringify({ symbol: "x" }),
+        responseJson: null,
+        error: "boom",
+        ok: false,
+        elapsedMs: 3,
+        requestedAt: "2024-01-01T00:00:01.000Z",
+      },
+      200,
+    );
+    const rows = store.listMcpRequests(10);
+    expect(rows.length).toBe(2);
+    expect(store.countMcpRequests()).toBe(2);
+    // Newest first.
+    expect(rows[0]?.tool).toBe("find_usages");
+    expect(rows[0]?.ok).toBe(false);
+    expect(rows[0]?.error).toBe("boom");
+    expect(rows[0]?.responseJson).toBeNull();
+    expect(rows[1]?.tool).toBe("search_workspace");
+    expect(rows[1]?.ok).toBe(true);
+    store.close();
+  });
+
+  it("trims the MCP request log to the row bound", () => {
+    const store = new StateStore(join(tmp, "state.db"));
+    for (let i = 0; i < 10; i += 1) {
+      store.logMcpRequest(
+        {
+          tool: "search_workspace",
+          argumentsJson: JSON.stringify({ query: `q${i}` }),
+          responseJson: "{}",
+          error: null,
+          ok: true,
+          elapsedMs: i,
+        },
+        3,
+      );
+    }
+    expect(store.countMcpRequests()).toBe(3);
+    // The three survivors are the newest (q9, q8, q7).
+    const rows = store.listMcpRequests(10);
+    expect(rows.map((r) => JSON.parse(r.argumentsJson).query)).toEqual(["q9", "q8", "q7"]);
+    store.close();
+  });
+
+  it("logMcpRequest is a no-op when the row bound is 0", () => {
+    const store = new StateStore(join(tmp, "state.db"));
+    store.logMcpRequest(
+      {
+        tool: "search_workspace",
+        argumentsJson: "{}",
+        responseJson: "{}",
+        error: null,
+        ok: true,
+        elapsedMs: 1,
+      },
+      0,
+    );
+    expect(store.countMcpRequests()).toBe(0);
+    store.clearMcpRequests();
+    expect(store.countMcpRequests()).toBe(0);
+    store.close();
+  });
+
   it("refuses to open a DB with a newer schema version (#168)", async () => {
     // Simulate a downgrade scenario: a newer loctx wrote SCHEMA_VERSION+1
     // into PRAGMA user_version. The current build must refuse, not

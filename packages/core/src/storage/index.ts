@@ -7,6 +7,8 @@ export {
   type FileState,
   type LexicalMatch,
   type LexicalQuery,
+  type McpRequestLogEntry,
+  type McpRequestLogInput,
   type SymbolRefHit,
   CollectionIdentityMismatch,
   SCHEMA_VERSION,

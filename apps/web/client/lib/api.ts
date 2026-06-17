@@ -12,6 +12,7 @@ import type {
   FindLiteralPayload,
   FindUsagesPayload,
   FindUsagesRequest,
+  McpLogsPayload,
   McpToolsPayload,
   ModelsPayload,
   ProjectDetailPayload,
@@ -131,6 +132,8 @@ export const api = {
   restart: () =>
     postJson<{ ok: true; stopped: number; message: string }>("/api/restart", {}),
   stop: () => postJson<{ ok: true; stopped: number }>("/api/stop", {}),
+  logs: () => getJson<McpLogsPayload>("/api/logs"),
+  logsClear: () => postJson<{ ok: true }>("/api/logs/clear", {}),
   watchers: () => getJson<WatchersPayload>("/api/watchers"),
   watchPause: (projectId: string) =>
     postJson<{ ok: true; paused: string; state: string }>("/api/watch/pause", { projectId }),
