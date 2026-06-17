@@ -430,100 +430,127 @@ export class WorkspaceSearcher {
   }
 
   private resolveScope(request: SearchRequest, warnings: string[]): ResolvedScope {
-    if (request.path === undefined) {
-      return Object.freeze({ mode: "all", project: null, relPrefix: null, inputPath: null });
-    }
+    return resolveProjectScope(this.discovery, this.state, request.path, warnings);
+  }
+}
 
-    // Realpath here too: discovery.resolveProject walks via realpath
-    // internally, and on macOS `/var/folders` → `/private/var/folders` so
-    // the input path and project root would otherwise sit on opposite
-    // sides of the symlink. Falls back to plain `resolve` when the path
-    // doesn't exist on disk yet (so the "outside any project" warning
-    // still fires sensibly for typo'd paths).
-    const resolved = isAbsolute(request.path) ? request.path : resolve(request.path);
-    let absPath: string;
-    try {
-      absPath = realpathSync(resolved);
-    } catch {
-      absPath = resolved;
-    }
+/**
+ * Resolve an optional `path` into a project/subtree scope, preferring the
+ * deepest *indexed* ancestor over an unindexed inner marker (#276).
+ *
+ * Shared by `search_workspace`, `find_usages`, and `find_literal` so all
+ * three handle nested packages identically: a path inside an unindexed
+ * inner project (e.g. a monorepo `packages/core` with its own
+ * `package.json`) scopes to the indexed parent that actually has data,
+ * with a warning, instead of silently resolving to an empty inner project
+ * and returning zero hits.
+ *
+ * `warnings` is appended to in place. Returns `mode: "all"` with a null
+ * project when the path lands outside every indexed project; callers
+ * decide whether that means "search everything" or "reject".
+ */
+export function resolveProjectScope(
+  discovery: Pick<WorkspaceDiscovery, "resolveProject">,
+  state: Pick<StateStore, "listProjects">,
+  path: string | undefined,
+  warnings: string[],
+): ResolvedScope {
+  if (path === undefined) {
+    return Object.freeze({ mode: "all", project: null, relPrefix: null, inputPath: null });
+  }
 
-    const markerProject = this.discovery.resolveProject(absPath);
-    const indexedAncestor = this.findDeepestIndexedAncestor(absPath);
+  // Realpath here too: discovery.resolveProject walks via realpath
+  // internally, and on macOS `/var/folders` → `/private/var/folders` so
+  // the input path and project root would otherwise sit on opposite
+  // sides of the symlink. Falls back to plain `resolve` when the path
+  // doesn't exist on disk yet (so the "outside any project" warning
+  // still fires sensibly for typo'd paths).
+  const resolved = isAbsolute(path) ? path : resolve(path);
+  let absPath: string;
+  try {
+    absPath = realpathSync(resolved);
+  } catch {
+    absPath = resolved;
+  }
 
-    let project: Project | null = null;
-    if (markerProject !== null && indexedAncestor !== null) {
-      // Both available. Prefer the inner marker only if it is itself an
-      // indexed project; otherwise fall back to the deepest indexed
-      // ancestor (#276) so the search has real data to draw on instead
-      // of silently returning zero hits.
-      if (markerProject.id === indexedAncestor.id) {
-        project = markerProject;
-      } else if (markerProject.root.startsWith(indexedAncestor.root + sep)) {
-        project = indexedAncestor;
-        warnings.push(
-          `path ${absPath} is inside unindexed inner project ${markerProject.name} ` +
-            `(${markerProject.root}); scoping to indexed parent ${indexedAncestor.name}.`,
-        );
-      } else {
-        // Inner marker is not under the indexed ancestor (shouldn't
-        // normally happen; defensive). Prefer the indexed project.
-        project = indexedAncestor;
-      }
-    } else if (indexedAncestor !== null) {
-      project = indexedAncestor;
-    } else if (markerProject !== null) {
-      // We have a marker but no indexed project covers this path. Keep
-      // the marker so an "outside indexed scope" search still runs
-      // against an empty subtree — caller sees zero results plus the
-      // existing "not inside any indexed project" pathway.
+  const markerProject = discovery.resolveProject(absPath);
+  const indexedAncestor = findDeepestIndexedAncestor(state, absPath);
+
+  let project: Project | null = null;
+  if (markerProject !== null && indexedAncestor !== null) {
+    // Both available. Prefer the inner marker only if it is itself an
+    // indexed project; otherwise fall back to the deepest indexed
+    // ancestor (#276) so the search has real data to draw on instead
+    // of silently returning zero hits.
+    if (markerProject.id === indexedAncestor.id) {
       project = markerProject;
-    }
-
-    if (project === null) {
-      warnings.push(`path ${absPath} is not inside any indexed project; searching every project.`);
-      return Object.freeze({ mode: "all", project: null, relPrefix: null, inputPath: absPath });
-    }
-
-    // The path lands inside a project. If the path is the root itself, scope
-    // to the whole project; if it's deeper, treat the leftover as a subtree
-    // prefix the post-filter applies.
-    const rel = relative(resolve(project.root), absPath).split(sep).join("/");
-    if (rel === "" || rel === ".") {
-      return Object.freeze({ mode: "project", project, relPrefix: null, inputPath: absPath });
-    }
-    if (rel.startsWith("..")) {
-      // Defensive — `resolveProject` claimed this path, but the relative
-      // form escapes. Treat as project scope and warn.
+    } else if (markerProject.root.startsWith(indexedAncestor.root + sep)) {
+      project = indexedAncestor;
       warnings.push(
-        `resolved project ${project.root} doesn't contain ${absPath}; falling back to project scope.`,
+        `path ${absPath} is inside unindexed inner project ${markerProject.name} ` +
+          `(${markerProject.root}); scoping to indexed parent ${indexedAncestor.name}.`,
       );
-      return Object.freeze({ mode: "project", project, relPrefix: null, inputPath: absPath });
+    } else {
+      // Inner marker is not under the indexed ancestor (shouldn't
+      // normally happen; defensive). Prefer the indexed project.
+      project = indexedAncestor;
     }
-    return Object.freeze({
-      mode: "subtree",
-      project,
-      relPrefix: `${rel}/`,
-      inputPath: absPath,
-    });
+  } else if (indexedAncestor !== null) {
+    project = indexedAncestor;
+  } else if (markerProject !== null) {
+    // We have a marker but no indexed project covers this path. Keep
+    // the marker so an "outside indexed scope" search still runs
+    // against an empty subtree — caller sees zero results plus the
+    // existing "not inside any indexed project" pathway.
+    project = markerProject;
   }
 
-  // Walk through state-recorded active projects, return the deepest one whose
-  // root contains absPath (#276). Indexed-status is approximated by active=1;
-  // the heal pass in apps/cli ensures active projects with file rows surface
-  // here even when last_indexed_at started null.
-  private findDeepestIndexedAncestor(absPath: string): Project | null {
-    let best: Project | null = null;
-    for (const row of this.state.listProjects()) {
-      if (!row.active) continue;
-      const root = row.root;
-      if (absPath !== root && !absPath.startsWith(root + sep)) continue;
-      if (best === null || root.length > best.root.length) {
-        best = { id: row.id, name: row.name, root };
-      }
-    }
-    return best;
+  if (project === null) {
+    warnings.push(`path ${absPath} is not inside any indexed project; searching every project.`);
+    return Object.freeze({ mode: "all", project: null, relPrefix: null, inputPath: absPath });
   }
+
+  // The path lands inside a project. If the path is the root itself, scope
+  // to the whole project; if it's deeper, treat the leftover as a subtree
+  // prefix the post-filter applies.
+  const rel = relative(resolve(project.root), absPath).split(sep).join("/");
+  if (rel === "" || rel === ".") {
+    return Object.freeze({ mode: "project", project, relPrefix: null, inputPath: absPath });
+  }
+  if (rel.startsWith("..")) {
+    // Defensive — `resolveProject` claimed this path, but the relative
+    // form escapes. Treat as project scope and warn.
+    warnings.push(
+      `resolved project ${project.root} doesn't contain ${absPath}; falling back to project scope.`,
+    );
+    return Object.freeze({ mode: "project", project, relPrefix: null, inputPath: absPath });
+  }
+  return Object.freeze({
+    mode: "subtree",
+    project,
+    relPrefix: `${rel}/`,
+    inputPath: absPath,
+  });
+}
+
+// Walk through state-recorded active projects, return the deepest one whose
+// root contains absPath (#276). Indexed-status is approximated by active=1;
+// the heal pass in apps/cli ensures active projects with file rows surface
+// here even when last_indexed_at started null.
+function findDeepestIndexedAncestor(
+  state: Pick<StateStore, "listProjects">,
+  absPath: string,
+): Project | null {
+  let best: Project | null = null;
+  for (const row of state.listProjects()) {
+    if (!row.active) continue;
+    const root = row.root;
+    if (absPath !== root && !absPath.startsWith(root + sep)) continue;
+    if (best === null || root.length > best.root.length) {
+      best = { id: row.id, name: row.name, root };
+    }
+  }
+  return best;
 }
 
 // ---- helpers -----------------------------------------------------------

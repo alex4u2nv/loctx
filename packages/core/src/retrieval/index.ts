@@ -1,5 +1,6 @@
 export {
   type ResolvedScope,
+  resolveProjectScope,
   type Scope,
   SearcherError,
   type SearchRequest,
