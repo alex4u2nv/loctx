@@ -17,14 +17,17 @@ This repo uses [pnpm](https://pnpm.io/) (>= 9). The fastest way to get it: `core
 ```bash
 git clone git@github.com:alex4u2nv/loctx.git
 cd loctx
-./scripts/install.sh
+pnpm run install:local
 ```
 
-`scripts/install.sh` runs `pnpm install`, builds every workspace, and symlinks the `loctx` and `loctx-mcp` binaries into `~/.local/bin` (override with `LOCTX_BIN_DIR`). The links point at `dist/`, so a later `pnpm run build` is picked up with no relink; `./scripts/install.sh --uninstall` removes them. We symlink rather than `pnpm link --global` because pnpm won't link packages from inside a workspace.
+`pnpm run install:local` (the cross-platform `scripts/install.mjs`) runs `pnpm install`, builds every workspace, and exposes the `loctx` and `loctx-mcp` binaries on your PATH:
 
-If the script reports that the bin directory is not on your PATH, add it (e.g. `export PATH="$HOME/.local/bin:$PATH"`) and restart your shell.
+- **macOS / Linux** — symlinks into `~/.local/bin`.
+- **Windows** — writes `.cmd` + `.ps1` shims into `%LOCALAPPDATA%\loctx\bin`.
 
-`@loctx/web` stays private. The daemon needs the workspace's `apps/web/dist/{client,server}` build output, so run `loctx start` from a clone (or wait for an umbrella package).
+Override the target directory with `LOCTX_BIN_DIR`. The links/shims invoke the in-place `dist/` build, so a later `pnpm run build` is picked up with no re-link; `node scripts/install.mjs --uninstall` removes them. If the installer reports the bin directory is not on your PATH, add it and restart your shell.
+
+This is a from-clone install by design. `loctx start` loads the private `@loctx/web` server build at runtime, and the CLI references its workspace siblings via the `workspace:` protocol, so neither `pnpm link --global` nor a published `npm i -g` yields a working daemon. Run from a clone (or wait for an umbrella package).
 
 ## Quick start
 
