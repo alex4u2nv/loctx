@@ -36,7 +36,7 @@ export function ConfigPage() {
   const [saveState, setSaveState] = useState<
     | { kind: "idle" }
     | { kind: "saving" }
-    | { kind: "saved"; path: string }
+    | { kind: "saved"; path: string; reloaded: boolean }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const [restartState, setRestartState] = useState<"idle" | "restarting" | "done">("idle");
@@ -67,7 +67,7 @@ export function ConfigPage() {
     setSaveState({ kind: "saving" });
     try {
       const r = await api.configWrite({ patch });
-      setSaveState({ kind: "saved", path: r.path });
+      setSaveState({ kind: "saved", path: r.path, reloaded: r.reloaded ?? false });
       setPatch({});
       reload();
     } catch (e) {
@@ -115,7 +115,12 @@ export function ConfigPage() {
       />
 
       {saveState.kind === "saved" ? (
-        <RestartBanner state={restartState} onClick={() => void onRestart()} path={saveState.path} />
+        <RestartBanner
+          state={restartState}
+          onClick={() => void onRestart()}
+          path={saveState.path}
+          reloaded={saveState.reloaded}
+        />
       ) : null}
 
       {data.schema.map((section) => (
@@ -162,7 +167,7 @@ function SaveBar({
   saveState:
     | { kind: "idle" }
     | { kind: "saving" }
-    | { kind: "saved"; path: string }
+    | { kind: "saved"; path: string; reloaded: boolean }
     | { kind: "error"; message: string };
 }) {
   const targetPath = data.globalSource ?? "<global config> (will create)";
@@ -204,10 +209,12 @@ function RestartBanner({
   state,
   onClick,
   path,
+  reloaded,
 }: {
   state: "idle" | "restarting" | "done";
   onClick: () => void;
   path: string;
+  reloaded: boolean;
 }) {
   if (state === "done") {
     return (
@@ -216,9 +223,16 @@ function RestartBanner({
       </p>
     );
   }
+  // Hot-reloaded: the change is already live. Only a few settings (daemon
+  // port/hostname, embedding model) can't apply without a restart, so the
+  // button stays available but the framing flips from "needed" to "only if
+  // you changed one of those".
   return (
     <p className="pullquote" style={{ borderLeftColor: "var(--ok)" }}>
-      Saved to <code>{path}</code>. Most settings only take effect on next daemon load.{" "}
+      Saved to <code>{path}</code>.{" "}
+      {reloaded
+        ? "Applied live — analyzer toggles and the reconciliation interval took effect. Retrieval mode, watcher debounce, daemon port/hostname, and the embedding model still need a restart."
+        : "Most settings only take effect on next daemon load."}{" "}
       <button
         type="button"
         className="btn"

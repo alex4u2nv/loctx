@@ -12,7 +12,11 @@ import type {
   ConfigWriteResponse,
 } from "../../shared/contracts.js";
 
-export function mountConfig(app: Hono, config: Config): void {
+export function mountConfig(
+  app: Hono,
+  config: Config,
+  onConfigWrite?: () => void | Promise<void>,
+): void {
   app.get("/api/config", (c) => {
     return c.json(buildPayload(config));
   });
@@ -35,7 +39,30 @@ export function mountConfig(app: Hono, config: Config): void {
       const failure: ConfigWriteError = { ok: false, errors: r.errors };
       return c.json(failure, 400);
     }
-    const success: ConfigWriteResponse = { ok: true, path: r.path, bytesWritten: r.bytesWritten };
+    // Hot-reload: re-read the YAML into the daemon's live config object so
+    // the change takes effect (and the next GET /api/config reflects it)
+    // without a restart. Same object the analyzer hooks read, so analyzer
+    // toggles apply on the next indexed file.
+    try {
+      await onConfigWrite?.();
+    } catch {
+      // A reload failure must not fail the write — the YAML is already on
+      // disk and a restart will pick it up. Surface it in the response so
+      // the UI can hint that a restart may be needed.
+      const success: ConfigWriteResponse = {
+        ok: true,
+        path: r.path,
+        bytesWritten: r.bytesWritten,
+        reloaded: false,
+      };
+      return c.json(success);
+    }
+    const success: ConfigWriteResponse = {
+      ok: true,
+      path: r.path,
+      bytesWritten: r.bytesWritten,
+      reloaded: onConfigWrite !== undefined,
+    };
     return c.json(success);
   });
 }

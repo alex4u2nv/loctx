@@ -23,6 +23,7 @@ import {
   findLegacyProjectConfig,
   inspectDaemonLockfile,
   inventoryProjects,
+  loadConfig,
   looksLikeFdExhaustion,
   nofileBumpHint,
   type Project,
@@ -46,7 +47,21 @@ export interface StartOptions {
 //   apps/cli/dist  +  ../../web  =  apps/web
 const ROOT_RELATIVE_WEB_DIR = "../../web";
 
-export async function start(config: Config, options: StartOptions): Promise<void> {
+export async function start(bootConfig: Config, options: StartOptions): Promise<void> {
+  // Live, mutable config. The admin UI hot-reloads it in place on save
+  // (#config-hotreload): everything below reads through this object —
+  // buildRuntime's analyzer enqueue hooks, the web /api/config payload,
+  // reconciliation scheduling — so swapping its sections takes effect
+  // without a restart. `bootConfig` is frozen; this shallow copy is
+  // mutable so `reloadConfig` can Object.assign fresh sections onto it.
+  // Settings that can't re-apply live (daemon port/hostname, embedding
+  // model) still require a restart.
+  const config: Config = { ...bootConfig };
+  const reloadConfig = (): void => {
+    const fresh = loadConfig(config.source !== null ? { configPath: config.source } : undefined);
+    Object.assign(config, fresh);
+  };
+
   // Single-instance lock keyed on the data dir. Two daemons sharing the same
   // SQLite + LanceDB would race on writes; the lock keeps one alive at a time
   // regardless of how the second was launched (workspace, npm link, -g).
@@ -106,7 +121,7 @@ export async function start(config: Config, options: StartOptions): Promise<void
   // them. The reconciler still runs in the background once scheduled —
   // it doesn't block startup — but it now waits for HTTP to be live.
   const httpStop = options.enableWeb
-    ? await startWeb(config, options, runtime, watcherRegistry)
+    ? await startWeb(config, options, runtime, watcherRegistry, reloadConfig)
     : async () => {
         /* no-op */
       };
@@ -229,19 +244,22 @@ function startReconciliation(
   // Exponential backoff on repeated failures so we don't hammer LanceDB
   // (or whatever else is broken) every interval. Caps at 1h; resets to
   // the configured interval on the first success.
-  const baseMs = intervalSeconds * 1000;
+  // Read the interval live so a hot-reloaded `reconciliation.interval_seconds`
+  // applies on the next reschedule (no restart). The on/off transition at
+  // boot is still fixed by the early guard above.
+  const baseMs = (): number => config.reconciliation.intervalSeconds * 1000;
   const MAX_BACKOFF_MS = 60 * 60 * 1000;
   let consecutiveFailures = 0;
   let timer: NodeJS.Timeout | null = null;
   let stopped = false;
 
   const nextDelayMs = (): number => {
-    if (consecutiveFailures === 0) return baseMs;
-    return Math.min(baseMs * 2 ** consecutiveFailures, MAX_BACKOFF_MS);
+    if (consecutiveFailures === 0) return baseMs();
+    return Math.min(baseMs() * 2 ** consecutiveFailures, MAX_BACKOFF_MS);
   };
 
   const scheduleNext = (): void => {
-    if (stopped || baseMs <= 0) return;
+    if (stopped || baseMs() <= 0) return;
     const delay = nextDelayMs();
     if (consecutiveFailures > 0) {
       const minutes = Math.round(delay / 60_000);
@@ -423,6 +441,7 @@ async function startWeb(
   options: StartOptions,
   runtime: Runtime,
   watcherRegistry: WatcherRegistry | undefined,
+  onConfigWrite: () => void,
 ): Promise<() => Promise<void>> {
   const webDir = options.webDir ?? resolveWebDir();
   const staticDir = resolve(webDir, "dist", "client");
@@ -439,6 +458,7 @@ async function startWeb(
       readonly runtime?: Runtime;
       readonly watcherRegistry?: WatcherRegistry;
       readonly staticDir?: string;
+      readonly onConfigWrite?: () => void | Promise<void>;
     }): { fetch: (req: Request) => Promise<Response> };
   };
   type HonoNodeServerModule = {
@@ -453,6 +473,7 @@ async function startWeb(
     config,
     runtime,
     staticDir,
+    onConfigWrite,
     ...(watcherRegistry !== undefined ? { watcherRegistry } : {}),
   });
   const handle = app.fetch;

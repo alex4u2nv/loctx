@@ -28,6 +28,15 @@ describe("loadConfig precedence chain", () => {
     expect(config.sources["daemon.port"]).toBe("default");
   });
 
+  it("ships every analyzer enabled by default so the tool is useful out of the box", () => {
+    const config = loadConfig({ configPath });
+    expect(config.analyzers.backgroundEnabled).toBe(true);
+    expect(config.analyzers.duplicates.enabled).toBe(true);
+    expect(config.analyzers.lizard.enabled).toBe(true);
+    expect(config.analyzers.semgrep.enabled).toBe(true);
+    expect(config.analyzers.astGrep.enabled).toBe(true);
+  });
+
   it("global file overrides defaults", () => {
     writeFileSync(configPath, "daemon:\n  port: 4000\nembedding:\n  model: my-model\n", "utf-8");
     const config = loadConfig({ configPath });

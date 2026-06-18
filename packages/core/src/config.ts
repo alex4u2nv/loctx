@@ -234,24 +234,31 @@ const DEFAULT_MCP: McpConfig = Object.freeze({
   logMaxRows: DEFAULT_MCP_LOG_MAX_ROWS,
 });
 
+// Analyzers ship ENABLED by default so the tool is useful out of the box.
+// The background queue runs; `duplicates` (pure-JS, zero-dep) works
+// immediately. `lizard`/`semgrep`/`ast-grep` shell out to external
+// binaries — they're enabled too, but the indexer probes for the command
+// and silently skips enqueuing when it's absent (see container.ts), so
+// "enabled" means "runs when the tool is installed" rather than spamming
+// a failed task per file. semgrep/ast-grep additionally need rule dirs.
 const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
-  backgroundEnabled: false,
+  backgroundEnabled: true,
   concurrency: 2,
   perTaskTimeoutMs: 60_000,
-  lizard: Object.freeze({ enabled: false, command: "lizard" }),
+  lizard: Object.freeze({ enabled: true, command: "lizard" }),
   duplicates: Object.freeze({
-    enabled: false,
+    enabled: true,
     windowSize: 50,
     minUniqueTokens: 15,
   }),
   semgrep: Object.freeze({
-    enabled: false,
+    enabled: true,
     command: "semgrep",
     ruleDirs: Object.freeze<string[]>([]),
     maxFindingsPerFile: 50,
   }),
   astGrep: Object.freeze({
-    enabled: false,
+    enabled: true,
     command: "ast-grep",
     ruleDirs: Object.freeze<string[]>([]),
     maxFindingsPerFile: 50,
@@ -749,6 +756,27 @@ retrieval:
   mode: hybrid
   # Reciprocal rank fusion constant; 60 is the literature default.
   rrf_k: 60
+
+# Background code-analysis queue (runs out of band from indexing/search).
+# All analyzers are ON by default. duplicates is pure-JS and works as-is.
+# lizard/semgrep/astGrep shell out to external binaries — they stay enabled
+# but the indexer skips them automatically until the command is installed
+# (and, for the rule-pack scanners, until you point them at rule_dirs).
+analyzers:
+  background_enabled: true
+  duplicates:
+    enabled: true
+  lizard:
+    enabled: true
+    # command: lizard          # pip install lizard
+  semgrep:
+    enabled: true
+    # command: semgrep
+    # rule_dirs: [~/rules/semgrep]
+  astGrep:
+    enabled: true
+    # command: ast-grep
+    # rule_dirs: [~/rules/ast-grep]
 
 mcp:
   # Rolling row cap on the MCP request log (the admin "logs" page).

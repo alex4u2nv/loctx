@@ -16,6 +16,9 @@ import {
   AST_GREP_VERSION,
   computeDuplicateWindows,
   DUPLICATES_VERSION,
+  detectAstGrep,
+  detectLizard,
+  detectSemgrep,
   EnrichmentQueue,
   LIZARD_VERSION,
   runAstGrep,
@@ -57,10 +60,66 @@ export interface Runtime {
   close(): Promise<void>;
 }
 
+/**
+ * Memoized availability of an external analyzer binary (lizard, semgrep,
+ * ast-grep), keyed by command. External analyzers ship enabled by default
+ * (#defaults), so without this an absent binary would enqueue a failing
+ * task for every indexed file. We probe each command once:
+ *   - eagerly in {@link buildRuntime} for the analyzers enabled at boot,
+ *     so the first indexed file already knows the answer; and
+ *   - lazily from the index hook when an analyzer is enabled later via
+ *     hot-reloaded config (applies to files indexed after that point;
+ *     rebuild to backfill already-indexed files).
+ * Unknown (probe in flight) returns false so we skip rather than fail.
+ */
+const toolAvailability = new Map<string, boolean>();
+const toolProbing = new Set<string>();
+const TOOL_DETECTORS: Record<string, (command: string) => Promise<string | null>> = {
+  lizard: detectLizard,
+  semgrep: detectSemgrep,
+  "ast-grep": detectAstGrep,
+};
+
+async function probeTool(kind: string, command: string): Promise<boolean> {
+  const found = (await TOOL_DETECTORS[kind]?.(command)) ?? null;
+  toolAvailability.set(command, found !== null);
+  if (found === null) {
+    console.error(
+      `[loctx analyzers] '${command}' (${kind}) not found on PATH; skipping until installed.`,
+    );
+  }
+  return found !== null;
+}
+
+function toolReady(kind: string, command: string): boolean {
+  const cached = toolAvailability.get(command);
+  if (cached !== undefined) return cached;
+  if (!toolProbing.has(command)) {
+    toolProbing.add(command);
+    void probeTool(kind, command).finally(() => toolProbing.delete(command));
+  }
+  return false; // probe in flight — skip this round
+}
+
 export async function buildRuntime(config: Config): Promise<Runtime> {
   const rules = loadFilteringRules();
   const state = new StateStore(config.paths.stateDb);
   const embeddings = createEmbeddings(config);
+
+  // Probe the external analyzers enabled at boot so the first indexed file
+  // already knows whether to enqueue (avoids the initial-index race where
+  // many files would skip before a lazy probe resolves).
+  if (config.analyzers.backgroundEnabled) {
+    await Promise.all([
+      config.analyzers.lizard.enabled ? probeTool("lizard", config.analyzers.lizard.command) : null,
+      config.analyzers.semgrep.enabled
+        ? probeTool("semgrep", config.analyzers.semgrep.command)
+        : null,
+      config.analyzers.astGrep.enabled
+        ? probeTool("ast-grep", config.analyzers.astGrep.command)
+        : null,
+    ]);
+  }
   // Lazy providers (Local) need a warmup; in-process providers (Fake) skip it.
   await embeddings.ensureReady?.();
   const vectors = createVectorStore(config.paths.vectorDir, embeddings.identity, state);
@@ -104,7 +163,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
   const indexer = new ProjectIndexer(state, vectors, embeddings, filterFor, {
     afterFileIndexed: ({ project, fileId, absPath, contentSha }) => {
       if (!config.analyzers.backgroundEnabled) return;
-      if (config.analyzers.lizard.enabled) {
+      if (config.analyzers.lizard.enabled && toolReady("lizard", config.analyzers.lizard.command)) {
         const command = config.analyzers.lizard.command;
         enrichments.enqueue(
           analyzerTaskMeta({
@@ -135,7 +194,11 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
           }),
         );
       }
-      if (config.analyzers.semgrep.enabled && config.analyzers.semgrep.ruleDirs.length > 0) {
+      if (
+        config.analyzers.semgrep.enabled &&
+        config.analyzers.semgrep.ruleDirs.length > 0 &&
+        toolReady("semgrep", config.analyzers.semgrep.command)
+      ) {
         const sg = config.analyzers.semgrep;
         enrichments.enqueue(
           analyzerTaskMeta({
@@ -157,7 +220,11 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
           }),
         );
       }
-      if (config.analyzers.astGrep.enabled && config.analyzers.astGrep.ruleDirs.length > 0) {
+      if (
+        config.analyzers.astGrep.enabled &&
+        config.analyzers.astGrep.ruleDirs.length > 0 &&
+        toolReady("ast-grep", config.analyzers.astGrep.command)
+      ) {
         const ag = config.analyzers.astGrep;
         enrichments.enqueue(
           analyzerTaskMeta({
