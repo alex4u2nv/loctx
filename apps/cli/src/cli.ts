@@ -3,8 +3,11 @@
  * Commander CLI entry points for loctx.
  */
 
-import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 import {
   buildRuntime,
   type Config,
@@ -823,6 +826,46 @@ program
       enableWeb: opts.web,
       replace: true,
     });
+  });
+
+// ---- update -------------------------------------------------------------
+
+program
+  .command("update")
+  .description("Update to the latest release (pre-built tarball installs) and restart the daemon.")
+  .action(async () => {
+    const ctx = getCtx();
+    const config = loadConfigOrFail(ctx);
+    // A tarball install bundles install-release.sh next to the package
+    // (…/versions/<v>/install-release.sh). Its presence is how we know this
+    // is a release install rather than a from-source / npm-link one.
+    const here = dirname(fileURLToPath(import.meta.url)); // …/versions/<v>/dist
+    const installer = resolve(here, "..", "install-release.sh");
+    if (!existsSync(installer)) {
+      console.error(
+        "loctx update applies to pre-built release installs only. You're running from source or an\n" +
+          "npm link — update via that path instead (e.g. `git pull && pnpm run install:local`).",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    // Re-run the bundled installer (no arg → resolves the latest release for
+    // this platform). Pass the proxy CA to its curl so the download works
+    // behind a TLS-intercepting proxy, mirroring network.ca_cert.
+    const env = { ...process.env };
+    if (config.network.caCert !== null) env["LOCTX_CA_CERT"] = config.network.caCert;
+    console.error("[loctx update] fetching the latest release…");
+    const install = spawnSync("bash", [installer], { stdio: "inherit", env });
+    if (install.status !== 0) {
+      process.exitCode = install.status ?? 1;
+      return;
+    }
+    // Restart using the freshly-installed version (the `current` symlink now
+    // points at it), not this still-running old process.
+    const home = resolve(here, "..", "..", "..");
+    const newCli = resolve(home, "current", "dist", "cli.js");
+    console.error("[loctx update] restarting daemon on the new version…");
+    spawnSync(process.execPath, [newCli, "restart"], { stdio: "inherit" });
   });
 
 // ---- watch --------------------------------------------------------------
