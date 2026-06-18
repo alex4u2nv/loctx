@@ -129,8 +129,9 @@ export function AdminPage() {
         <div className="card">
           <p className="card-section-title" id="admin-tools">Tools</p>
           <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
-            Optional analyzers. loctx installs these into its own managed venv (no system changes),
-            enables them, and backfills your existing index.
+            Optional analyzers. loctx installs these into managed locations (no system changes),
+            enables them, and backfills your existing index. semgrep and ast-grep also need rule
+            dirs set on <Link to="/config">config</Link> before they run.
           </p>
           {(toolsReq.data?.tools ?? []).map((t) => (
             <div key={t.name} className="tool-row">
@@ -139,7 +140,13 @@ export function AdminPage() {
               </span>
               <span className={`daemon-status ${t.installed ? "ok" : "bad"}`}>
                 <span className="dot-mark" />
-                {t.installed ? "installed" : t.enabled ? "enabled, not installed" : "available"}
+                {t.installed
+                  ? t.needsRules
+                    ? "installed · needs rule dirs"
+                    : "installed"
+                  : t.enabled
+                    ? "enabled, not installed"
+                    : "available"}
               </span>{" "}
               {t.installed ? null : (
                 <button

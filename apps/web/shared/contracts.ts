@@ -499,15 +499,21 @@ export type OpEvent =
   | { readonly type: "done"; readonly summary: string }
   | { readonly type: "error"; readonly error: string };
 
-/** Optional analyzer tools the daemon can provision (currently lizard). */
+/** Optional analyzer tools the daemon can provision (lizard, semgrep, ast-grep). */
 export interface ToolStatus {
   readonly name: string;
   readonly enabled: boolean;
   /** True when the configured `command` resolves to a runnable binary. */
   readonly installed: boolean;
   readonly command: string;
-  /** Where loctx would install it (its managed venv path). */
+  /** Where loctx would install it (its managed venv / bin path). */
   readonly managedPath: string;
+  /**
+   * True for rule-pack tools (semgrep, ast-grep) with no rule dirs
+   * configured — installed, but won't run until rules are pointed at it
+   * on the Config page.
+   */
+  readonly needsRules: boolean;
 }
 
 export interface ToolsStatusPayload {

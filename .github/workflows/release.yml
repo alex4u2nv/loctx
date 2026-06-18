@@ -27,7 +27,9 @@ jobs:
       matrix:
         # macos-14 = arm64, macos-13 = x64, ubuntu-latest = x64.
         os: [macos-14, macos-13, ubuntu-latest]
-        node: [22, 24]
+        # 22/24 LTS + 25/26 current. CI has a toolchain, so it builds native
+        # deps for ABIs that lack prebuilds; users get a tarball per Node major.
+        node: [22, 24, 25, 26]
 
     steps:
       - uses: actions/checkout@v4

@@ -1,21 +1,66 @@
 import { join } from "node:path";
 import {
   type Config,
+  detectAstGrep,
   detectLizard,
-  installLizard,
-  managedLizardCommand,
+  detectSemgrep,
+  installTool,
+  managedToolCommand,
   type Runtime,
+  type ToolName,
+  TOOL_NAMES,
   writeConfigPatch,
 } from "@loctx/core";
 import type { Hono } from "hono";
-import type { ToolsInstallResponse, ToolsStatusPayload } from "../../shared/contracts.js";
+import type { ToolsInstallResponse, ToolsStatusPayload, ToolStatus } from "../../shared/contracts.js";
 
 /**
- * Optional analyzer tools (currently lizard). `/api/tools/status` reports
- * what's missing so the UI can nudge; `/api/tools/install` provisions the
- * tool into loctx's managed venv, enables it, and backfills it over the
- * already-indexed files — the same proactive flow as `loctx install-tools`.
+ * Optional analyzer tools (lizard, semgrep, ast-grep). `/api/tools/status`
+ * reports what's missing so the UI can nudge; `/api/tools/install`
+ * provisions the named tool into a loctx-managed location, enables it, and
+ * backfills it over the index — the same flow as `loctx install-tools`.
  */
+interface ToolSpec {
+  readonly name: ToolName;
+  detect(command: string): Promise<string | null>;
+  command(config: Config): string;
+  enabled(config: Config): boolean;
+  /** Rule-dir count for rule-pack tools; null when N/A (lizard). */
+  ruleDirCount(config: Config): number | null;
+  readonly commandKey: string;
+  readonly enabledKey: string;
+}
+
+const SPECS: ReadonlyArray<ToolSpec> = [
+  {
+    name: "lizard",
+    detect: detectLizard,
+    command: (c) => c.analyzers.lizard.command,
+    enabled: (c) => c.analyzers.lizard.enabled,
+    ruleDirCount: () => null,
+    commandKey: "analyzers.lizard.command",
+    enabledKey: "analyzers.lizard.enabled",
+  },
+  {
+    name: "semgrep",
+    detect: detectSemgrep,
+    command: (c) => c.analyzers.semgrep.command,
+    enabled: (c) => c.analyzers.semgrep.enabled,
+    ruleDirCount: (c) => c.analyzers.semgrep.ruleDirs.length,
+    commandKey: "analyzers.semgrep.command",
+    enabledKey: "analyzers.semgrep.enabled",
+  },
+  {
+    name: "ast-grep",
+    detect: detectAstGrep,
+    command: (c) => c.analyzers.astGrep.command,
+    enabled: (c) => c.analyzers.astGrep.enabled,
+    ruleDirCount: (c) => c.analyzers.astGrep.ruleDirs.length,
+    commandKey: "analyzers.astGrep.command",
+    enabledKey: "analyzers.astGrep.enabled",
+  },
+];
+
 export function mountTools(
   app: Hono,
   config: Config,
@@ -23,52 +68,57 @@ export function mountTools(
   onConfigWrite?: () => void | Promise<void>,
 ): void {
   app.get("/api/tools/status", async (c) => {
-    const command = config.analyzers.lizard.command;
-    const installed = (await detectLizard(command)) !== null;
-    const payload: ToolsStatusPayload = {
-      tools: [
-        {
-          name: "lizard",
-          enabled: config.analyzers.lizard.enabled,
-          installed,
-          command,
-          managedPath: managedLizardCommand(config),
-        },
-      ],
-    };
-    return c.json(payload);
+    const tools: ToolStatus[] = await Promise.all(
+      SPECS.map(async (s) => ({
+        name: s.name,
+        enabled: s.enabled(config),
+        installed: (await s.detect(s.command(config))) !== null,
+        command: s.command(config),
+        managedPath: managedToolCommand(config, s.name),
+        needsRules: s.ruleDirCount(config) === 0,
+      })),
+    );
+    return c.json({ tools } satisfies ToolsStatusPayload);
   });
 
   app.post("/api/tools/install", async (c) => {
-    // Only lizard for now (semgrep/ast-grep need rule dirs / a binary fetch).
-    const result = await installLizard(config);
-    if (!result.ok || result.command === undefined) {
-      const fail: ToolsInstallResponse = { ok: false, tool: "lizard", error: result.error ?? "install failed" };
-      return c.json(fail, 500);
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ ok: false, tool: "?", error: "invalid JSON body" } satisfies ToolsInstallResponse, 400);
     }
-    const patch = {
+    const requested = (body as { tool?: unknown } | null)?.tool;
+    const spec = SPECS.find((s) => s.name === requested);
+    if (spec === undefined) {
+      return c.json(
+        { ok: false, tool: String(requested), error: `unknown tool; expected one of ${TOOL_NAMES.join(", ")}` } satisfies ToolsInstallResponse,
+        400,
+      );
+    }
+
+    const result = await installTool(config, spec.name);
+    if (!result.ok || result.command === undefined) {
+      return c.json({ ok: false, tool: spec.name, error: result.error ?? "install failed" } satisfies ToolsInstallResponse, 500);
+    }
+    const patch: Record<string, unknown> = {
       "analyzers.backgroundEnabled": true,
-      "analyzers.lizard.enabled": true,
-      "analyzers.lizard.command": result.command,
+      [spec.enabledKey]: true,
+      [spec.commandKey]: result.command,
     };
     const path = config.source ?? join(config.paths.configDir, "config.yaml");
     const w = writeConfigPatch(path, patch);
     if (!w.ok) {
-      const fail: ToolsInstallResponse = { ok: false, tool: "lizard", error: "config write rejected" };
-      return c.json(fail, 500);
+      return c.json({ ok: false, tool: spec.name, error: "config write rejected" } satisfies ToolsInstallResponse, 500);
     }
-    // Reload the daemon's live config so the new command + enabled flag take
-    // effect, then explicitly backfill lizard over already-indexed files.
     await onConfigWrite?.();
     let backfilled = 0;
     try {
       const rt = await getRuntime();
-      backfilled = (await rt.backfillAnalyzers(["lizard"])).enqueued;
+      backfilled = (await rt.backfillAnalyzers([spec.name])).enqueued;
     } catch {
-      // runtime not ready (model still downloading) — the next reconcile /
-      // restart's startup backfill will catch up.
+      // runtime not ready — startup/next reconcile backfill catches up.
     }
-    const ok: ToolsInstallResponse = { ok: true, tool: "lizard", command: result.command, backfilled };
-    return c.json(ok);
+    return c.json({ ok: true, tool: spec.name, command: result.command, backfilled } satisfies ToolsInstallResponse);
   });
 }
