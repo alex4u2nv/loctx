@@ -23,6 +23,7 @@ export * from "./network.js";
 export * from "./paths.js";
 export * from "./retrieval/index.js";
 export * from "./storage/index.js";
+export * from "./tools.js";
 export * from "./trusted-models.js";
 export * from "./ulimit.js";
 export * from "./watcher/index.js";

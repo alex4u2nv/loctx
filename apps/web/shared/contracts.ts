@@ -498,3 +498,22 @@ export type OpEvent =
   | { readonly type: "progress"; readonly current: number; readonly total: number | null }
   | { readonly type: "done"; readonly summary: string }
   | { readonly type: "error"; readonly error: string };
+
+/** Optional analyzer tools the daemon can provision (currently lizard). */
+export interface ToolStatus {
+  readonly name: string;
+  readonly enabled: boolean;
+  /** True when the configured `command` resolves to a runnable binary. */
+  readonly installed: boolean;
+  readonly command: string;
+  /** Where loctx would install it (its managed venv path). */
+  readonly managedPath: string;
+}
+
+export interface ToolsStatusPayload {
+  readonly tools: ReadonlyArray<ToolStatus>;
+}
+
+export type ToolsInstallResponse =
+  | { readonly ok: true; readonly tool: string; readonly command: string; readonly backfilled: number }
+  | { readonly ok: false; readonly tool: string; readonly error: string };

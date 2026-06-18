@@ -19,7 +19,11 @@ export function AdminPage() {
   // is in flight — they'd 409 anyway (#312) and a pre-disabled
   // button + tooltip beats clicking → reading an error toast.
   const statusReq = useFetch(() => api.status(), []);
-  const onRefresh = useCallback(() => statusReq.reload(), [statusReq.reload]);
+  const toolsReq = useFetch(() => api.toolsStatus(), []);
+  const onRefresh = useCallback(() => {
+    statusReq.reload();
+    toolsReq.reload();
+  }, [statusReq.reload, toolsReq.reload]);
   useLiveRefreshEvent(onRefresh);
   const reconcile = statusReq.data?.reconciliation;
   const reconcileBlocked = reconcile?.running ?? false;
@@ -36,6 +40,9 @@ export function AdminPage() {
   const resetTooltip = daemonRunning
     ? "Daemon is running — stop it first (Daemon → stop, below). /api/reset/index would 409."
     : undefined;
+
+  const installTool = (name: string): Promise<unknown> =>
+    ops.run(`install ${name}`, () => api.toolsInstall(name)).then(() => toolsReq.reload());
 
   const indexAll = (): Promise<unknown> => ops.run("index all", () => api.index());
   const refreshAll = (): Promise<unknown> => ops.run("refresh", () => api.refresh());
@@ -120,6 +127,36 @@ export function AdminPage() {
         </div>
 
         <div className="card">
+          <p className="card-section-title" id="admin-tools">Tools</p>
+          <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
+            Optional analyzers. loctx installs these into its own managed venv (no system changes),
+            enables them, and backfills your existing index.
+          </p>
+          {(toolsReq.data?.tools ?? []).map((t) => (
+            <div key={t.name} className="tool-row">
+              <span className="metric-value" style={{ minWidth: "6rem", display: "inline-block" }}>
+                {t.name}
+              </span>
+              <span className={`daemon-status ${t.installed ? "ok" : "bad"}`}>
+                <span className="dot-mark" />
+                {t.installed ? "installed" : t.enabled ? "enabled, not installed" : "available"}
+              </span>{" "}
+              {t.installed ? null : (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void installTool(t.name)}
+                  disabled={ops.busy !== null}
+                  style={{ marginLeft: "var(--space-2)" }}
+                >
+                  <Icon name="index" /> install {t.name}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="card">
           <p className="card-section-title" id="admin-daemon">Daemon</p>
           <p>
             <button
@@ -144,6 +181,7 @@ export function AdminPage() {
       <SectionNav
         sections={[
           { id: "admin-index", label: "Index" },
+          { id: "admin-tools", label: "Tools" },
           { id: "admin-daemon", label: "Daemon" },
         ]}
       />

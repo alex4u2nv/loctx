@@ -1932,3 +1932,24 @@ h3 {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* Actionable notification link (e.g. "Install tools →") */
+.notification-action {
+  display: inline-block;
+  margin-top: var(--space-2);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+/* Admin → Tools rows */
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+.tool-row:first-of-type {
+  border-top: none;
+}

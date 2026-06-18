@@ -19,6 +19,7 @@ import { mountOps } from "./ops.js";
 import { mountProjects } from "./projects.js";
 import { mountSearch } from "./search.js";
 import { mountStatus } from "./status.js";
+import { mountTools } from "./tools.js";
 import { mountWatchers } from "./watchers.js";
 
 export function mountApi(
@@ -38,6 +39,7 @@ export function mountApi(
   mountEvents(app);
   mountDoctor(app, config, watcherRegistry);
   mountConfig(app, config, onConfigWrite);
+  mountTools(app, config, getRuntime, onConfigWrite);
   mountModels(app, config);
   mountFindUsages(app, config, getRuntime);
   mountFindLiteral(app, config, getRuntime);
