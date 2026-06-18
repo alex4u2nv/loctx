@@ -39,6 +39,22 @@ export function compressPath(path: string, homeDir: string, commonRoot: string):
   return p;
 }
 
+/**
+ * Render a byte count as a human-readable size (`1.2 GB`, `340 MB`,
+ * `12 KB`). Binary units (1024-based) labelled with the conventional
+ * MB/GB suffixes. Sub-KB values render as bytes; one decimal from MB up.
+ */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const exp = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** exp;
+  // Whole numbers for B/KB; one decimal for MB and up so the dashboard
+  // reads "1.2 GB" rather than "1 GB".
+  const decimals = exp >= 2 ? 1 : 0;
+  return `${value.toFixed(decimals)} ${units[exp]}`;
+}
+
 export function applyHomeAbbrev(path: string, homeDir: string): string {
   if (homeDir === "") return path;
   if (path === homeDir) return "~";
