@@ -37,7 +37,21 @@ export interface ToolInstallResult {
   readonly command?: string;
   /** Failure detail, when not ok. */
   readonly error?: string;
+  /** Combined stdout+stderr of the install steps, for display in logs/UI. */
+  readonly log?: string;
 }
+
+const combine = (...parts: Array<string | undefined>): string =>
+  parts
+    .map((p) => (p ?? "").trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+
+const errLog = (err: unknown): string => {
+  const e = err as { stdout?: string; stderr?: string };
+  return combine(e.stdout, e.stderr) || (err as Error).message;
+};
 
 function venvPaths(config: Config): { readonly venv: string; readonly bin: string } {
   const venv = resolve(config.paths.dataDir, "tools", "venv");
@@ -99,23 +113,36 @@ async function installPipTool(
     };
   }
   const { venv, bin } = venvPaths(config);
+  const steps: string[] = [];
   if (!existsSync(bin)) {
     try {
-      await exec(python, ["-m", "venv", venv]);
+      steps.push(`$ ${python} -m venv ${venv}`);
+      const r = await exec(python, ["-m", "venv", venv]);
+      steps.push(combine(r.stdout, r.stderr));
     } catch (err) {
-      return { ok: false, error: `could not create venv at ${venv}: ${tail(err)}` };
+      return {
+        ok: false,
+        error: `could not create venv at ${venv}: ${tail(err)}`,
+        log: combine(...steps, errLog(err)),
+      };
     }
   }
   const pip = resolve(bin, isWin ? "pip.exe" : "pip");
   try {
-    await exec(pip, ["install", "--upgrade", pkg], {
+    steps.push(`$ pip install --upgrade ${pkg}`);
+    const r = await exec(pip, ["install", "--upgrade", pkg], {
       env: proxyEnv(config),
       maxBuffer: 64 * 1024 * 1024,
     });
+    steps.push(combine(r.stdout, r.stderr));
   } catch (err) {
-    return { ok: false, error: `pip install ${pkg} failed: ${tail(err)}` };
+    return {
+      ok: false,
+      error: `pip install ${pkg} failed: ${tail(err)}`,
+      log: combine(...steps, errLog(err)),
+    };
   }
-  return { ok: true, command: venvBin(config, binName) };
+  return { ok: true, command: venvBin(config, binName), log: combine(...steps) };
 }
 
 // platform-arch → ast-grep release asset (the zip bundles `ast-grep` + `sg`).
@@ -156,18 +183,29 @@ async function installAstGrep(config: Config): Promise<ToolInstallResult> {
     return { ok: false, error: `ast-grep asset ${asset} not in the latest release` };
   }
   const zip = resolve(binDir, asset);
+  const steps: string[] = [`fetching ${found.browser_download_url}`];
   try {
     const dl = await fetch(found.browser_download_url, { headers });
-    if (!dl.ok) return { ok: false, error: `ast-grep download: ${dl.status}` };
-    writeFileSync(zip, Buffer.from(await dl.arrayBuffer()));
-    await exec("unzip", ["-o", zip, "-d", binDir]);
+    if (!dl.ok)
+      return { ok: false, error: `ast-grep download: ${dl.status}`, log: combine(...steps) };
+    const bytes = Buffer.from(await dl.arrayBuffer());
+    writeFileSync(zip, bytes);
+    steps.push(`downloaded ${bytes.length} bytes → ${zip}`);
+    const r = await exec("unzip", ["-o", zip, "-d", binDir]);
+    steps.push(combine(r.stdout, r.stderr));
     rmSync(zip, { force: true });
   } catch (err) {
-    return { ok: false, error: `ast-grep download/extract failed: ${tail(err)}` };
+    return {
+      ok: false,
+      error: `ast-grep download/extract failed: ${tail(err)}`,
+      log: combine(...steps, errLog(err)),
+    };
   }
-  if (!existsSync(dest)) return { ok: false, error: "ast-grep binary missing after extract" };
+  if (!existsSync(dest))
+    return { ok: false, error: "ast-grep binary missing after extract", log: combine(...steps) };
   chmodSync(dest, 0o755);
-  return { ok: true, command: dest };
+  steps.push(`installed ast-grep → ${dest}`);
+  return { ok: true, command: dest, log: combine(...steps) };
 }
 
 /** Provision one optional analyzer tool; returns its installed binary path. */

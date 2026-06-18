@@ -3,7 +3,7 @@
  * everything here applies to the workspace as a whole.
  */
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
 import { confirm } from "../components/confirm";
 import { Icon } from "../components/icon";
@@ -41,8 +41,28 @@ export function AdminPage() {
     ? "Daemon is running — stop it first (Daemon → stop, below). /api/reset/index would 409."
     : undefined;
 
-  const installTool = (name: string): Promise<unknown> =>
-    ops.run(`install ${name}`, () => api.toolsInstall(name)).then(() => toolsReq.reload());
+  // Install output, shown verbatim in the Tools card so the user can see
+  // what happened (pip / fetch / unzip) and why a tool failed — installs
+  // used to run silently (#install-logs).
+  const [installLog, setInstallLog] = useState<{
+    tool: string;
+    ok: boolean;
+    log: string;
+  } | null>(null);
+  const installTool = async (name: string): Promise<void> => {
+    setInstallLog(null);
+    await ops.run(`install ${name}`, async () => {
+      const res = await api.toolsInstall(name);
+      setInstallLog({
+        tool: name,
+        ok: res.ok,
+        log: res.log ?? (res.ok ? "(no output)" : res.error),
+      });
+      if (!res.ok) throw new Error(res.error);
+      return res;
+    });
+    toolsReq.reload();
+  };
 
   const indexAll = (): Promise<unknown> => ops.run("index all", () => api.index());
   const refreshAll = (): Promise<unknown> => ops.run("refresh", () => api.refresh());
@@ -161,6 +181,31 @@ export function AdminPage() {
               )}
             </div>
           ))}
+          {ops.busy?.startsWith("install ") ? (
+            <p className="dim" style={{ marginBottom: 0 }}>
+              <Icon name="refresh" animate /> {ops.busy}… this can take up to a minute (semgrep pulls
+              ~60 packages).
+            </p>
+          ) : null}
+          {installLog !== null ? (
+            <details open style={{ marginTop: "var(--space-3)" }}>
+              <summary>
+                <span className={`daemon-status ${installLog.ok ? "ok" : "bad"}`}>
+                  <span className="dot-mark" />
+                  {installLog.tool} install {installLog.ok ? "log" : "failed"}
+                </span>{" "}
+                <button
+                  type="button"
+                  className="btn btn-small"
+                  onClick={() => setInstallLog(null)}
+                  style={{ marginLeft: "var(--space-2)" }}
+                >
+                  dismiss
+                </button>
+              </summary>
+              <pre className="log-output">{installLog.log}</pre>
+            </details>
+          ) : null}
         </div>
 
         <div className="card">

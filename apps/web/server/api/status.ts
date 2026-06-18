@@ -65,10 +65,18 @@ export function mountStatus(
       currentProjectIndexed: null as number | null,
       currentProjectTotal: null as number | null,
     };
+    let analyzers = {
+      depth: 0,
+      running: 0,
+      completed: 0,
+      failures: 0,
+      lastRunAt: null as string | null,
+    };
     try {
       const rt = await getRuntime();
       embeddingReady = true;
       reconciliation = rt.reconciler.status();
+      analyzers = rt.enrichments.status();
     } catch {
       // Leave defaults; daemon is still booting or build failed.
     }
@@ -99,6 +107,7 @@ export function mountStatus(
         reconciliationRunOnStart: config.reconciliation.runOnStart,
       },
       reconciliation,
+      analyzers,
       projects: projects.map((p) => ({ id: p.id, name: p.name, root: p.root })),
     };
     return c.json(payload);
