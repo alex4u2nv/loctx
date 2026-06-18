@@ -1953,3 +1953,22 @@ h3 {
 .tool-row:first-of-type {
   border-top: none;
 }
+
+/* Verbatim install output (pip / fetch / unzip) in the Tools card. */
+.log-output {
+  margin-top: var(--space-2);
+  max-height: 18rem;
+  overflow: auto;
+  padding: var(--space-3);
+  background: var(--surface-sunken, #f5f5f7);
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.btn-small {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.78rem;
+}
