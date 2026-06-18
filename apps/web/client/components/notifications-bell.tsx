@@ -8,6 +8,7 @@
  */
 
 import { useState } from "react";
+import { NavLink } from "react-router-dom";
 import { type Notification, useNotifications } from "../lib/use-notifications";
 import { Icon } from "./icon";
 import { Modal } from "./modal";
@@ -56,6 +57,11 @@ function NotificationsModal({
             <li key={n.id} className={`notification notification-${n.kind}`}>
               <div className="notification-title">{n.title}</div>
               <div className="notification-message">{n.message}</div>
+              {n.href !== undefined ? (
+                <NavLink className="notification-action" to={n.href} onClick={onClose}>
+                  {n.actionLabel ?? "Open"} →
+                </NavLink>
+              ) : null}
             </li>
           ))}
         </ul>

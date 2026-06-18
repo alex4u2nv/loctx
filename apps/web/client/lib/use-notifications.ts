@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import type { ProjectsPayload, StatusPayload } from "@shared/contracts";
+import type { ProjectsPayload, StatusPayload, ToolsStatusPayload } from "@shared/contracts";
 import { useLiveRefreshEvent } from "../components/live-refresh";
 import { api } from "./api";
 
@@ -25,6 +25,10 @@ export interface Notification {
   readonly title: string;
   /** One-line body. Renderers may wrap. */
   readonly message: string;
+  /** Optional in-app route the notification links to (e.g. `/admin`). */
+  readonly href?: string;
+  /** Label for the {@link href} link. */
+  readonly actionLabel?: string;
 }
 
 export interface NotificationsState {
@@ -35,13 +39,15 @@ export interface NotificationsState {
 export function useNotifications(): NotificationsState {
   const [status, setStatus] = useState<StatusPayload | null>(null);
   const [projects, setProjects] = useState<ProjectsPayload | null>(null);
+  const [tools, setTools] = useState<ToolsStatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
-      const [s, p] = await Promise.all([api.status(), api.projects()]);
+      const [s, p, t] = await Promise.all([api.status(), api.projects(), api.toolsStatus()]);
       setStatus(s);
       setProjects(p);
+      setTools(t);
     } catch {
       // Daemon unreachable — keep the previous snapshot so the bell
       // doesn't flicker empty during a transient blip.
@@ -56,7 +62,7 @@ export function useNotifications(): NotificationsState {
   useLiveRefreshEvent(() => void refresh());
 
   return {
-    notifications: deriveNotifications(status, projects),
+    notifications: deriveNotifications(status, projects, tools),
     loading,
   };
 }
@@ -64,8 +70,26 @@ export function useNotifications(): NotificationsState {
 function deriveNotifications(
   status: StatusPayload | null,
   projects: ProjectsPayload | null,
+  tools: ToolsStatusPayload | null,
 ): Notification[] {
   const out: Notification[] = [];
+
+  // Optional analyzer tools enabled but not installed (info): nudge the
+  // user to one-click install from Admin → Tools instead of hand-installing.
+  if (tools !== null) {
+    for (const t of tools.tools) {
+      if (t.enabled && !t.installed) {
+        out.push({
+          id: `tool-missing:${t.name}`,
+          kind: "info",
+          title: `${t.name} is enabled but not installed`,
+          message: `Install ${t.name} from Admin → Tools to activate it — loctx sets it up in its own venv and backfills your index.`,
+          href: "/admin",
+          actionLabel: "Install tools",
+        });
+      }
+    }
+  }
 
   // In-flight reconcile (warn): one entry, names the current project
   // and file progress.

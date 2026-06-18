@@ -20,6 +20,8 @@ import type {
   SearchPayload,
   SearchRequestBody,
   StatusPayload,
+  ToolsInstallResponse,
+  ToolsStatusPayload,
   WatchersPayload,
 } from "@shared/contracts";
 
@@ -49,6 +51,8 @@ export const api = {
   doctor: () => getJson<DoctorPayload>("/api/doctor"),
   mcpTools: () => getJson<McpToolsPayload>("/api/mcp-tools"),
   config: () => getJson<ConfigPayload>("/api/config"),
+  toolsStatus: () => getJson<ToolsStatusPayload>("/api/tools/status"),
+  toolsInstall: (tool: string) => postJson<ToolsInstallResponse>("/api/tools/install", { tool }),
   configWrite: async (body: ConfigWriteRequest): Promise<ConfigWriteResponse> => {
     // Server returns 400 + ConfigWriteError on validation failure; surface
     // the parsed errors as a thrown Error so the form can show them.
