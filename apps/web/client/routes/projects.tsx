@@ -168,62 +168,66 @@ export function ProjectsPage() {
         </p>
       ) : null}
 
-      <h2 id="section-active">Active</h2>
-      <ProjectsTable
-        rows={data.active}
-        homeDir={data.homeDir}
-        commonRoot={data.commonRoot}
-        emptyMessage={
-          data.inactive.length > 0
-            ? "No projects activated yet — see Inactive below."
-            : "No projects discovered under current workspace_roots."
-        }
-        actions={{
-          pause: handlers.pause,
-          resume: handlers.resume,
-          rebuild: handlers.rebuild,
-          deactivate: handlers.deactivate,
-        }}
-        busy={ops.busy}
-        purgingRoots={purgingRoots}
-      />
-
-      {data.inactive.length > 0 ? (
-        <>
-          <h2 id="section-inactive">Inactive</h2>
-          <p className="summary">
-            Discovered under <code>workspace_roots</code> but not yet indexed. Activating runs an
-            initial index pass and registers the watcher.
-          </p>
-          <InactiveTable
-            rows={data.inactive}
-            homeDir={data.homeDir}
-            commonRoot={data.commonRoot}
-            onActivate={handlers.activate}
-            busy={ops.busy}
-          />
-        </>
-      ) : null}
-
-      {data.orphaned.length > 0 ? (
-        <>
-          <h2 id="section-orphaned">Orphaned</h2>
-          <p className="summary">
-            Indexed previously but no longer maintained. <code>purge</code> removes their data;
-            restoring <code>workspace_roots</code> brings them back as active.
-          </p>
+      <div className="card-stack">
+        <div className="card">
+          <p className="card-section-title" id="section-active">Active</p>
           <ProjectsTable
-            rows={data.orphaned}
+            rows={data.active}
             homeDir={data.homeDir}
             commonRoot={data.commonRoot}
-            emptyMessage=""
-            showReason
-            actions={{ purge: handlers.purge }}
+            emptyMessage={
+              data.inactive.length > 0
+                ? "No projects activated yet — see Inactive below."
+                : "No projects discovered under current workspace_roots."
+            }
+            actions={{
+              pause: handlers.pause,
+              resume: handlers.resume,
+              rebuild: handlers.rebuild,
+              deactivate: handlers.deactivate,
+            }}
             busy={ops.busy}
             purgingRoots={purgingRoots}
           />
-        </>
-      ) : null}
+        </div>
+
+        {data.inactive.length > 0 ? (
+          <div className="card">
+            <p className="card-section-title" id="section-inactive">Inactive</p>
+            <p className="summary">
+              Discovered under <code>workspace_roots</code> but not yet indexed. Activating runs an
+              initial index pass and registers the watcher.
+            </p>
+            <InactiveTable
+              rows={data.inactive}
+              homeDir={data.homeDir}
+              commonRoot={data.commonRoot}
+              onActivate={handlers.activate}
+              busy={ops.busy}
+            />
+          </div>
+        ) : null}
+
+        {data.orphaned.length > 0 ? (
+          <div className="card">
+            <p className="card-section-title" id="section-orphaned">Orphaned</p>
+            <p className="summary">
+              Indexed previously but no longer maintained. <code>purge</code> removes their data;
+              restoring <code>workspace_roots</code> brings them back as active.
+            </p>
+            <ProjectsTable
+              rows={data.orphaned}
+              homeDir={data.homeDir}
+              commonRoot={data.commonRoot}
+              emptyMessage=""
+              showReason
+              actions={{ purge: handlers.purge }}
+              busy={ops.busy}
+              purgingRoots={purgingRoots}
+            />
+          </div>
+        ) : null}
+      </div>
       <SectionNav sections={navSections} />
     </section>
   );

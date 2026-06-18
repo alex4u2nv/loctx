@@ -85,56 +85,62 @@ export function AdminPage() {
         </p>
       ) : null}
 
-      <h2 id="admin-index">Index</h2>
-      <p>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => void indexAll()}
-          disabled={indexBlocked}
-          title={reconcileTooltip}
-        >
-          <Icon name="index" /> index all projects
-        </button>{" "}
-        <button
-          type="button"
-          className="btn"
-          onClick={() => void refreshAll()}
-          disabled={indexBlocked}
-          title={reconcileTooltip}
-        >
-          <Icon name="refresh" /> refresh (reconcile drift)
-        </button>{" "}
-        <button
-          type="button"
-          className="btn"
-          onClick={() => void resetIndex()}
-          disabled={resetBlocked}
-          title={resetTooltip}
-        >
-          <Icon name="reset" /> reset index (delete all data)
-        </button>
-      </p>
+      <div className="card-stack">
+        <div className="card">
+          <p className="card-section-title" id="admin-index">Index</p>
+          <p>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void indexAll()}
+              disabled={indexBlocked}
+              title={reconcileTooltip}
+            >
+              <Icon name="index" /> index all projects
+            </button>{" "}
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void refreshAll()}
+              disabled={indexBlocked}
+              title={reconcileTooltip}
+            >
+              <Icon name="refresh" /> refresh (reconcile drift)
+            </button>{" "}
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void resetIndex()}
+              disabled={resetBlocked}
+              title={resetTooltip}
+            >
+              <Icon name="reset" /> reset index (delete all data)
+            </button>
+          </p>
+        </div>
 
-      <h2 id="admin-daemon">Daemon</h2>
-      <p>
-        <button
-          type="button"
-          className="btn"
-          onClick={() => void restart()}
-          disabled={ops.busy !== null}
-        >
-          <Icon name="refresh" /> restart
-        </button>{" "}
-        <button
-          type="button"
-          className="btn"
-          onClick={() => void stop()}
-          disabled={ops.busy !== null}
-        >
-          <Icon name="stop" /> stop
-        </button>
-      </p>
+        <div className="card">
+          <p className="card-section-title" id="admin-daemon">Daemon</p>
+          <p>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void restart()}
+              disabled={ops.busy !== null}
+            >
+              <Icon name="refresh" /> restart
+            </button>{" "}
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void stop()}
+              disabled={ops.busy !== null}
+            >
+              <Icon name="stop" /> stop
+            </button>
+          </p>
+        </div>
+      </div>
       <SectionNav
         sections={[
           { id: "admin-index", label: "Index" },

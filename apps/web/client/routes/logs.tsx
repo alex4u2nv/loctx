@@ -57,6 +57,14 @@ export function LogsPage() {
         request arguments and response.
       </p>
 
+      {error !== null ? (
+        <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
+          {error}
+        </p>
+      ) : null}
+
+      <div className="card-stack">
+      <div className="card">
       <p style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
         <button type="button" className="btn btn-primary" onClick={reload} disabled={initialLoad}>
           <Icon name="refresh" /> {initialLoad ? "Loading…" : "Refresh"}
@@ -88,14 +96,12 @@ export function LogsPage() {
           </span>
         ) : null}
       </p>
+      </div>
 
-      {error !== null ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-          {error}
-        </p>
-      ) : data === null ? (
+      <div className="card card-flush">
+      {data === null && error === null ? (
         <p className="pullquote">Loading…</p>
-      ) : (
+      ) : data === null ? null : (
         <DataTable<McpLogEntry>
           className="logs-table"
           rows={data.entries}
@@ -143,6 +149,8 @@ export function LogsPage() {
           ]}
         />
       )}
+      </div>
+      </div>
 
       {selected !== null ? (
         <SnippetModal

@@ -58,40 +58,46 @@ export function FindUsagesPage() {
         across the indexed projects.
       </p>
 
-      <QueryForm
-        // Re-mount the form when URL params change so the inputs pick up
-        // fresh defaultValues. Cheap; the form is uncontrolled.
-        key={`${urlSymbol}|${urlPath}`}
-        busy={busy}
-        submitLabel="Find"
-        fields={[
-          {
-            id: "symbol",
-            name: "symbol",
-            label: "symbol",
-            placeholder: "e.g. authenticate",
-            autoFocus: true,
-            defaultValue: urlSymbol,
-          },
-          {
-            id: "path",
-            name: "path",
-            label: "path",
-            placeholder: "scope to one project",
-            optional: true,
-            defaultValue: urlPath,
-          },
-        ]}
-        onSubmit={(values) => void submit(values["symbol"] ?? "", values["path"] ?? "")}
-      />
+      <div className="card-stack">
+        <div className="card">
+          <QueryForm
+            // Re-mount the form when URL params change so the inputs pick up
+            // fresh defaultValues. Cheap; the form is uncontrolled.
+            key={`${urlSymbol}|${urlPath}`}
+            busy={busy}
+            submitLabel="Find"
+            fields={[
+              {
+                id: "symbol",
+                name: "symbol",
+                label: "symbol",
+                placeholder: "e.g. authenticate",
+                autoFocus: true,
+                defaultValue: urlSymbol,
+              },
+              {
+                id: "path",
+                name: "path",
+                label: "path",
+                placeholder: "scope to one project",
+                optional: true,
+                defaultValue: urlPath,
+              },
+            ]}
+            onSubmit={(values) => void submit(values["symbol"] ?? "", values["path"] ?? "")}
+          />
+        </div>
 
-      {error !== null ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-          {error}
-        </p>
-      ) : response === null ? null : (
-        <Results r={response} scopedPath={urlPath} onClearScope={() => void submit(response.symbol, "")} />
-      )}
+        {error !== null ? (
+          <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
+            {error}
+          </p>
+        ) : response === null ? null : (
+          <div className="card">
+            <Results r={response} scopedPath={urlPath} onClearScope={() => void submit(response.symbol, "")} />
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -137,9 +143,9 @@ function Results({
         )
       ) : (
         <>
-          <h2>Definitions ({r.defs.length})</h2>
+          <p className="card-section-title">Definitions ({r.defs.length})</p>
           <UsageTable hits={r.defs} />
-          <h2>References ({r.refs.length})</h2>
+          <p className="card-section-title">References ({r.refs.length})</p>
           <UsageTable hits={r.refs} />
         </>
       )}
