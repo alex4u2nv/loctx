@@ -17,7 +17,7 @@ import {
   daemonClient,
   defaultConfigFile,
   findContainingProject,
-  installLizard,
+  installTool,
   inventoryProjects,
   loadConfig,
   makeProject,
@@ -28,6 +28,8 @@ import {
   SearcherError,
   StateStore,
   stopActiveDaemon,
+  TOOL_NAMES,
+  type ToolName,
   WatcherService,
   WorkspaceDiscovery,
   worstStatus,
@@ -872,57 +874,77 @@ program
 
 // ---- install-tools ------------------------------------------------------
 
+// YAML key for a tool's `enabled`/`command` (ast-grep is camelCase in config).
+const toolConfigKeys = (t: ToolName): { readonly enabled: string; readonly command: string } => {
+  const section = t === "ast-grep" ? "astGrep" : t;
+  return { enabled: `analyzers.${section}.enabled`, command: `analyzers.${section}.command` };
+};
+
 program
   .command("install-tools")
   .description(
-    "Install optional analyzer tools into a loctx-managed venv (lizard), enable them, and backfill.",
+    `Install optional analyzer tools into loctx-managed locations (${TOOL_NAMES.join(", ")}), enable them, and backfill.`,
   )
+  .argument("[tools...]", "Tools to install. Defaults to lizard.")
   .option("-y, --yes", "Skip the confirmation prompt.", false)
-  .action(async (opts: { yes: boolean }) => {
+  .action(async (toolsArg: string[], opts: { yes: boolean }) => {
     const ctx = getCtx();
     const config = loadConfigOrFail(ctx);
 
-    if (!opts.yes && !(await confirm("Install lizard into loctx's managed venv?"))) return;
+    const requested = toolsArg.length > 0 ? toolsArg : ["lizard"];
+    const unknown = requested.filter((t) => !TOOL_NAMES.includes(t as ToolName));
+    if (unknown.length > 0) {
+      console.error(
+        `[install-tools] unknown tool(s): ${unknown.join(", ")} (expected ${TOOL_NAMES.join(", ")})`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const tools = requested as ToolName[];
 
-    console.error("[install-tools] installing lizard…");
-    // Prefer the running daemon: one endpoint installs into the managed venv,
-    // enables lizard, hot-reloads, and backfills it over the index.
-    try {
-      const r = await daemonClient(config.paths.dataDir).post<{
-        ok: boolean;
-        command?: string;
-        backfilled?: number;
-        error?: string;
-      }>("/api/tools/install", { tool: "lizard" });
-      if (!r.ok) {
-        console.error(`[install-tools] ${r.error ?? "install failed"}`);
-        process.exitCode = 1;
-        return;
+    if (!opts.yes && !(await confirm(`Install ${tools.join(", ")} via loctx?`))) return;
+
+    for (const tool of tools) {
+      console.error(`[install-tools] installing ${tool}…`);
+      // Prefer the running daemon: one endpoint installs, enables, hot-reloads,
+      // and backfills. Fall back to a local install + config write if down.
+      try {
+        const r = await daemonClient(config.paths.dataDir).post<{
+          ok: boolean;
+          command?: string;
+          backfilled?: number;
+          error?: string;
+        }>("/api/tools/install", { tool });
+        if (!r.ok) {
+          console.error(`[install-tools] ${tool}: ${r.error ?? "install failed"}`);
+          process.exitCode = 1;
+          continue;
+        }
+        console.error(
+          `[install-tools] ${tool} installed (${r.command}) and enabled. Backfilling ${r.backfilled ?? 0} file(s).`,
+        );
+      } catch (err) {
+        if (!(err instanceof NoDaemonError)) {
+          console.error(`[install-tools] ${tool}: ${(err as Error).message}`);
+          process.exitCode = 1;
+          continue;
+        }
+        const result = await installTool(config, tool);
+        if (!result.ok || result.command === undefined) {
+          console.error(`[install-tools] ${tool}: ${result.error ?? "install failed"}`);
+          process.exitCode = 1;
+          continue;
+        }
+        const keys = toolConfigKeys(tool);
+        writeConfigPatch(config.source ?? resolve(config.paths.configDir, "config.yaml"), {
+          "analyzers.backgroundEnabled": true,
+          [keys.enabled]: true,
+          [keys.command]: result.command,
+        });
+        console.error(
+          `[install-tools] ${tool} installed (${result.command}) and enabled. Run \`loctx start\` (or restart) to backfill.`,
+        );
       }
-      console.error(
-        `[install-tools] lizard installed (${r.command}) and enabled. Backfilling ${r.backfilled ?? 0} file(s) over your index.`,
-      );
-    } catch (err) {
-      if (!(err instanceof NoDaemonError)) {
-        console.error(`[install-tools] ${(err as Error).message}`);
-        process.exitCode = 1;
-        return;
-      }
-      // No daemon — install locally and write config; next start backfills.
-      const result = await installLizard(config);
-      if (!result.ok || result.command === undefined) {
-        console.error(`[install-tools] ${result.error ?? "install failed"}`);
-        process.exitCode = 1;
-        return;
-      }
-      writeConfigPatch(config.source ?? resolve(config.paths.configDir, "config.yaml"), {
-        "analyzers.backgroundEnabled": true,
-        "analyzers.lizard.enabled": true,
-        "analyzers.lizard.command": result.command,
-      });
-      console.error(
-        `[install-tools] lizard installed (${result.command}) and enabled. Run \`loctx start\` (or restart) to backfill.`,
-      );
     }
   });
 

@@ -1,26 +1,35 @@
 /**
- * Proactive install of optional analyzer tools into a loctx-managed
- * environment, so users don't hand-install system packages.
+ * Proactive install of optional analyzer tools into loctx-managed
+ * locations, so users don't hand-install system packages.
  *
- * lizard is a Python CLI. Installing it into a venv loctx owns
- * (`<dataDir>/tools/venv`) sidesteps PEP 668 "externally-managed
- * environment" errors entirely — no `--break-system-packages`, no sudo,
- * no touching the user's Python. The caller then points
- * `analyzers.lizard.command` at the venv binary (config write →
- * hot-reload → backfill), so enabling lizard becomes one action.
+ *   - lizard, semgrep  → a venv loctx owns (`<dataDir>/tools/venv`), via
+ *     `python3 -m venv` + pip. A venv isn't an "externally-managed
+ *     environment", so PEP 668 doesn't apply — no `--break-system-packages`,
+ *     no sudo, no touching the user's Python.
+ *   - ast-grep  → a prebuilt binary fetched from GitHub Releases into
+ *     `<dataDir>/tools/bin` (it's a Rust binary, not a Python package).
  *
- * Async (execFile, not spawnSync) so the daemon's HTTP handler can run an
- * install without blocking the event loop. Shared by the CLI
- * (`loctx install-tools`) and the web `/api/tools/install` endpoint.
+ * The caller points `analyzers.<tool>.command` at the result (config write →
+ * hot-reload → backfill), so enabling a tool becomes one action. Async
+ * (execFile / fetch, never spawnSync) so the daemon's HTTP handler doesn't
+ * block. Shared by the CLI (`loctx install-tools`) and `/api/tools/install`.
+ *
+ * Note: semgrep and ast-grep only *run* once `analyzers.<tool>.rule_dirs`
+ * point at rules (configured on the admin Config page); installing them just
+ * provisions the binary. lizard runs with no extra config.
  */
 
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Config } from "./config.js";
 
 const exec = promisify(execFile);
+const isWin = process.platform === "win32";
+
+export type ToolName = "lizard" | "semgrep" | "ast-grep";
+export const TOOL_NAMES: ReadonlyArray<ToolName> = ["lizard", "semgrep", "ast-grep"];
 
 export interface ToolInstallResult {
   readonly ok: boolean;
@@ -32,13 +41,20 @@ export interface ToolInstallResult {
 
 function venvPaths(config: Config): { readonly venv: string; readonly bin: string } {
   const venv = resolve(config.paths.dataDir, "tools", "venv");
-  const bin = resolve(venv, process.platform === "win32" ? "Scripts" : "bin");
-  return { venv, bin };
+  return { venv, bin: resolve(venv, isWin ? "Scripts" : "bin") };
 }
 
-/** Path lizard would have inside loctx's managed venv (installed or not). */
-export function managedLizardCommand(config: Config): string {
-  return resolve(venvPaths(config).bin, process.platform === "win32" ? "lizard.exe" : "lizard");
+function venvBin(config: Config, name: string): string {
+  return resolve(venvPaths(config).bin, isWin ? `${name}.exe` : name);
+}
+
+function astGrepPath(config: Config): string {
+  return resolve(config.paths.dataDir, "tools", "bin", isWin ? "ast-grep.exe" : "ast-grep");
+}
+
+/** Where a tool would live once installed by loctx, whether or not present. */
+export function managedToolCommand(config: Config, name: ToolName): string {
+  return name === "ast-grep" ? astGrepPath(config) : venvBin(config, name);
 }
 
 async function findPython(): Promise<string | null> {
@@ -69,17 +85,17 @@ function proxyEnv(config: Config): NodeJS.ProcessEnv {
   return env;
 }
 
-/**
- * Install (or upgrade) lizard into loctx's managed venv. Returns the venv
- * binary path on success. The caller wires it into config; this only
- * provisions the tool.
- */
-export async function installLizard(config: Config): Promise<ToolInstallResult> {
+/** Install (or upgrade) a Python tool (lizard, semgrep) into the managed venv. */
+async function installPipTool(
+  config: Config,
+  pkg: string,
+  binName: string,
+): Promise<ToolInstallResult> {
   const python = await findPython();
   if (python === null) {
     return {
       ok: false,
-      error: "python3 not found on PATH — lizard is a Python tool; install Python 3",
+      error: `python3 not found on PATH — ${pkg} is a Python tool; install Python 3`,
     };
   }
   const { venv, bin } = venvPaths(config);
@@ -90,14 +106,84 @@ export async function installLizard(config: Config): Promise<ToolInstallResult> 
       return { ok: false, error: `could not create venv at ${venv}: ${tail(err)}` };
     }
   }
-  const pip = resolve(bin, process.platform === "win32" ? "pip.exe" : "pip");
+  const pip = resolve(bin, isWin ? "pip.exe" : "pip");
   try {
-    await exec(pip, ["install", "--upgrade", "lizard"], {
+    await exec(pip, ["install", "--upgrade", pkg], {
       env: proxyEnv(config),
-      maxBuffer: 16 * 1024 * 1024,
+      maxBuffer: 64 * 1024 * 1024,
     });
   } catch (err) {
-    return { ok: false, error: `pip install lizard failed: ${tail(err)}` };
+    return { ok: false, error: `pip install ${pkg} failed: ${tail(err)}` };
   }
-  return { ok: true, command: managedLizardCommand(config) };
+  return { ok: true, command: venvBin(config, binName) };
 }
+
+// platform-arch → ast-grep release asset (the zip bundles `ast-grep` + `sg`).
+const AST_GREP_ASSETS: Readonly<Record<string, string>> = {
+  "darwin-arm64": "app-aarch64-apple-darwin.zip",
+  "darwin-x64": "app-x86_64-apple-darwin.zip",
+  "linux-x64": "app-x86_64-unknown-linux-gnu.zip",
+  "linux-arm64": "app-aarch64-unknown-linux-gnu.zip",
+  "win32-x64": "app-x86_64-pc-windows-msvc.zip",
+};
+
+interface GhRelease {
+  readonly assets?: ReadonlyArray<{ readonly name: string; readonly browser_download_url: string }>;
+}
+
+/** Fetch the prebuilt ast-grep binary into the managed tools/bin directory. */
+async function installAstGrep(config: Config): Promise<ToolInstallResult> {
+  const asset = AST_GREP_ASSETS[`${process.platform}-${process.arch}`];
+  if (asset === undefined) {
+    return { ok: false, error: `no ast-grep prebuilt for ${process.platform}-${process.arch}` };
+  }
+  const binDir = resolve(config.paths.dataDir, "tools", "bin");
+  mkdirSync(binDir, { recursive: true });
+  const dest = astGrepPath(config);
+  const headers = { "user-agent": "loctx" }; // GitHub API requires a UA.
+  let release: GhRelease;
+  try {
+    const r = await fetch("https://api.github.com/repos/ast-grep/ast-grep/releases/latest", {
+      headers,
+    });
+    if (!r.ok) return { ok: false, error: `ast-grep release lookup: GitHub returned ${r.status}` };
+    release = (await r.json()) as GhRelease;
+  } catch (err) {
+    return { ok: false, error: `ast-grep release lookup failed: ${(err as Error).message}` };
+  }
+  const found = release.assets?.find((a) => a.name === asset);
+  if (found === undefined) {
+    return { ok: false, error: `ast-grep asset ${asset} not in the latest release` };
+  }
+  const zip = resolve(binDir, asset);
+  try {
+    const dl = await fetch(found.browser_download_url, { headers });
+    if (!dl.ok) return { ok: false, error: `ast-grep download: ${dl.status}` };
+    writeFileSync(zip, Buffer.from(await dl.arrayBuffer()));
+    await exec("unzip", ["-o", zip, "-d", binDir]);
+    rmSync(zip, { force: true });
+  } catch (err) {
+    return { ok: false, error: `ast-grep download/extract failed: ${tail(err)}` };
+  }
+  if (!existsSync(dest)) return { ok: false, error: "ast-grep binary missing after extract" };
+  chmodSync(dest, 0o755);
+  return { ok: true, command: dest };
+}
+
+/** Provision one optional analyzer tool; returns its installed binary path. */
+export async function installTool(config: Config, name: ToolName): Promise<ToolInstallResult> {
+  switch (name) {
+    case "lizard":
+      return installPipTool(config, "lizard", "lizard");
+    case "semgrep":
+      return installPipTool(config, "semgrep", "semgrep");
+    case "ast-grep":
+      return installAstGrep(config);
+  }
+}
+
+// Back-compat shims (the CLI's no-daemon fallback imports these by name).
+export const installLizard = (config: Config): Promise<ToolInstallResult> =>
+  installTool(config, "lizard");
+export const managedLizardCommand = (config: Config): string =>
+  managedToolCommand(config, "lizard");
