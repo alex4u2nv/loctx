@@ -12,6 +12,20 @@ Three publishable npm packages: `@loctx/core` (indexing engine), `@loctx/cli` (`
 
 ## Install
 
+### Pre-built release (recommended)
+
+A self-contained tarball from [GitHub Releases](https://github.com/alex4u2nv/loctx/releases) — no build, no `npm install`, no compiler. You only need Node on PATH whose **major version matches** the release (the bundled native addons are ABI-specific).
+
+```bash
+# install, or re-run any time to update to the latest release
+curl -fsSL https://raw.githubusercontent.com/alex4u2nv/loctx/main/scripts/install-release.sh | bash
+loctx --version
+```
+
+The installer drops `loctx` into `~/.local/bin` (override `LOCTX_BIN_DIR`) and the runtime into `~/.local/share/loctx` (override `LOCTX_HOME`). Releases are tagged per platform + Node major (e.g. `darwin-arm64-node25`); it picks the matching asset and refuses a mismatch with a clear message. Behind a TLS-intercepting proxy, pass your CA: `LOCTX_CA_CERT=/path/ca.pem ... | bash` (and set `network.ca_cert` afterwards so the model download trusts it too).
+
+### From source (contributors)
+
 This repo uses [pnpm](https://pnpm.io/) (>= 9). The fastest way to get it: `corepack enable && corepack prepare pnpm@9.15.9 --activate`.
 
 ```bash
@@ -23,7 +37,7 @@ pnpm run install:local
 
 `pnpm run install:local` builds every workspace and runs `npm install -g ./apps/cli ./apps/mcp`. npm symlinks the two local packages into its global bin directory (already on your PATH, with the right shims on Windows), so `loctx` and `loctx-mcp` work from anywhere. Remove them with `npm rm -g @loctx/cli @loctx/mcp`.
 
-This is a from-clone install by design. Because npm links the local directories, the binaries resolve against the workspace's `node_modules` — including the private `@loctx/web` build that `loctx start` loads at runtime. A published `npm i -g @loctx/cli` won't work for the same reason: `@loctx/web` stays private, so it's never on the registry. Run from a clone (or wait for an umbrella package).
+This from-clone path is for development. Because npm links the local directories, the binaries resolve against the workspace's `node_modules` — including the private `@loctx/web` build that `loctx start` loads at runtime. For distribution, use the pre-built release tarball above (which bundles the private web build and the native runtime); see [Releasing](#releasing).
 
 If `npm i -g` fails with a permissions error, your npm prefix isn't user-writable. Set a user-level prefix (`npm config set prefix ~/.npm-global`, then add `~/.npm-global/bin` to PATH) or use a Node version manager (nvm, fnm, volta).
 
@@ -102,6 +116,18 @@ Two caveats to flag explicitly:
 - **External analyzer commands come from the global config only.** `analyzers.{lizard,semgrep,astGrep}.command` is honored from `$XDG_CONFIG_HOME/loctx/config.yaml`. The project-level config layer was removed entirely, so `cd hostile-repo && loctx index` can no longer swap `lizard` to an attacker-supplied binary.
 
 Vulnerability reports go through [SECURITY.md](SECURITY.md), not public issues.
+
+## Releasing
+
+Build a self-contained tarball for the current platform + Node major and attach it to a GitHub Release:
+
+```bash
+pnpm run build
+pnpm run release:build          # → release/loctx-<version>-<platform>-<arch>-node<major>.tgz
+gh release create v<version> release/loctx-*.tgz
+```
+
+The tarball is the `pnpm deploy` output: the CLI plus the bundled `@loctx/{core,web,mcp}` and the full runtime `node_modules` **including already-built native binaries**, so users install with no compiler and no prebuild downloads. It's platform + Node-major specific — build on each target you support (a CI matrix when you open up). Users install/update via the one-liner in [Install](#pre-built-release-recommended).
 
 ## Contributing
 

@@ -10,3 +10,6 @@ dist/
 
 # Test artifacts
 test-results/.playwright*
+
+# Release build output
+/release/

@@ -11,7 +11,8 @@
  * StateStore.
  */
 
-import { dirname, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   acquireDaemonLock,
@@ -562,9 +563,20 @@ function startListeners(args: {
 // ---- helpers -----------------------------------------------------------
 
 function resolveWebDir(): string {
-  // Resolve apps/web from the CLI's installed location. This file at runtime
-  // sits in apps/cli/dist; from there `../../web` walks up to the workspace
-  // root's apps/web.
+  // Resolve @loctx/web's package root from wherever it's installed, via its
+  // exported `./server` entry. Works both in the workspace (pnpm symlinks
+  // @loctx/web → apps/web) and in a published/bundled install (it lives in
+  // node_modules/@loctx/web) — the old hardcoded `../../web` only held for
+  // the former. Falls back to the relative path if resolution fails.
+  try {
+    const require = createRequire(import.meta.url);
+    const serverEntry = require.resolve("@loctx/web/server");
+    const marker = `${sep}dist${sep}`;
+    const distIdx = serverEntry.lastIndexOf(marker);
+    if (distIdx !== -1) return serverEntry.slice(0, distIdx);
+  } catch {
+    // fall through to the workspace-relative path
+  }
   const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, ROOT_RELATIVE_WEB_DIR);
 }
