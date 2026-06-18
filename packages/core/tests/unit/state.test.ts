@@ -59,6 +59,72 @@ describe("StateStore", () => {
     store.close();
   });
 
+  it("listFilesMissingEnrichment returns only files lacking an up-to-date enrichment (#backfill)", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const mkFile = (rel: string, sha: string): FileState => ({
+      fileId: toFileId(`file-${rel}-${sha}`) as FileId,
+      projectId: project.id,
+      relPath: rel,
+      size: 1,
+      mtime: 1,
+      contentSha: sha,
+      indexedAt: "2024-01-01T00:00:00.000Z",
+      embeddingIdentity: "x",
+      error: null,
+    });
+    const a = mkFile("a.py", "sha-a");
+    const b = mkFile("b.py", "sha-b");
+    const c = mkFile("c.py", "sha-c");
+    for (const f of [a, b, c]) store.upsertFile(f);
+
+    // a: complete at current sha → done. b: enrichment for a STALE sha →
+    // missing. c: no enrichment → missing.
+    store.upsertFileEnrichment({
+      fileId: a.fileId,
+      analyzer: "duplicates",
+      analyzerVersion: 1,
+      contentSha: "sha-a",
+      status: "complete",
+    });
+    store.upsertFileEnrichment({
+      fileId: b.fileId,
+      analyzer: "duplicates",
+      analyzerVersion: 1,
+      contentSha: "stale",
+      status: "complete",
+    });
+
+    const missing = store
+      .listFilesMissingEnrichment(project.id, "duplicates", 1)
+      .map((f) => f.relPath)
+      .sort();
+    expect(missing).toEqual(["b.py", "c.py"]);
+
+    // A different analyzer has no rows at all → every file is missing.
+    expect(store.listFilesMissingEnrichment(project.id, "lizard", 1)).toHaveLength(3);
+
+    // A `failed` row doesn't count as done — the file stays in the gap set.
+    store.upsertFileEnrichment({
+      fileId: c.fileId,
+      analyzer: "duplicates",
+      analyzerVersion: 1,
+      contentSha: "sha-c",
+      status: "failed",
+    });
+    expect(
+      store
+        .listFilesMissingEnrichment(project.id, "duplicates", 1)
+        .map((f) => f.relPath)
+        .sort(),
+    ).toEqual(["b.py", "c.py"]);
+
+    // A version bump invalidates the existing `complete` row for `a`.
+    expect(store.listFilesMissingEnrichment(project.id, "duplicates", 2)).toHaveLength(3);
+    store.close();
+  });
+
   it("upsertFile updates existing row", () => {
     const project = makeProject();
     const store = new StateStore(join(tmp, "state.db"));

@@ -560,6 +560,28 @@ export class StateStore {
   }
 
   /**
+   * Files in a project lacking an up-to-date `complete` enrichment for the
+   * given analyzer (matched on the file's current content_sha). Powers the
+   * analyzer backfill: when a feature is enabled after the index is built,
+   * we re-run only this analyzer over just these files — no re-embedding.
+   */
+  listFilesMissingEnrichment(
+    projectId: ProjectId,
+    analyzer: string,
+    analyzerVersion: number,
+  ): Array<{ readonly fileId: FileId; readonly relPath: string; readonly contentSha: string }> {
+    const rows = this.readAll<{ file_id: string; rel_path: string; content_sha: string }>(
+      "list_files_missing_enrichment",
+      [projectId, analyzer, analyzerVersion],
+    );
+    return rows.map((r) => ({
+      fileId: toFileId(r.file_id),
+      relPath: r.rel_path,
+      contentSha: r.content_sha,
+    }));
+  }
+
+  /**
    * Per-project chunk counts. Used by the admin projects table — single
    * GROUP BY join instead of per-row queries, so the page stays cheap on
    * workspaces with many projects.

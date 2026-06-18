@@ -366,6 +366,24 @@ export async function runDoctorChecks(
     );
   }
 
+  // Network — only surfaced when non-default (proxied / firewalled setups).
+  const net = config.network;
+  if (net.caCert !== null || net.proxy !== null || !net.strictSsl) {
+    const parts: string[] = [];
+    let status: DoctorStatus = "ok";
+    if (net.caCert !== null) {
+      const present = existsSync(net.caCert);
+      parts.push(`ca_cert=${net.caCert}${present ? "" : " (FILE MISSING)"}`);
+      if (!present) status = "error";
+    }
+    if (net.proxy !== null) parts.push(`proxy=${net.proxy}`);
+    if (!net.strictSsl) {
+      parts.push("strict_ssl=false (TLS verification OFF)");
+      if (status === "ok") status = "warn";
+    }
+    checks.push({ name: "network", status, detail: parts.join(", ") });
+  }
+
   return checks;
 }
 

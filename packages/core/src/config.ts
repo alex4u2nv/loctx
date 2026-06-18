@@ -175,6 +175,21 @@ export interface McpConfig {
   readonly logMaxRows: number;
 }
 
+/**
+ * Outbound-network settings for environments behind a TLS-intercepting
+ * proxy or corporate firewall (#385). Applied to runtime fetches (the
+ * embedding-model download) and passed to subprocesses (future
+ * `loctx update`, optional-tool installs).
+ */
+export interface NetworkConfig {
+  /** Path to an extra CA cert PEM to trust (e.g. a corporate/Socket root CA). null = none. */
+  readonly caCert: string | null;
+  /** When false, TLS certificate verification is disabled. Insecure; last resort. */
+  readonly strictSsl: boolean;
+  /** HTTP(S) proxy URL for outbound requests. null = direct. */
+  readonly proxy: string | null;
+}
+
 export type ConfigSource = "default" | "global" | "env";
 
 /** Where each leaf came from. Keyed by dot-path (e.g. "embedding.model"). */
@@ -191,6 +206,7 @@ export interface Config {
   readonly discovery: DiscoveryConfig;
   readonly analyzers: AnalyzerConfig;
   readonly mcp: McpConfig;
+  readonly network: NetworkConfig;
   /** Path of the global YAML if loaded; null when only defaults applied. */
   readonly source: string | null;
   readonly sources: ConfigSources;
@@ -232,6 +248,12 @@ const DEFAULT_RECONCILIATION: ReconciliationConfig = Object.freeze({
 const DEFAULT_MCP_LOG_MAX_ROWS = 200;
 const DEFAULT_MCP: McpConfig = Object.freeze({
   logMaxRows: DEFAULT_MCP_LOG_MAX_ROWS,
+});
+
+const DEFAULT_NETWORK: NetworkConfig = Object.freeze({
+  caCert: null,
+  strictSsl: true,
+  proxy: null,
 });
 
 // Analyzers ship ENABLED by default so the tool is useful out of the box.
@@ -318,6 +340,7 @@ export function loadConfig(options?: string | LoadConfigOptions): Config {
     discovery: merged.discovery,
     analyzers: merged.analyzers,
     mcp: merged.mcp,
+    network: merged.network,
     source: globalRaw === null ? null : globalPath,
     sources: Object.freeze(sources),
   });
@@ -431,6 +454,7 @@ interface MergedFields {
   readonly discovery: DiscoveryConfig;
   readonly analyzers: AnalyzerConfig;
   readonly mcp: McpConfig;
+  readonly network: NetworkConfig;
 }
 
 function mergeFields(
@@ -449,6 +473,7 @@ function mergeFields(
     discovery: mergeDiscovery(global, sources),
     analyzers: mergeAnalyzers(global, sources),
     mcp: mergeMcp(global, sources),
+    network: mergeNetwork(global, sources),
   };
 }
 
@@ -459,6 +484,22 @@ function mergeMcp(
   const pick = makePicker(sectionRecord(global, "mcp", "<global>"), sources);
   return Object.freeze({
     logMaxRows: pick("mcp.logMaxRows", "log_max_rows", INT_NON_NEG, DEFAULT_MCP.logMaxRows),
+  });
+}
+
+function mergeNetwork(
+  global: Record<string, unknown> | null,
+  sources: Record<string, ConfigSource>,
+): NetworkConfig {
+  const pick = makePicker(sectionRecord(global, "network", "<global>"), sources);
+  // Nullable strings: empty/unset → null (the picker's generic fallback
+  // must match the spec's value type, so default to "" and map after).
+  const caCert = pick("network.caCert", "ca_cert", STR, "");
+  const proxy = pick("network.proxy", "proxy", STR, "");
+  return Object.freeze({
+    caCert: caCert === "" ? null : caCert,
+    strictSsl: pick("network.strictSsl", "strict_ssl", BOOL, DEFAULT_NETWORK.strictSsl),
+    proxy: proxy === "" ? null : proxy,
   });
 }
 
@@ -782,4 +823,18 @@ mcp:
   # Rolling row cap on the MCP request log (the admin "logs" page).
   # Oldest rows are trimmed past this count. Set to 0 to disable logging.
   log_max_rows: 200
+
+# Outbound network — set these only behind a TLS-intercepting proxy or
+# corporate firewall (e.g. Socket Firewall). They apply to the embedding
+# model download and to loctx's own updates / tool installs.
+network:
+  # Path to a root CA cert PEM to trust (your org's / proxy's CA). On macOS
+  # you can export the keychain: security find-certificate -a -p \\
+  #   /Library/Keychains/System.keychain \\
+  #   /System/Library/Keychains/SystemRootCertificates.keychain > ca.pem
+  # ca_cert: ~/.config/loctx/ca.pem
+  # HTTP(S) proxy URL, if your network requires one.
+  # proxy: http://proxy.corp:8080
+  # Last resort — disables TLS verification entirely. Prefer ca_cert.
+  strict_ssl: true
 `;

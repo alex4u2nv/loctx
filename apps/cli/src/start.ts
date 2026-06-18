@@ -36,6 +36,24 @@ import {
 
 const DAEMON_VERSION = "0.1.0";
 
+/**
+ * The set of analyzers that are currently *active* — i.e. would actually
+ * run: the background queue is on, the analyzer is enabled, and (for the
+ * rule-pack scanners) rule dirs are configured. Used to detect which
+ * analyzers newly activated across a config hot-reload so we can backfill
+ * just those over already-indexed files.
+ */
+function activeAnalyzers(config: Config): ReadonlySet<string> {
+  const out = new Set<string>();
+  const a = config.analyzers;
+  if (!a.backgroundEnabled) return out;
+  if (a.lizard.enabled) out.add("lizard");
+  if (a.duplicates.enabled) out.add("duplicates");
+  if (a.semgrep.enabled && a.semgrep.ruleDirs.length > 0) out.add("semgrep");
+  if (a.astGrep.enabled && a.astGrep.ruleDirs.length > 0) out.add("ast-grep");
+  return out;
+}
+
 export interface StartOptions {
   readonly enableWatch: boolean;
   readonly enableWeb: boolean;
@@ -57,10 +75,6 @@ export async function start(bootConfig: Config, options: StartOptions): Promise<
   // Settings that can't re-apply live (daemon port/hostname, embedding
   // model) still require a restart.
   const config: Config = { ...bootConfig };
-  const reloadConfig = (): void => {
-    const fresh = loadConfig(config.source !== null ? { configPath: config.source } : undefined);
-    Object.assign(config, fresh);
-  };
 
   // Single-instance lock keyed on the data dir. Two daemons sharing the same
   // SQLite + LanceDB would race on writes; the lock keeps one alive at a time
@@ -78,6 +92,26 @@ export async function start(bootConfig: Config, options: StartOptions): Promise<
     lock.release();
     throw err;
   }
+
+  // Hot-reload hook for the admin UI's config save: re-read the YAML into
+  // the live config, then — if an analyzer just became active — backfill
+  // it over already-indexed files so enabling a feature after the index is
+  // built catches up efficiently (only the new analyzer, only missing
+  // files, no re-embedding). Defined after `runtime` so it can drive it.
+  const reloadConfig = (): void => {
+    const before = activeAnalyzers(config);
+    const fresh = loadConfig(config.source !== null ? { configPath: config.source } : undefined);
+    Object.assign(config, fresh);
+    const newly = [...activeAnalyzers(config)].filter((n) => !before.has(n));
+    if (newly.length > 0) {
+      console.error(`[loctx config] analyzer(s) activated: ${newly.join(", ")} — backfilling`);
+      void runtime
+        .backfillAnalyzers(newly)
+        .catch((err) =>
+          console.error(`[loctx analyzers] backfill failed: ${(err as Error).message}`),
+        );
+    }
+  };
 
   const discoveredProjects = runtime.discovery.discoverProjects();
   // Project activation gate: indexer / watcher / reconciler only operate
@@ -126,6 +160,18 @@ export async function start(bootConfig: Config, options: StartOptions): Promise<
         /* no-op */
       };
   const reconciliationStop = startReconciliation(runtime, activeProjects, config);
+
+  // Catch-up backfill for analyzers that were enabled while the index was
+  // already built (e.g. config edited then daemon restarted, or upgraded
+  // into the new enabled-by-default analyzers over an existing index).
+  // Non-blocking; the missing-enrichment query is cheap once caught up, so
+  // this is a no-op on a fully-analyzed index. Newly-indexed files are
+  // covered by the indexer hook, not here.
+  void runtime
+    .backfillAnalyzers()
+    .catch((err) =>
+      console.error(`[loctx analyzers] startup backfill failed: ${(err as Error).message}`),
+    );
 
   const banner = [
     `[loctx start] runtime ready (${activeProjects.length} active of ${discoveredProjects.length} discovered, ${runtime.config.embedding.model})`,
