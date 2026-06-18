@@ -155,11 +155,15 @@ export interface FindUsagesOutput {
 export interface FindDuplicatesInput {
   /** Minimum file count for a group to surface. Default 2. */
   readonly minMembers?: number;
+  /** Absolute path to scope to one project; omit to span the workspace. */
+  readonly path?: string;
 }
 
 export interface FindDuplicatesOutput {
   readonly groups: ReadonlyArray<DuplicateGroup>;
   readonly indexHealth: IndexHealth;
+  /** Scope-resolution notes (e.g. path narrowed to an indexed parent). */
+  readonly warnings?: ReadonlyArray<string>;
   /**
    * Non-null when the duplicate-detection analyzer is disabled in
    * config — surfaces *why* `groups` is empty so an agent can tell
@@ -401,11 +405,29 @@ export const tools = {
       disabled =
         "analyzers.duplicates.enabled is false in config — enable it and restart the daemon.";
     }
-    const groups = runtime.state.findDuplicateGroups(Math.max(2, minMembers));
+
+    // Optional project scope. Unscoped find_duplicates over a workspace
+    // with a large project is expensive (the analyzer emits a 50-token
+    // window per line); pass `path` to narrow to one project.
+    const path = v.getStr(data, "path");
+    const warnings: string[] = [];
+    let projectId: string | null = null;
+    if (path !== undefined) {
+      const scope = resolveProjectScope(runtime.discovery, runtime.state, path, warnings);
+      if (scope.project === null) {
+        throw new ToolError(
+          `path ${path} is not inside any indexed project; omit path to scan every project.`,
+        );
+      }
+      projectId = scope.project.id;
+    }
+
+    const groups = runtime.state.findDuplicateGroups(Math.max(2, minMembers), projectId);
     return Object.freeze({
       groups: Object.freeze(groups),
       indexHealth: currentIndexHealth(runtime),
       disabled,
+      ...(warnings.length > 0 ? { warnings: Object.freeze(warnings) } : {}),
     });
   },
 
@@ -559,7 +581,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_duplicates",
     description:
-      "**Use when you ask 'where do we have duplicated text across files'** — works on any indexed content (code, runbooks, SOP boilerplate, prompt fragments, copy-pasted doc sections). Pre-refactor, when triaging boilerplate, or auditing for accidental copy-paste. **Beats `grep`** because the comparison is on hashed token-windows, not literal text, so it finds duplicates that aren't byte-identical. Heuristic — labelled as such. Requires `analyzers.backgroundEnabled = true` and `analyzers.duplicates.enabled = true` in config; the response's `disabled` field names which knob is off so an empty `groups` from feature-disabled vs. feature-enabled-but-no-hits is distinguishable. Each group: `hash` and `members` (file_id, start/end line range). Cross-project by default. Not useful for finding a specific known duplicate — use `find_literal` or `find_usages` for that.",
+      "**Use when you ask 'where do we have duplicated text across files'** — works on any indexed content (code, runbooks, SOP boilerplate, prompt fragments, copy-pasted doc sections). Pre-refactor, when triaging boilerplate, or auditing for accidental copy-paste. **Beats `grep`** because the comparison is on hashed token-windows, not literal text, so it finds duplicates that aren't byte-identical. Heuristic — labelled as such. Requires `analyzers.backgroundEnabled = true` and `analyzers.duplicates.enabled = true` in config; the response's `disabled` field names which knob is off so an empty `groups` from feature-disabled vs. feature-enabled-but-no-hits is distinguishable. Each group: `hash` and `members` (file_id, start/end line range). Cross-project by default — pass `path` to scope to one project, which you should prefer on large workspaces. Output is capped (top groups by size, members per group). Not useful for finding a specific known duplicate — use `find_literal` or `find_usages` for that.",
     inputSchema: {
       type: "object",
       properties: {
@@ -568,6 +590,11 @@ export const TOOL_DEFINITIONS = [
           minimum: 2,
           default: 2,
           description: "Minimum file count for a group to surface.",
+        },
+        path: {
+          type: "string",
+          description:
+            "Absolute path to scope to one project. Omit to scan every indexed project (can be slow + large on big workspaces).",
         },
       },
     },

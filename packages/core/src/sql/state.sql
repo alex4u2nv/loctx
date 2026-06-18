@@ -342,6 +342,52 @@ FROM file_enrichments
 WHERE analyzer = ?
 ORDER BY file_id;
 
+-- :name find_duplicate_groups_in_project
+-- Cross-file duplicate groups within ONE project. Hash-grouped in SQL via
+-- json_each so we never materialise every token-window in JS (the old
+-- load-all-and-Map approach OOM-aborted the MCP process). Drives from
+-- `files` filtered by project_id (uses idx_files_project) and MATERIALIZEs
+-- the windows once, so it's fast (~0.2s for a few-hundred-file project vs
+-- ~7s for the unscoped/unindexed shape). Returns only members of hashes
+-- spanning >= ? distinct files. Params: projectId, minMembers.
+WITH win AS MATERIALIZED (
+  SELECT fe.file_id AS file_id,
+         json_extract(w.value, '$.hash')       AS hash,
+         json_extract(w.value, '$.startLine')  AS start_line,
+         json_extract(w.value, '$.endLine')    AS end_line
+  FROM files f
+  JOIN file_enrichments fe ON fe.file_id = f.file_id
+  JOIN json_each(fe.payload_json, '$.windows') w
+  WHERE f.project_id = ?
+    AND fe.analyzer = 'duplicates'
+    AND fe.status = 'complete'
+    AND fe.payload_json IS NOT NULL
+)
+SELECT hash, file_id, start_line, end_line
+FROM win
+WHERE hash IN (SELECT hash FROM win GROUP BY hash HAVING COUNT(DISTINCT file_id) >= ?)
+ORDER BY hash, file_id, start_line;
+
+-- :name find_duplicate_groups_all
+-- Workspace-wide variant (no project scope). Bounded in JS memory like the
+-- scoped query, but inherently expensive on large workspaces — the MCP
+-- tool steers callers toward `path` for this reason. Params: minMembers.
+WITH win AS MATERIALIZED (
+  SELECT fe.file_id AS file_id,
+         json_extract(w.value, '$.hash')       AS hash,
+         json_extract(w.value, '$.startLine')  AS start_line,
+         json_extract(w.value, '$.endLine')    AS end_line
+  FROM file_enrichments fe
+  JOIN json_each(fe.payload_json, '$.windows') w
+  WHERE fe.analyzer = 'duplicates'
+    AND fe.status = 'complete'
+    AND fe.payload_json IS NOT NULL
+)
+SELECT hash, file_id, start_line, end_line
+FROM win
+WHERE hash IN (SELECT hash FROM win GROUP BY hash HAVING COUNT(DISTINCT file_id) >= ?)
+ORDER BY hash, file_id, start_line;
+
 -- :name delete_file_enrichments_for_file
 DELETE FROM file_enrichments WHERE file_id = ?;
 
