@@ -84,6 +84,8 @@ export function SearchPage() {
         subtree.
       </p>
 
+      <div className="card-stack">
+      <div className="card">
       <form
         className="search-form"
         onSubmit={(e) => {
@@ -179,18 +181,24 @@ export function SearchPage() {
           {loading ? "Searching…" : "Search"}
         </button>
       </form>
+      </div>
 
       {error !== null ? (
         <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
           {error}
         </p>
-      ) : response === null ? (
+      ) : null}
+
+      <div className="card">
+      {error !== null ? null : response === null ? (
         query ? null /* URL-driven submit is in flight; brief blank is OK */ : (
           <p className="pullquote">Enter a query to search the locally-indexed workspace.</p>
         )
       ) : (
         <Results response={response} />
       )}
+      </div>
+      </div>
     </section>
   );
 }

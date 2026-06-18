@@ -44,7 +44,8 @@ export function DoctorPage() {
       <p className="subtitle">
         Configuration, storage, daemon, schema, discovery and analyzer health.
       </p>
-      <p>
+      <div className="card">
+      <p style={{ marginTop: 0 }}>
         <button
           type="button"
           className={`btn ${justCompleted ? "btn-success" : "btn-primary"}`}
@@ -92,6 +93,7 @@ export function DoctorPage() {
           />
         </>
       )}
+      </div>
     </section>
   );
 }

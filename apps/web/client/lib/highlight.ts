@@ -31,7 +31,9 @@ const PRIMARY_LANGS = [
   "shell",
 ] as const;
 
-const THEME: BundledTheme = "github-dark";
+// Light theme to match the Apple-style admin UI; a dark code block would
+// be the one jarring island on the otherwise light pages.
+const THEME: BundledTheme = "github-light";
 
 let highlighterPromise: Promise<Highlighter> | null = null;
 const loadedLangs = new Set<string>(PRIMARY_LANGS);

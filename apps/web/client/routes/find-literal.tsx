@@ -76,6 +76,8 @@ export function FindLiteralPage() {
         safety-critical audits, supplement with <code>rg</code>.
       </p>
 
+      <div className="card-stack">
+      <div className="card">
       <form
         className="search-form"
         onSubmit={(e) => {
@@ -126,12 +128,16 @@ export function FindLiteralPage() {
           {loading ? "Scanning…" : "Find"}
         </button>
       </form>
+      </div>
 
       {error !== null ? (
         <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
           {error}
         </p>
-      ) : response === null ? (
+      ) : null}
+
+      <div className="card">
+      {error !== null ? null : response === null ? (
         pattern ? null : (
           <p className="pullquote">
             Enter a literal substring to scan the indexed workspace. Tokens, paths, full lines —
@@ -141,6 +147,8 @@ export function FindLiteralPage() {
       ) : (
         <Results response={response} />
       )}
+      </div>
+      </div>
     </section>
   );
 }

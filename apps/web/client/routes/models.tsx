@@ -73,6 +73,7 @@ export function ModelsPage() {
           {error}
         </p>
       ) : data === null ? null : (
+        <div className="card card-flush">
         <DataTable
           rows={data.available}
           rowKey={(m) => m.id}
@@ -110,6 +111,7 @@ export function ModelsPage() {
             },
           ]}
         />
+        </div>
       )}
     </section>
   );
