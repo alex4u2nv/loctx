@@ -24,6 +24,7 @@ import { Icon } from "../components/icon";
 import { useLiveRefreshData, useLiveRefreshEvent } from "../components/live-refresh";
 import { SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
+import { formatBytes } from "../lib/format";
 import { useFetch } from "../lib/use-fetch";
 
 interface WatcherEvent {
@@ -109,6 +110,7 @@ export function StatusPage() {
         flowProjects={flowProjects}
         indexedProjects={indexedProjects}
         discoveredProjects={discoveredProjects}
+        indexSizeBytes={status.runtime.indexSizeBytes}
         daemonRunning={daemon.running}
       />
       <DaemonCard status={status} baseUrl={baseUrl} />
@@ -139,14 +141,19 @@ function IndexFlowHero({
   flowProjects,
   indexedProjects,
   discoveredProjects,
+  indexSizeBytes,
   daemonRunning,
 }: {
   totals: { files: number; chunks: number };
   flowProjects: ReadonlyArray<FlowProject>;
   indexedProjects: number;
   discoveredProjects: number;
+  indexSizeBytes: number;
   daemonRunning: boolean;
 }) {
+  // Split "1.2 GB" into value + unit so the unit renders in the smaller
+  // hero-stat-unit style, matching the files/chunks stat next to it.
+  const [sizeValue, sizeUnit] = formatBytes(indexSizeBytes).split(" ");
   return (
     <article id="dash-flow" className="card hero">
       <header className="hero-head">
@@ -188,6 +195,13 @@ function IndexFlowHero({
             <span className="hero-stat-unit">files</span>
           </span>
           <span className="hero-stat-label">{totals.chunks.toLocaleString()} chunks</span>
+        </div>
+        <div className="hero-stat">
+          <span>
+            <span className="hero-stat-value">{sizeValue}</span>
+            <span className="hero-stat-unit">{sizeUnit}</span>
+          </span>
+          <span className="hero-stat-label">Index size</span>
         </div>
       </footer>
     </article>

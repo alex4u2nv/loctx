@@ -23,6 +23,12 @@ export interface StatusPayload {
     readonly dataDir: string;
     readonly vectorDir: string;
     readonly stateDb: string;
+    /**
+     * On-disk size of the index in bytes: the LanceDB vector store
+     * (`vectorDir`) plus the SQLite state DB and its WAL/SHM sidecars.
+     * Best-effort; 0 if the paths can't be read.
+     */
+    readonly indexSizeBytes: number;
     readonly embeddingProvider: string;
     readonly embeddingModel: string;
     /** True once the embedding model has been initialized successfully. */
