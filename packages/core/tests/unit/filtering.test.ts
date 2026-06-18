@@ -75,6 +75,21 @@ describe("ProjectFilter", () => {
     expect(freshFilter().shouldIndex(aider).shouldIndex).toBe(true);
   });
 
+  it("excludes .claude/worktrees/** — agent worktrees are full repo dupes", () => {
+    // Claude Code's agent worktrees live at .claude/worktrees/<id>/ and are
+    // full duplicate checkouts; indexing them doubles the index and floods
+    // find_duplicates with twins. Path-specific so #371's keep-.claude
+    // decision (CLAUDE.md above) stays intact.
+    const f = write(
+      join(projectRoot, ".claude", "worktrees", "agent-abc", "packages", "core", "src", "x.ts"),
+      "export const x = 1;\n",
+    );
+    const decision = freshFilter().shouldIndex(f);
+    expect(decision.shouldIndex).toBe(false);
+    expect(decision.reason).toBe(FilterReason.IGNORED_DIRECTORY);
+    expect(decision.detail).toBe(".claude/worktrees");
+  });
+
   it("skips a watcher event whose path equals the project root itself", () => {
     // @parcel/watcher occasionally fires a synthetic event for the root.
     // The old code passed rel="" to gitignore.ignores(), which throws and

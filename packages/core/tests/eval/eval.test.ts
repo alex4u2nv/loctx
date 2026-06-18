@@ -14,8 +14,8 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Config } from "../../src/config.js";
-import { buildRuntime, defaultPaths, type Runtime, WorkspaceDiscovery } from "../../src/index.js";
+import { buildRuntime, type Runtime, WorkspaceDiscovery } from "../../src/index.js";
+import { makeTestConfig } from "../helpers/config.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
 import { FIXTURE_PROJECTS, writeFixtureWorkspace } from "./fixtures.js";
 import { EVAL_CASES } from "./queries.js";
@@ -30,54 +30,9 @@ beforeAll(async () => {
   mkdirSync(dataDir, { recursive: true });
   writeFixtureWorkspace(workspaceRoot);
 
-  // Real `loadConfig` would read XDG dirs; we synthesize one inline so the
-  // test is hermetic. Path overrides go straight into `paths`.
-  const paths = defaultPaths();
-  const config: Config = Object.freeze({
-    workspaceRoots: Object.freeze([workspaceRoot]),
-    paths: Object.freeze({
-      ...paths,
-      dataDir,
-      vectorDir: join(dataDir, "vectors"),
-      stateDb: join(dataDir, "state.sqlite3"),
-      logsDir: join(dataDir, "logs"),
-    }),
-    embedding: Object.freeze({
-      provider: "fake",
-      model: "hash",
-      normalize: true,
-      providerOverride: "fake",
-    }),
-    watcher: Object.freeze({ debounceMs: 0 }),
-    daemon: Object.freeze({ port: 0, hostname: "localhost" }),
-    retrieval: Object.freeze({ mode: "hybrid", rrfK: 60 }),
-    reconciliation: Object.freeze({ runOnStart: false, intervalSeconds: 0 }),
-    discovery: Object.freeze({ extraMarkers: Object.freeze<string[]>([]), maxDepth: 4 }),
-    analyzers: Object.freeze({
-      backgroundEnabled: false,
-      concurrency: 2,
-      perTaskTimeoutMs: 60_000,
-      lizard: Object.freeze({ enabled: false, command: "lizard" }),
-      duplicates: Object.freeze({ enabled: false, windowSize: 50, minUniqueTokens: 15 }),
-      semgrep: Object.freeze({
-        enabled: false,
-        command: "semgrep",
-        ruleDirs: Object.freeze<string[]>([]),
-        maxFindingsPerFile: 50,
-      }),
-      astGrep: Object.freeze({
-        enabled: false,
-        command: "ast-grep",
-        ruleDirs: Object.freeze<string[]>([]),
-        maxFindingsPerFile: 50,
-      }),
-    }),
-    network: Object.freeze({ caCert: null, strictSsl: true, proxy: null }),
-    source: null,
-    sources: Object.freeze({}),
-  });
-
-  runtime = await buildRuntime(config);
+  // Real `loadConfig` would read XDG dirs; the shared helper synthesizes a
+  // hermetic config so the test needs no model download or network.
+  runtime = await buildRuntime(makeTestConfig(workspaceRoot, dataDir));
 
   // Index every fixture project. With FakeEmbeddingProvider this is pure
   // CPU work, no network, deterministic.
