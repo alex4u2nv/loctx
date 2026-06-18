@@ -17,6 +17,43 @@
  * before invoking code that would call out.
  */
 
+import { readFileSync } from "node:fs";
+import { Agent, ProxyAgent, setGlobalDispatcher } from "undici";
+import type { NetworkConfig } from "./config.js";
+
+/**
+ * Apply {@link NetworkConfig} to outbound runtime requests (the embedding
+ * model download). Installs an undici global dispatcher so Node's global
+ * `fetch` — which @huggingface/transformers uses — honors a custom CA, a
+ * proxy, and/or disabled TLS verification. No-op when all settings are
+ * default, so the common case pays nothing.
+ *
+ * Covers in-process fetches only; subprocesses (future `loctx update`,
+ * tool installs) get the same settings passed as env / CLI flags instead.
+ * Changing these requires a daemon restart.
+ */
+export function applyNetworkSettings(net: NetworkConfig | undefined): void {
+  if (net === undefined) return; // defensive: hand-built configs may omit it
+  const connect: { ca?: string; rejectUnauthorized?: boolean } = {};
+  if (net.caCert !== null) {
+    try {
+      connect.ca = readFileSync(net.caCert, "utf8");
+    } catch (err) {
+      console.error(
+        `[loctx network] could not read ca_cert '${net.caCert}': ${(err as Error).message}`,
+      );
+    }
+  }
+  if (!net.strictSsl) connect.rejectUnauthorized = false;
+  const hasConnect = connect.ca !== undefined || connect.rejectUnauthorized === false;
+
+  if (net.proxy !== null) {
+    setGlobalDispatcher(new ProxyAgent({ uri: net.proxy, ...(hasConnect ? { connect } : {}) }));
+  } else if (hasConnect) {
+    setGlobalDispatcher(new Agent({ connect }));
+  }
+}
+
 export type OutboundReason = "model-download";
 
 let allowedReasons: ReadonlySet<OutboundReason> = Object.freeze(new Set<OutboundReason>());

@@ -11,7 +11,8 @@
  * StateStore.
  */
 
-import { dirname, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   acquireDaemonLock,
@@ -23,6 +24,7 @@ import {
   findLegacyProjectConfig,
   inspectDaemonLockfile,
   inventoryProjects,
+  loadConfig,
   looksLikeFdExhaustion,
   nofileBumpHint,
   type Project,
@@ -35,6 +37,24 @@ import {
 
 const DAEMON_VERSION = "0.1.0";
 
+/**
+ * The set of analyzers that are currently *active* — i.e. would actually
+ * run: the background queue is on, the analyzer is enabled, and (for the
+ * rule-pack scanners) rule dirs are configured. Used to detect which
+ * analyzers newly activated across a config hot-reload so we can backfill
+ * just those over already-indexed files.
+ */
+function activeAnalyzers(config: Config): ReadonlySet<string> {
+  const out = new Set<string>();
+  const a = config.analyzers;
+  if (!a.backgroundEnabled) return out;
+  if (a.lizard.enabled) out.add("lizard");
+  if (a.duplicates.enabled) out.add("duplicates");
+  if (a.semgrep.enabled && a.semgrep.ruleDirs.length > 0) out.add("semgrep");
+  if (a.astGrep.enabled && a.astGrep.ruleDirs.length > 0) out.add("ast-grep");
+  return out;
+}
+
 export interface StartOptions {
   readonly enableWatch: boolean;
   readonly enableWeb: boolean;
@@ -46,7 +66,17 @@ export interface StartOptions {
 //   apps/cli/dist  +  ../../web  =  apps/web
 const ROOT_RELATIVE_WEB_DIR = "../../web";
 
-export async function start(config: Config, options: StartOptions): Promise<void> {
+export async function start(bootConfig: Config, options: StartOptions): Promise<void> {
+  // Live, mutable config. The admin UI hot-reloads it in place on save
+  // (#config-hotreload): everything below reads through this object —
+  // buildRuntime's analyzer enqueue hooks, the web /api/config payload,
+  // reconciliation scheduling — so swapping its sections takes effect
+  // without a restart. `bootConfig` is frozen; this shallow copy is
+  // mutable so `reloadConfig` can Object.assign fresh sections onto it.
+  // Settings that can't re-apply live (daemon port/hostname, embedding
+  // model) still require a restart.
+  const config: Config = { ...bootConfig };
+
   // Single-instance lock keyed on the data dir. Two daemons sharing the same
   // SQLite + LanceDB would race on writes; the lock keeps one alive at a time
   // regardless of how the second was launched (workspace, npm link, -g).
@@ -63,6 +93,26 @@ export async function start(config: Config, options: StartOptions): Promise<void
     lock.release();
     throw err;
   }
+
+  // Hot-reload hook for the admin UI's config save: re-read the YAML into
+  // the live config, then — if an analyzer just became active — backfill
+  // it over already-indexed files so enabling a feature after the index is
+  // built catches up efficiently (only the new analyzer, only missing
+  // files, no re-embedding). Defined after `runtime` so it can drive it.
+  const reloadConfig = (): void => {
+    const before = activeAnalyzers(config);
+    const fresh = loadConfig(config.source !== null ? { configPath: config.source } : undefined);
+    Object.assign(config, fresh);
+    const newly = [...activeAnalyzers(config)].filter((n) => !before.has(n));
+    if (newly.length > 0) {
+      console.error(`[loctx config] analyzer(s) activated: ${newly.join(", ")} — backfilling`);
+      void runtime
+        .backfillAnalyzers(newly)
+        .catch((err) =>
+          console.error(`[loctx analyzers] backfill failed: ${(err as Error).message}`),
+        );
+    }
+  };
 
   const discoveredProjects = runtime.discovery.discoverProjects();
   // Project activation gate: indexer / watcher / reconciler only operate
@@ -106,11 +156,23 @@ export async function start(config: Config, options: StartOptions): Promise<void
   // them. The reconciler still runs in the background once scheduled —
   // it doesn't block startup — but it now waits for HTTP to be live.
   const httpStop = options.enableWeb
-    ? await startWeb(config, options, runtime, watcherRegistry)
+    ? await startWeb(config, options, runtime, watcherRegistry, reloadConfig)
     : async () => {
         /* no-op */
       };
   const reconciliationStop = startReconciliation(runtime, activeProjects, config);
+
+  // Catch-up backfill for analyzers that were enabled while the index was
+  // already built (e.g. config edited then daemon restarted, or upgraded
+  // into the new enabled-by-default analyzers over an existing index).
+  // Non-blocking; the missing-enrichment query is cheap once caught up, so
+  // this is a no-op on a fully-analyzed index. Newly-indexed files are
+  // covered by the indexer hook, not here.
+  void runtime
+    .backfillAnalyzers()
+    .catch((err) =>
+      console.error(`[loctx analyzers] startup backfill failed: ${(err as Error).message}`),
+    );
 
   const banner = [
     `[loctx start] runtime ready (${activeProjects.length} active of ${discoveredProjects.length} discovered, ${runtime.config.embedding.model})`,
@@ -229,19 +291,22 @@ function startReconciliation(
   // Exponential backoff on repeated failures so we don't hammer LanceDB
   // (or whatever else is broken) every interval. Caps at 1h; resets to
   // the configured interval on the first success.
-  const baseMs = intervalSeconds * 1000;
+  // Read the interval live so a hot-reloaded `reconciliation.interval_seconds`
+  // applies on the next reschedule (no restart). The on/off transition at
+  // boot is still fixed by the early guard above.
+  const baseMs = (): number => config.reconciliation.intervalSeconds * 1000;
   const MAX_BACKOFF_MS = 60 * 60 * 1000;
   let consecutiveFailures = 0;
   let timer: NodeJS.Timeout | null = null;
   let stopped = false;
 
   const nextDelayMs = (): number => {
-    if (consecutiveFailures === 0) return baseMs;
-    return Math.min(baseMs * 2 ** consecutiveFailures, MAX_BACKOFF_MS);
+    if (consecutiveFailures === 0) return baseMs();
+    return Math.min(baseMs() * 2 ** consecutiveFailures, MAX_BACKOFF_MS);
   };
 
   const scheduleNext = (): void => {
-    if (stopped || baseMs <= 0) return;
+    if (stopped || baseMs() <= 0) return;
     const delay = nextDelayMs();
     if (consecutiveFailures > 0) {
       const minutes = Math.round(delay / 60_000);
@@ -423,6 +488,7 @@ async function startWeb(
   options: StartOptions,
   runtime: Runtime,
   watcherRegistry: WatcherRegistry | undefined,
+  onConfigWrite: () => void,
 ): Promise<() => Promise<void>> {
   const webDir = options.webDir ?? resolveWebDir();
   const staticDir = resolve(webDir, "dist", "client");
@@ -439,6 +505,7 @@ async function startWeb(
       readonly runtime?: Runtime;
       readonly watcherRegistry?: WatcherRegistry;
       readonly staticDir?: string;
+      readonly onConfigWrite?: () => void | Promise<void>;
     }): { fetch: (req: Request) => Promise<Response> };
   };
   type HonoNodeServerModule = {
@@ -453,6 +520,7 @@ async function startWeb(
     config,
     runtime,
     staticDir,
+    onConfigWrite,
     ...(watcherRegistry !== undefined ? { watcherRegistry } : {}),
   });
   const handle = app.fetch;
@@ -495,9 +563,20 @@ function startListeners(args: {
 // ---- helpers -----------------------------------------------------------
 
 function resolveWebDir(): string {
-  // Resolve apps/web from the CLI's installed location. This file at runtime
-  // sits in apps/cli/dist; from there `../../web` walks up to the workspace
-  // root's apps/web.
+  // Resolve @loctx/web's package root from wherever it's installed, via its
+  // exported `./server` entry. Works both in the workspace (pnpm symlinks
+  // @loctx/web → apps/web) and in a published/bundled install (it lives in
+  // node_modules/@loctx/web) — the old hardcoded `../../web` only held for
+  // the former. Falls back to the relative path if resolution fails.
+  try {
+    const require = createRequire(import.meta.url);
+    const serverEntry = require.resolve("@loctx/web/server");
+    const marker = `${sep}dist${sep}`;
+    const distIdx = serverEntry.lastIndexOf(marker);
+    if (distIdx !== -1) return serverEntry.slice(0, distIdx);
+  } catch {
+    // fall through to the workspace-relative path
+  }
   const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, ROOT_RELATIVE_WEB_DIR);
 }

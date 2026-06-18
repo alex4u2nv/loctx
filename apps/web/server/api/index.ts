@@ -26,6 +26,7 @@ export function mountApi(
   config: Config,
   getRuntime: () => Promise<Runtime>,
   watcherRegistry?: WatcherRegistry,
+  onConfigWrite?: () => void | Promise<void>,
 ): void {
   // Shared between /api/rebuild (writes) and /api/projects (reads). One
   // tracker per daemon process so all UIs hitting the same daemon see
@@ -36,7 +37,7 @@ export function mountApi(
   mountSearch(app, config, getRuntime);
   mountEvents(app);
   mountDoctor(app, config, watcherRegistry);
-  mountConfig(app, config);
+  mountConfig(app, config, onConfigWrite);
   mountModels(app, config);
   mountFindUsages(app, config, getRuntime);
   mountFindLiteral(app, config, getRuntime);

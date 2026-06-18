@@ -246,6 +246,25 @@ FROM files
 WHERE project_id = ?
 ORDER BY rel_path;
 
+-- :name list_files_missing_enrichment
+-- Files in a project that have no up-to-date `complete` enrichment for a
+-- given analyzer+version (matched on the file's current content_sha).
+-- Drives the analyzer backfill when a feature is enabled after indexing:
+-- only the gaps are re-run, and only that analyzer — embeddings untouched.
+-- Params: project_id, analyzer, analyzer_version.
+SELECT f.file_id, f.rel_path, f.content_sha
+FROM files f
+WHERE f.project_id = ?
+  AND NOT EXISTS (
+    SELECT 1 FROM file_enrichments e
+    WHERE e.file_id = f.file_id
+      AND e.analyzer = ?
+      AND e.analyzer_version = ?
+      AND e.content_sha = f.content_sha
+      AND e.status = 'complete'
+  )
+ORDER BY f.rel_path;
+
 -- :name delete_file
 DELETE FROM files WHERE project_id = ? AND rel_path = ?;
 

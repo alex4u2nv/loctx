@@ -17,6 +17,7 @@
     "format:check": "biome format --check packages apps",
     "verify": "pnpm run build && pnpm run lint && pnpm run typecheck && pnpm test",
     "install:local": "pnpm run build && npm install -g ./apps/cli ./apps/mcp",
+    "release:build": "pnpm run build && node scripts/build-release.mjs",
     "prepare": "lefthook install",
     "dev:cli": "pnpm --filter @loctx/cli dev --",
     "dev:web": "pnpm --filter @loctx/web dev",

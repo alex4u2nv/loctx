@@ -72,6 +72,7 @@ beforeAll(async () => {
         maxFindingsPerFile: 50,
       }),
     }),
+    network: Object.freeze({ caCert: null, strictSsl: true, proxy: null }),
     source: null,
     sources: Object.freeze({}),
   });

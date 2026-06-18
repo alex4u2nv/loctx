@@ -335,6 +335,14 @@ export interface ConfigWriteResponse {
   readonly ok: true;
   readonly path: string;
   readonly bytesWritten: number;
+  /**
+   * True when the daemon hot-reloaded the new config into its live state,
+   * so the change is already in effect (analyzers, reconciliation interval,
+   * and the /api/config payload). False/absent means it only hit disk and
+   * a restart is needed. Settings like daemon port/hostname and the
+   * embedding model always need a restart regardless.
+   */
+  readonly reloaded?: boolean;
 }
 
 export interface ConfigWriteError {

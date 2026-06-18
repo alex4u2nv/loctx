@@ -28,6 +28,35 @@ describe("loadConfig precedence chain", () => {
     expect(config.sources["daemon.port"]).toBe("default");
   });
 
+  it("ships every analyzer enabled by default so the tool is useful out of the box", () => {
+    const config = loadConfig({ configPath });
+    expect(config.analyzers.backgroundEnabled).toBe(true);
+    expect(config.analyzers.duplicates.enabled).toBe(true);
+    expect(config.analyzers.lizard.enabled).toBe(true);
+    expect(config.analyzers.semgrep.enabled).toBe(true);
+    expect(config.analyzers.astGrep.enabled).toBe(true);
+  });
+
+  it("network defaults to direct + strict TLS (no proxy, no CA)", () => {
+    const config = loadConfig({ configPath });
+    expect(config.network.caCert).toBeNull();
+    expect(config.network.proxy).toBeNull();
+    expect(config.network.strictSsl).toBe(true);
+  });
+
+  it("network section parses ca_cert / proxy / strict_ssl from the global file", () => {
+    writeFileSync(
+      configPath,
+      "network:\n  ca_cert: /etc/loctx/ca.pem\n  proxy: http://proxy.corp:8080\n  strict_ssl: false\n",
+      "utf-8",
+    );
+    const config = loadConfig({ configPath });
+    expect(config.network.caCert).toBe("/etc/loctx/ca.pem");
+    expect(config.network.proxy).toBe("http://proxy.corp:8080");
+    expect(config.network.strictSsl).toBe(false);
+    expect(config.sources["network.caCert"]).toBe("global");
+  });
+
   it("global file overrides defaults", () => {
     writeFileSync(configPath, "daemon:\n  port: 4000\nembedding:\n  model: my-model\n", "utf-8");
     const config = loadConfig({ configPath });

@@ -43,6 +43,13 @@ export interface CreateWebAppOptions {
    * are mounted — useful in dev where Vite handles the client.
    */
   readonly staticDir?: string;
+  /**
+   * Called after a successful `POST /api/config/write`. The daemon uses
+   * this to hot-reload the YAML from disk into its live config object so
+   * the change takes effect (and `/api/config` reflects it) without a
+   * restart. Omitted by test harnesses, where writes just hit disk.
+   */
+  readonly onConfigWrite?: () => void | Promise<void>;
 }
 
 export function createWebApp(opts: CreateWebAppOptions): Hono {
@@ -79,7 +86,7 @@ export function createWebApp(opts: CreateWebAppOptions): Hono {
     return lazyRuntime;
   };
 
-  mountApi(app, opts.config, getRuntime, opts.watcherRegistry);
+  mountApi(app, opts.config, getRuntime, opts.watcherRegistry, opts.onConfigWrite);
   mountMcp(app, getRuntime);
 
   // OAuth discovery probes — Claude Code's MCP HTTP client (and others

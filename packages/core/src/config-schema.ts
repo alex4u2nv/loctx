@@ -233,6 +233,38 @@ export const CONFIG_SCHEMA: ReadonlyArray<SectionSchema> = Object.freeze([
     ],
   },
   {
+    id: "network",
+    label: "Network",
+    help: "Outbound network for proxied / TLS-intercepting environments. Applies to the model download and loctx's own updates.",
+    yamlSection: "network",
+    fields: [
+      {
+        key: "network.caCert",
+        yamlPath: ["network", "ca_cert"],
+        label: "ca_cert",
+        help: "Path to a root CA cert PEM to trust (your org's / proxy's CA). Fixes 'unable to get local issuer certificate' downloads. Blank = none.",
+        type: "string",
+        default: "",
+      },
+      {
+        key: "network.proxy",
+        yamlPath: ["network", "proxy"],
+        label: "proxy",
+        help: "HTTP(S) proxy URL for outbound requests (e.g. http://proxy.corp:8080). Blank = direct.",
+        type: "string",
+        default: "",
+      },
+      {
+        key: "network.strictSsl",
+        yamlPath: ["network", "strict_ssl"],
+        label: "strict_ssl",
+        help: "Leave true. Setting false disables TLS verification entirely (insecure) — prefer ca_cert.",
+        type: "bool",
+        default: true,
+      },
+    ],
+  },
+  {
     id: "analyzers",
     label: "Analyzers",
     help: "Background code-analysis runners.",
