@@ -8,7 +8,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { type CodeChunk, chunkFile, detectLanguage } from "../chunking/index.js";
 import { chunkIdFor, fileIdFor } from "../discovery.js";
 import type { EmbeddingProvider } from "../embeddings/index.js";
-import type { ProjectFilter } from "../filtering.js";
+import { ignoredSubpath, type ProjectFilter } from "../filtering.js";
 import { type ChunkId, type FileId, identityToString, type Project } from "../models.js";
 import type {
   ChunkInsert,
@@ -478,7 +478,11 @@ function* iterFiles(root: string, ignoredDirs: ReadonlySet<string>): Generator<s
     for (const entry of entries) {
       if (entry.isDirectory()) {
         if (ignoredDirs.has(entry.name)) continue;
-        subdirs.push(join(dir, entry.name));
+        const full = join(dir, entry.name);
+        // Path-specific prune (e.g. `.claude/worktrees`): basename matching
+        // can't express it, so check the segments relative to the root.
+        if (ignoredSubpath(relative(root, full).split(sep)) !== null) continue;
+        subdirs.push(full);
       } else if (entry.isFile()) {
         yield join(dir, entry.name);
       }

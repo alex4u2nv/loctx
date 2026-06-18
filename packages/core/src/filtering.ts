@@ -72,6 +72,29 @@ export interface FilteringRules {
 
 export class FilteringConfigError extends Error {}
 
+// Relative-path segment sequences that are never indexed, regardless of
+// `ignored_dirs` (which matches single basenames). Claude Code's agent
+// worktrees live at `.claude/worktrees/<id>/` and are full duplicate
+// checkouts of the repo — indexing them doubles the index and floods
+// find_duplicates with twins. #371 deliberately keeps `.claude` itself
+// indexable (CLAUDE.md, slash commands, agent defs), so this is a
+// path-specific exclusion, not a basename one.
+const IGNORED_REL_SUBPATHS: ReadonlyArray<ReadonlyArray<string>> = [[".claude", "worktrees"]];
+
+/**
+ * If `relParts` (a "/"-split relative path) contains one of the ignored
+ * subpath sequences as consecutive segments, return that sequence joined
+ * for the decision detail; otherwise null.
+ */
+export function ignoredSubpath(relParts: ReadonlyArray<string>): string | null {
+  for (const seq of IGNORED_REL_SUBPATHS) {
+    for (let i = 0; i + seq.length <= relParts.length; i++) {
+      if (seq.every((s, k) => relParts[i + k] === s)) return seq.join("/");
+    }
+  }
+  return null;
+}
+
 // ---- loader -------------------------------------------------------------
 
 const DEFAULT_OVERRIDE_DIR = join(homedir(), ".loctx", "config_overrides");
@@ -270,6 +293,10 @@ export class ProjectFilter {
 
     // ignored components (everything but the leaf name)
     const parts = rel.split("/");
+    const subpath = ignoredSubpath(parts);
+    if (subpath !== null) {
+      return decide(false, FilterReason.IGNORED_DIRECTORY, subpath);
+    }
     for (const component of parts.slice(0, -1)) {
       if (this.rules.ignoredDirs.has(component)) {
         return decide(false, FilterReason.IGNORED_DIRECTORY, component);
