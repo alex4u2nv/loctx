@@ -22,6 +22,8 @@ curl -fsSL https://raw.githubusercontent.com/alex4u2nv/loctx/main/scripts/instal
 loctx --version
 ```
 
+Once installed, update any time with **`loctx update`** (it fetches the latest release for your platform and restarts the daemon) — or re-run the one-liner above.
+
 The installer drops `loctx` into `~/.local/bin` (override `LOCTX_BIN_DIR`) and the runtime into `~/.local/share/loctx` (override `LOCTX_HOME`). Releases are tagged per platform + Node major (e.g. `darwin-arm64-node25`); it picks the matching asset and refuses a mismatch with a clear message. Behind a TLS-intercepting proxy, pass your CA: `LOCTX_CA_CERT=/path/ca.pem ... | bash` (and set `network.ca_cert` afterwards so the model download trusts it too).
 
 ### From source (contributors)

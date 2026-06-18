@@ -1,20 +1,33 @@
 name: release
 
-# Tag push (vX.Y.Z) triggers verify + publish. See CONTRIBUTING.md.
+# Tag push (vX.Y.Z) builds self-contained tarballs for each supported
+# platform + Node major and attaches them to the GitHub Release. Users
+# install/update via scripts/install-release.sh (see README → Install).
+#
+# Why tarballs, not npm: the daemon loads the private @loctx/web build at
+# runtime, and the artifact bundles the already-built native binaries — so
+# users install with no build, no npm install, no compiler. Each tarball is
+# platform + Node-ABI specific; the matrix below is the support set. (npm
+# publishing can be added back here when/if loctx opens up to a registry.)
 on:
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: read
-  id-token: write   # npm provenance attestation
+  contents: write # create / upload release assets
 
 jobs:
-  publish:
-    name: Publish to npm
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  tarball:
+    name: tarball (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-14 = arm64, macos-13 = x64, ubuntu-latest = x64.
+        os: [macos-14, macos-13, ubuntu-latest]
+        node: [22, 24]
 
     steps:
       - uses: actions/checkout@v4
@@ -26,59 +39,25 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          registry-url: "https://registry.npmjs.org"
+          node-version: ${{ matrix.node }}
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build
-        # cli + mcp resolve core through dist/, so build before verify.
-        run: pnpm run build
-
-      - name: Verify (lint + typecheck + test)
-        run: pnpm run verify
-
       - name: Verify version matches tag
+        shell: bash
         run: |
           tag="${GITHUB_REF#refs/tags/v}"
-          for pkg in packages/core apps/cli apps/mcp; do
-            v=$(node -p "require('./$pkg/package.json').version")
-            if [ "$v" != "$tag" ]; then
-              echo "::error::$pkg version $v does not match tag v$tag"
-              exit 1
-            fi
-          done
-          echo "All package versions match tag v$tag"
+          v=$(node -p "require('./apps/cli/package.json').version")
+          [ "$v" = "$tag" ] || { echo "::error::apps/cli version $v != tag v$tag"; exit 1; }
 
-      - name: Publish @loctx/core
-        # `pnpm publish` resolves `workspace:^` deps to the current
-        # workspace versions at publish time, so consumers get plain
-        # semver ranges. --no-git-checks because the tag push leaves
-        # an unclean dist/ tree.
-        run: pnpm --filter @loctx/core publish --access public --provenance --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Build release tarball
+        # release:build runs `pnpm run build` then scripts/build-release.mjs,
+        # producing release/loctx-<version>-<platform>-<arch>-node<major>.tgz.
+        run: pnpm run release:build
 
-      - name: Publish @loctx/cli
-        run: pnpm --filter @loctx/cli publish --access public --provenance --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish @loctx/mcp
-        run: pnpm --filter @loctx/mcp publish --access public --provenance --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Summary
-        run: |
-          tag="${GITHUB_REF#refs/tags/v}"
-          {
-            echo "## Released v$tag"
-            echo ""
-            echo "Published to npm:"
-            echo "- [@loctx/core](https://www.npmjs.com/package/@loctx/core)"
-            echo "- [@loctx/cli](https://www.npmjs.com/package/@loctx/cli)"
-            echo "- [@loctx/mcp](https://www.npmjs.com/package/@loctx/mcp)"
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload tarball to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/loctx-*.tgz
