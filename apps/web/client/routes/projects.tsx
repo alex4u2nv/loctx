@@ -7,6 +7,7 @@ import type {
 } from "@shared/contracts";
 import { useCallback, useEffect, useState } from "react";
 import { confirm } from "../components/confirm";
+import { ConnectEditorModal } from "../components/connect-editor-modal";
 import { Icon, type IconName } from "../components/icon";
 import { IconButton } from "../components/icon-button";
 import { useLiveRefreshEvent } from "../components/live-refresh";
@@ -49,6 +50,9 @@ export function ProjectsPage() {
   const [purgingRoots, setPurgingRoots] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
   );
+  // Project whose "connect your editor" dialog is open. Opened from the
+  // row action and auto-opened right after a project is activated (#agent-setup).
+  const [connectTarget, setConnectTarget] = useState<{ root: string; name: string } | null>(null);
 
   if (fetched.loading && fetched.data === null) return <p className="pullquote">Loading…</p>;
   if (fetched.error !== null)
@@ -139,10 +143,19 @@ export function ProjectsPage() {
         });
       }
     },
-    activate: (root: string, name: string): Promise<void> =>
-      fireAndForget(`activate ${name}`, () => api.activateProject(root)),
+    activate: async (root: string, name: string): Promise<void> => {
+      try {
+        await api.activateProject(root);
+        fetched.reload();
+        // Enabling a project is the moment to offer agent wiring.
+        setConnectTarget({ root, name });
+      } catch (err) {
+        ops.surfaceError(`activate ${name}`, err);
+      }
+    },
     deactivate: (root: string, name: string): Promise<void> =>
       fireAndForget(`deactivate ${name}`, () => api.deactivateProject(root)),
+    connect: (root: string, name: string): void => setConnectTarget({ root, name }),
   };
 
   const rootHeader = data.commonRoot !== "" ? applyHomeAbbrev(data.commonRoot, data.homeDir) : null;
@@ -210,6 +223,7 @@ export function ProjectsPage() {
               resume: handlers.resume,
               rebuild: handlers.rebuild,
               deactivate: handlers.deactivate,
+              connect: handlers.connect,
             }}
             busy={ops.busy}
             purgingRoots={purgingRoots}
@@ -254,6 +268,13 @@ export function ProjectsPage() {
         ) : null}
       </div>
       <SectionNav sections={navSections} />
+      {connectTarget !== null ? (
+        <ConnectEditorModal
+          projectRoot={connectTarget.root}
+          projectName={connectTarget.name}
+          onClose={() => setConnectTarget(null)}
+        />
+      ) : null}
     </section>
   );
 }
@@ -305,6 +326,7 @@ interface RowActions {
   readonly rebuild?: (root: string, name: string) => Promise<void>;
   readonly purge?: (root: string, name: string) => Promise<void>;
   readonly deactivate?: (root: string, name: string) => Promise<void>;
+  readonly connect?: (root: string, name: string) => void;
 }
 
 function ProjectsTable({
@@ -562,6 +584,14 @@ function RowActionButtons({
           row={row}
           onClick={() => void actions.rebuild?.(row.root, row.name)}
           disabled={isBusy}
+        />
+      ) : null}
+      {actions.connect ? (
+        <IconButton
+          icon="index"
+          label="connect editor"
+          onClick={() => actions.connect?.(row.root, row.name)}
+          title="Write project-scoped MCP + usage config so your coding agents use loctx here"
         />
       ) : null}
       {actions.purge ? (

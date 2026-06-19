@@ -4,6 +4,8 @@
  */
 
 import type {
+  AgentSetupApplyResponse,
+  AgentSetupPayload,
   ConfigPayload,
   ConfigWriteError,
   ConfigWriteRequest,
@@ -64,6 +66,10 @@ export const api = {
     });
     return (await r.json()) as ToolsInstallResponse;
   },
+  agentSetup: (path: string) =>
+    getJson<AgentSetupPayload>(`/api/agent-setup?path=${encodeURIComponent(path)}`),
+  agentSetupApply: (path: string, agents: ReadonlyArray<string>) =>
+    postJson<AgentSetupApplyResponse>("/api/agent-setup", { path, agents }),
   configWrite: async (body: ConfigWriteRequest): Promise<ConfigWriteResponse> => {
     // Server returns 400 + ConfigWriteError on validation failure; surface
     // the parsed errors as a thrown Error so the form can show them.

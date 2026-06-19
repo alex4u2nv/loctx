@@ -3,6 +3,7 @@
  */
 
 export * from "./_validate.js";
+export * from "./agent-setup/index.js";
 export * from "./analyzers/index.js";
 export * from "./chunking/index.js";
 export * from "./config.js";
