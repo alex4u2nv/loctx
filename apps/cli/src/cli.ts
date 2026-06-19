@@ -9,6 +9,9 @@ import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import {
+  AGENTS,
+  type AgentId,
+  applyAgentSetup,
   buildRuntime,
   type Config,
   ConfigError,
@@ -23,6 +26,8 @@ import {
   makeProject,
   NoDaemonError,
   type Project,
+  pendingAgents,
+  planAgentSetup,
   readActiveDaemon,
   runDoctorChecks,
   SearcherError,
@@ -119,6 +124,113 @@ async function confirm(message: string): Promise<boolean> {
   }
 }
 
+// ---- agent setup --------------------------------------------------------
+
+interface AgentSetupOpts {
+  readonly requested: ReadonlyArray<string>;
+  readonly transport: "stdio" | "http";
+  readonly port?: number;
+  readonly dryRun: boolean;
+  readonly yes: boolean;
+}
+
+/**
+ * Plan + (optionally) apply loctx config for coding agents. Shared by the
+ * `setup-agent` command and the post-activation nudge.
+ */
+async function runAgentSetup(projectRoot: string, opts: AgentSetupOpts): Promise<void> {
+  const validIds = new Set(AGENTS.map((a) => a.id));
+  const unknown = opts.requested.filter((a) => !validIds.has(a as AgentId));
+  if (unknown.length > 0) {
+    console.error(
+      `[setup-agent] unknown agent(s): ${unknown.join(", ")} (expected ${[...validIds].join(", ")})`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const plan = await planAgentSetup({
+    projectRoot,
+    transport: opts.transport,
+    ...(opts.port !== undefined ? { port: opts.port } : {}),
+  });
+  const selected: AgentId[] =
+    opts.requested.length > 0
+      ? (opts.requested as AgentId[])
+      : plan.plans.filter((p) => p.present).map((p) => p.id);
+
+  if (selected.length === 0) {
+    console.error("[setup-agent] no coding agents detected in this project.");
+    console.error(`  Name one explicitly: loctx setup-agent <${[...validIds].join("|")}>`);
+    return;
+  }
+
+  const selSet = new Set<AgentId>(selected);
+  const selectedPlans = plan.plans.filter((p) => selSet.has(p.id));
+  const changeCount = selectedPlans.reduce(
+    (n, p) => n + p.targets.filter((t) => t.action !== "skip").length,
+    0,
+  );
+
+  console.error(`[setup-agent] ${opts.transport} transport · ${projectRoot}`);
+  for (const p of selectedPlans) {
+    console.error(`  ${p.label}:`);
+    for (const t of p.targets) {
+      const scope = t.scope === "user" ? " (user)" : "";
+      console.error(`    [${t.action}] ${t.purpose.padEnd(5)} ${t.path}${scope} — ${t.reason}`);
+    }
+  }
+  if (changeCount === 0) {
+    console.error("[setup-agent] nothing to do — selected agents already configured.");
+    return;
+  }
+  if (opts.dryRun) {
+    console.error(`[setup-agent] dry run — ${changeCount} change(s) not written.`);
+    return;
+  }
+  if (!opts.yes && !(await confirm(`Write ${changeCount} file change(s)?`))) return;
+
+  const results = applyAgentSetup(plan, selected);
+  const wrote = results.filter((r) => r.ok && r.action !== "skip");
+  const failed = results.filter((r) => !r.ok);
+  for (const r of failed) console.error(`  FAILED ${r.path}: ${r.error}`);
+  console.error(
+    `[setup-agent] wrote ${wrote.length} file(s)${failed.length > 0 ? `, ${failed.length} failed` : ""}.`,
+  );
+  if (opts.transport === "stdio" && wrote.length > 0) {
+    console.error("  Reload your editor's MCP servers (or restart it) to pick up loctx.");
+  }
+}
+
+/**
+ * After activating/indexing a project, offer to wire up any coding agent
+ * that's present but not yet pointed at loctx. Best-effort + interactive
+ * only — never blocks or fails a non-TTY (CI / daemon-driven) run.
+ */
+async function maybeNudgeAgentSetup(projectRoot: string): Promise<void> {
+  if (!process.stdin.isTTY) return;
+  try {
+    const plan = await planAgentSetup({ projectRoot, transport: "stdio" });
+    const pending = pendingAgents(plan);
+    if (pending.length === 0) return;
+    console.error(
+      `[loctx] coding agent(s) here aren't wired to loctx yet: ${pending.map((p) => p.label).join(", ")}`,
+    );
+    if (await confirm("Register loctx with them now?")) {
+      await runAgentSetup(projectRoot, {
+        requested: pending.map((p) => p.id),
+        transport: "stdio",
+        dryRun: false,
+        yes: true,
+      });
+    } else {
+      console.error("  Skipped. Run `loctx setup-agent` whenever you like.");
+    }
+  } catch {
+    // Onboarding nudge is best-effort — never let it break indexing.
+  }
+}
+
 // ---- index --------------------------------------------------------------
 
 program
@@ -207,6 +319,8 @@ program
     } finally {
       await runtime.close();
     }
+    // Onboarding a specific project is the moment to offer agent wiring.
+    if (path !== undefined) await maybeNudgeAgentSetup(resolve(path));
   });
 
 // ---- refresh ------------------------------------------------------------
@@ -270,6 +384,7 @@ async function runActivate(project: Project, ctx: CliContext): Promise<void> {
     const client = daemonClient(config.paths.dataDir);
     await client.post("/api/projects/activate", { path: project.root });
     console.error(`[loctx activate] ${project.name} (${project.root}) — via daemon`);
+    await maybeNudgeAgentSetup(project.root);
     return;
   }
   const runtime = await buildRuntime(config);
@@ -283,6 +398,7 @@ async function runActivate(project: Project, ctx: CliContext): Promise<void> {
   } finally {
     await runtime.close();
   }
+  await maybeNudgeAgentSetup(project.root);
 }
 
 program
@@ -1316,6 +1432,48 @@ program
       process.exit(1);
     }
   });
+
+// ---- setup-agent --------------------------------------------------------
+
+program
+  .command("setup-agent [agents...]")
+  .description(
+    `Write MCP registration + usage rules so coding agents use loctx (${AGENTS.map((a) => a.id).join(", ")}). ` +
+      "With no agents named, targets the ones detected in this project. Non-destructive: merges JSON, updates only loctx-marked blocks.",
+  )
+  .option("--path <dir>", "Project root to write project-scoped config into. Defaults to cwd.")
+  .option(
+    "--http",
+    "Register the HTTP transport (talks to a running daemon) instead of spawning loctx-mcp.",
+    false,
+  )
+  .option("--dry-run", "Show what would change without writing.", false)
+  .option("-y, --yes", "Skip the confirmation prompt.", false)
+  .action(
+    async (
+      agentsArg: string[],
+      opts: { path?: string; http: boolean; dryRun: boolean; yes: boolean },
+    ) => {
+      const projectRoot = opts.path !== undefined ? resolve(opts.path) : process.cwd();
+      let port: number | undefined;
+      if (opts.http) {
+        try {
+          port = loadConfig(getCtx().configPath).daemon.port;
+        } catch {
+          console.error("[setup-agent] --http needs a readable config for the daemon port.");
+          process.exitCode = 1;
+          return;
+        }
+      }
+      await runAgentSetup(projectRoot, {
+        requested: agentsArg,
+        transport: opts.http ? "http" : "stdio",
+        ...(port !== undefined ? { port } : {}),
+        dryRun: opts.dryRun,
+        yes: opts.yes,
+      });
+    },
+  );
 
 // ---- config -------------------------------------------------------------
 
