@@ -7,6 +7,7 @@
 import type { Config, Runtime, WatcherRegistry } from "@loctx/core";
 import type { Hono } from "hono";
 import { createRebuildTracker } from "../lib/rebuild-tracker.js";
+import { mountAgentSetup } from "./agent-setup.js";
 import { mountConfig } from "./config.js";
 import { mountDoctor } from "./doctor.js";
 import { mountEvents } from "./events.js";
@@ -47,4 +48,5 @@ export function mountApi(
   mountWatchers(app, watcherRegistry);
   mountMcpTools(app);
   mountLogs(app, config, getRuntime);
+  mountAgentSetup(app, config, getRuntime);
 }
