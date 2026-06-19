@@ -97,9 +97,20 @@ export function mountTools(
       );
     }
 
+    console.error(`[loctx tools] installing ${spec.name}…`);
     const result = await installTool(config, spec.name);
+    if (result.log) console.error(`[loctx tools] ${spec.name} install log:\n${result.log}`);
     if (!result.ok || result.command === undefined) {
-      return c.json({ ok: false, tool: spec.name, error: result.error ?? "install failed" } satisfies ToolsInstallResponse, 500);
+      console.error(`[loctx tools] ${spec.name} install failed: ${result.error ?? "install failed"}`);
+      return c.json(
+        {
+          ok: false,
+          tool: spec.name,
+          error: result.error ?? "install failed",
+          ...(result.log !== undefined ? { log: result.log } : {}),
+        } satisfies ToolsInstallResponse,
+        500,
+      );
     }
     const patch: Record<string, unknown> = {
       "analyzers.backgroundEnabled": true,
@@ -119,6 +130,15 @@ export function mountTools(
     } catch {
       // runtime not ready — startup/next reconcile backfill catches up.
     }
-    return c.json({ ok: true, tool: spec.name, command: result.command, backfilled } satisfies ToolsInstallResponse);
+    console.error(`[loctx tools] ${spec.name} installed (${result.command}); backfill enqueued ${backfilled}`);
+    return c.json(
+      {
+        ok: true,
+        tool: spec.name,
+        command: result.command,
+        backfilled,
+        ...(result.log !== undefined ? { log: result.log } : {}),
+      } satisfies ToolsInstallResponse,
+    );
   });
 }

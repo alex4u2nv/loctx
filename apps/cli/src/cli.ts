@@ -1020,8 +1020,16 @@ program
 
     if (!opts.yes && !(await confirm(`Install ${tools.join(", ")} via loctx?`))) return;
 
+    // Tool installs run server-side and can take a while — semgrep pulls
+    // ~60 packages and routinely exceeds the 30s default request timeout,
+    // which is what made it look like "semgrep install didn't work". Raise
+    // it for this command unless the user pinned their own value.
+    if (!process.env["LOCTX_DAEMON_TIMEOUT_MS"]) {
+      process.env["LOCTX_DAEMON_TIMEOUT_MS"] = "600000";
+    }
+
     for (const tool of tools) {
-      console.error(`[install-tools] installing ${tool}…`);
+      console.error(`[install-tools] installing ${tool}… (this can take a minute)`);
       // Prefer the running daemon: one endpoint installs, enables, hot-reloads,
       // and backfills. Fall back to a local install + config write if down.
       try {
@@ -1030,7 +1038,9 @@ program
           command?: string;
           backfilled?: number;
           error?: string;
+          log?: string;
         }>("/api/tools/install", { tool });
+        if (r.log) console.error(r.log);
         if (!r.ok) {
           console.error(`[install-tools] ${tool}: ${r.error ?? "install failed"}`);
           process.exitCode = 1;
@@ -1046,6 +1056,7 @@ program
           continue;
         }
         const result = await installTool(config, tool);
+        if (result.log) console.error(result.log);
         if (!result.ok || result.command === undefined) {
           console.error(`[install-tools] ${tool}: ${result.error ?? "install failed"}`);
           process.exitCode = 1;

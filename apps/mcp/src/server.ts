@@ -27,6 +27,22 @@ export { registerTools, TOOL_DEFINITIONS, ToolError, tools } from "./registry.js
 const SERVER_INFO = { name: "loctx", version: "0.1.0" };
 
 async function main(): Promise<void> {
+  // A long-lived stdio server must outlive transient failures. The MCP
+  // process builds its own runtime (watcher, reconciler, analyzer queue),
+  // so a stray rejection from a background task — or cross-process DB /
+  // LanceDB contention while the daemon writes — would otherwise crash the
+  // process and surface to the agent as "session expired" with no
+  // recovery. Log and keep serving; each tool call still reports its own
+  // errors via the dispatch try/catch in registry.ts. (Restarting the
+  // daemon is the canonical trigger: #mcp-session-resilience.)
+  process.on("unhandledRejection", (reason) => {
+    const detail = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+    console.error(`[loctx-mcp] unhandledRejection (ignored): ${detail}`);
+  });
+  process.on("uncaughtException", (err) => {
+    console.error(`[loctx-mcp] uncaughtException (ignored): ${err.stack ?? err.message}`);
+  });
+
   const runtime: Runtime = await buildRuntime(loadConfig());
   const server = new Server(SERVER_INFO, { capabilities: { tools: {} } });
   registerTools(server, runtime);

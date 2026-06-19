@@ -12,13 +12,7 @@
  * model download), in-memory MCP transport.
  */
 
-import {
-  type Config,
-  type Runtime,
-  WorkspaceDiscovery,
-  buildRuntime,
-  defaultPaths,
-} from "@loctx/core";
+import { type Runtime, WorkspaceDiscovery, buildRuntime } from "@loctx/core";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -26,6 +20,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+// Shared hermetic Config fixture, deduped from this file + core's eval test.
+import { makeTestConfig } from "../../../packages/core/tests/helpers/config.js";
 import { registerTools } from "../src/registry.js";
 
 interface Harness {
@@ -72,7 +68,7 @@ async function setupHarness(): Promise<Harness> {
     "src/ingest.py": "def ingest(record):\n    return record\n",
   });
 
-  const config = makeConfig(workspaceRoot, dataDir);
+  const config = makeTestConfig(workspaceRoot, dataDir);
   const runtime = await buildRuntime(config);
 
   const server = new Server(
@@ -96,52 +92,6 @@ function writeProject(root: string, name: string, files: Record<string, string>)
     mkdirSync(join(abs, ".."), { recursive: true });
     writeFileSync(abs, content);
   }
-}
-
-function makeConfig(workspaceRoot: string, dataDir: string): Config {
-  const paths = defaultPaths();
-  return Object.freeze({
-    workspaceRoots: Object.freeze([workspaceRoot]),
-    paths: Object.freeze({
-      ...paths,
-      dataDir,
-      vectorDir: join(dataDir, "vectors"),
-      stateDb: join(dataDir, "state.sqlite3"),
-      logsDir: join(dataDir, "logs"),
-    }),
-    embedding: Object.freeze({
-      provider: "fake",
-      model: "hash",
-      normalize: true,
-      providerOverride: "fake",
-    }),
-    watcher: Object.freeze({ debounceMs: 0 }),
-    daemon: Object.freeze({ port: 0, hostname: "localhost" }),
-    retrieval: Object.freeze({ mode: "hybrid", rrfK: 60 }),
-    reconciliation: Object.freeze({ runOnStart: false, intervalSeconds: 0 }),
-    discovery: Object.freeze({ extraMarkers: Object.freeze<string[]>([]), maxDepth: 4 }),
-    analyzers: Object.freeze({
-      backgroundEnabled: false,
-      concurrency: 2,
-      perTaskTimeoutMs: 60_000,
-      lizard: Object.freeze({ enabled: false, command: "lizard" }),
-      duplicates: Object.freeze({ enabled: false, windowSize: 50, minUniqueTokens: 15 }),
-      semgrep: Object.freeze({
-        enabled: false,
-        command: "semgrep",
-        ruleDirs: Object.freeze<string[]>([]),
-        maxFindingsPerFile: 50,
-      }),
-      astGrep: Object.freeze({
-        enabled: false,
-        command: "ast-grep",
-        ruleDirs: Object.freeze<string[]>([]),
-        maxFindingsPerFile: 50,
-      }),
-    }),
-    source: null,
-    sources: Object.freeze({}),
-  });
 }
 
 // ---- helpers --------------------------------------------------------

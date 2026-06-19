@@ -47,7 +47,10 @@ const exec = promisify(execFile);
  */
 export async function detectLizard(command = "lizard"): Promise<string | null> {
   try {
-    await exec(command, ["--version"], { timeout: 2000 });
+    // Python cold start can spike past 2s on a loaded machine; give the
+    // detection path headroom so a working install isn't misreported as
+    // missing (see detectSemgrep).
+    await exec(command, ["--version"], { timeout: 8000 });
     return command;
   } catch {
     return null;

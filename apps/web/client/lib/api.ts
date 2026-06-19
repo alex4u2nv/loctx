@@ -54,7 +54,18 @@ export const api = {
   mcpTools: () => getJson<McpToolsPayload>("/api/mcp-tools"),
   config: () => getJson<ConfigPayload>("/api/config"),
   toolsStatus: () => getJson<ToolsStatusPayload>("/api/tools/status"),
-  toolsInstall: (tool: string) => postJson<ToolsInstallResponse>("/api/tools/install", { tool }),
+  // Returns the response on both success (200) and failure (500) instead
+  // of throwing — the endpoint always emits a ToolsInstallResponse with
+  // an install `log`, and the Tools card shows it either way. Callers
+  // branch on `.ok`.
+  toolsInstall: async (tool: string): Promise<ToolsInstallResponse> => {
+    const r = await fetch("/api/tools/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ tool }),
+    });
+    return (await r.json()) as ToolsInstallResponse;
+  },
   agentSetup: (path: string) =>
     getJson<AgentSetupPayload>(`/api/agent-setup?path=${encodeURIComponent(path)}`),
   agentSetupApply: (path: string, agents: ReadonlyArray<string>) =>

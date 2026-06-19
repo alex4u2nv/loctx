@@ -37,7 +37,13 @@ const exec = promisify(execFile);
 
 export async function detectSemgrep(command = "semgrep"): Promise<string | null> {
   try {
-    await exec(command, ["--version"], { timeout: 2000 });
+    // semgrep is a heavy Python app; `--version` cold-starts the
+    // interpreter + a large dependency tree and the first run after
+    // install does extra setup, routinely exceeding a 2s budget. A
+    // generous timeout here only slows the (rare) detection path, not
+    // the hot enrichment path — and a too-tight one made a working
+    // install report "not installed".
+    await exec(command, ["--version"], { timeout: 15_000 });
     return command;
   } catch {
     return null;

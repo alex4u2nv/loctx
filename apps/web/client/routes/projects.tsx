@@ -1,5 +1,11 @@
-import type { InactiveRow, OrphanRow, ProjectHealth, ProjectsRow } from "@shared/contracts";
-import { useCallback, useState } from "react";
+import type {
+  InactiveRow,
+  OrphanRow,
+  ProjectHealth,
+  ProjectsRow,
+  StatusPayload,
+} from "@shared/contracts";
+import { useCallback, useEffect, useState } from "react";
 import { confirm } from "../components/confirm";
 import { ConnectEditorModal } from "../components/connect-editor-modal";
 import { Icon, type IconName } from "../components/icon";
@@ -15,9 +21,26 @@ type AnyRow = ProjectsRow | OrphanRow;
 
 export function ProjectsPage() {
   const fetched = useFetch(() => api.projects(), []);
+  // Workspace-global analyzer queue (backfill / reprocessing). Lives on
+  // /api/status, not /api/projects, since the EnrichmentQueue is daemon-
+  // wide, not per-project. We surface its depth as a banner so a slow
+  // lizard/semgrep/ast-grep backfill isn't invisible (#install-logs).
+  const statusReq = useFetch(() => api.status(), []);
+  const analyzers = statusReq.data?.analyzers ?? null;
+  const analyzersActive = (analyzers?.depth ?? 0) > 0;
   const ops = useOpRunner(() => fetched.reload());
-  const onRefresh = useCallback(() => fetched.reload(), [fetched.reload]);
+  const onRefresh = useCallback(() => {
+    fetched.reload();
+    statusReq.reload();
+  }, [fetched.reload, statusReq.reload]);
   useLiveRefreshEvent(onRefresh);
+  // Poll status while the analyzer queue is draining so the count ticks
+  // down live; a slow baseline poll otherwise so the banner appears when
+  // a backfill starts without a live-refresh event.
+  useEffect(() => {
+    const id = setInterval(() => statusReq.reload(), analyzersActive ? 3000 : 8000);
+    return () => clearInterval(id);
+  }, [analyzersActive, statusReq.reload]);
   // Per-row in-flight tracker for purge. The server response takes a
   // second or two on large projects; without local UI state the row
   // looks identical between "ready" and "deleting" which made the
@@ -181,6 +204,8 @@ export function ProjectsPage() {
         </p>
       ) : null}
 
+      {analyzers !== null ? <AnalyzerActivity queue={analyzers} /> : null}
+
       <div className="card-stack">
         <div className="card">
           <p className="card-section-title" id="section-active">Active</p>
@@ -251,6 +276,47 @@ export function ProjectsPage() {
         />
       ) : null}
     </section>
+  );
+}
+
+/**
+ * Workspace-wide analyzer-queue banner. `depth` > 0 means lizard /
+ * semgrep / ast-grep are (re)analyzing files — a backfill after enabling
+ * a tool, or reprocessing after a content change. Idle state shows a
+ * subtle one-line summary only when there's history worth reporting.
+ */
+function AnalyzerActivity({ queue }: { queue: StatusPayload["analyzers"] }) {
+  if (queue.depth > 0) {
+    return (
+      <p className="pullquote" style={{ borderLeftColor: "var(--warn)" }}>
+        <Icon name="rebuild" animate /> Analyzing {queue.depth.toLocaleString()}{" "}
+        {queue.depth === 1 ? "file" : "files"}
+        {queue.running > 0 ? ` (${queue.running} running)` : ""} — lizard / semgrep / ast-grep
+        enrichment in progress. Search stays available; results enrich as this completes.
+        {queue.failures > 0 ? (
+          <span className="err"> · {queue.failures.toLocaleString()} failed</span>
+        ) : null}
+      </p>
+    );
+  }
+  if (queue.completed === 0 && queue.failures === 0) return null;
+  return (
+    <p className="summary dim">
+      analyzers idle<span className="sep">·</span>
+      {queue.completed.toLocaleString()} enriched
+      {queue.failures > 0 ? (
+        <>
+          <span className="sep">·</span>
+          <span className="err">{queue.failures.toLocaleString()} failed</span>
+        </>
+      ) : null}
+      {queue.lastRunAt !== null ? (
+        <>
+          <span className="sep">·</span>
+          last {relativeTime(queue.lastRunAt)}
+        </>
+      ) : null}
+    </p>
   );
 }
 

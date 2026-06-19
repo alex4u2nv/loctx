@@ -57,6 +57,18 @@ export interface StatusPayload {
     readonly currentProjectIndexed: number | null;
     readonly currentProjectTotal: number | null;
   };
+  /**
+   * Analyzer enrichment queue — backfill + reprocessing by lizard /
+   * semgrep / ast-grep. `depth` > 0 means files are being (re)analyzed;
+   * the projects page surfaces this so a slow backfill isn't invisible.
+   */
+  readonly analyzers: {
+    readonly depth: number;
+    readonly running: number;
+    readonly completed: number;
+    readonly failures: number;
+    readonly lastRunAt: string | null;
+  };
   readonly projects: ReadonlyArray<{
     readonly id: string;
     readonly name: string;
@@ -521,8 +533,15 @@ export interface ToolsStatusPayload {
 }
 
 export type ToolsInstallResponse =
-  | { readonly ok: true; readonly tool: string; readonly command: string; readonly backfilled: number }
-  | { readonly ok: false; readonly tool: string; readonly error: string };
+  | {
+      readonly ok: true;
+      readonly tool: string;
+      readonly command: string;
+      readonly backfilled: number;
+      /** Combined stdout+stderr of the install steps (pip / fetch / unzip). */
+      readonly log?: string;
+    }
+  | { readonly ok: false; readonly tool: string; readonly error: string; readonly log?: string };
 
 // ---- agent setup (#agent-setup) ----------------------------------------
 
