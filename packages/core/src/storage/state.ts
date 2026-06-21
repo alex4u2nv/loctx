@@ -193,6 +193,20 @@ export interface McpRequestLogEntry extends McpRequestLogInput {
   readonly requestedAt: string;
 }
 
+/**
+ * The mcp_requests log stores each call's payload verbatim for debugging,
+ * but an unbounded response (e.g. a large find_duplicates result) can reach
+ * tens of MB. Serializing the whole table for the Logs page then overflows
+ * JSON.stringify (RangeError: Invalid string length). Cap each stored field
+ * so one big call can't wedge the log or bloat the DB.
+ */
+const MCP_LOG_FIELD_MAX = 256 * 1024; // 256 KB per field
+
+function capLogField(value: string | null): string | null {
+  if (value === null || value.length <= MCP_LOG_FIELD_MAX) return value;
+  return `${value.slice(0, MCP_LOG_FIELD_MAX)}\n…[truncated ${value.length - MCP_LOG_FIELD_MAX} chars]`;
+}
+
 export class StateStore {
   private readonly db: Database.Database;
   private readonly stmts = new Map<string, Database.Statement>();
@@ -956,8 +970,8 @@ export class StateStore {
       this.write("insert_mcp_request", [
         requestedAt,
         entry.tool,
-        entry.argumentsJson,
-        entry.responseJson,
+        capLogField(entry.argumentsJson),
+        capLogField(entry.responseJson),
         entry.error,
         entry.ok ? 1 : 0,
         entry.elapsedMs,

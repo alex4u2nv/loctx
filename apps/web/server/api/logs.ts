@@ -31,6 +31,17 @@ export function mountLogs(app: Hono, config: Config, getRuntime: () => Promise<R
   });
 }
 
+// Defensive read cap: pre-cap rows (logged before the write-side cap) can
+// be tens of MB; serializing the whole table then overflows JSON.stringify
+// (RangeError: Invalid string length → 500). Truncate per field on read so
+// legacy giant rows still render.
+const FIELD_MAX = 256 * 1024; // 256 KB
+
+function cap(value: string | null): string | null {
+  if (value === null || value.length <= FIELD_MAX) return value;
+  return `${value.slice(0, FIELD_MAX)}\n…[truncated ${value.length - FIELD_MAX} chars]`;
+}
+
 function toEntry(row: {
   id: number;
   requestedAt: string;
@@ -45,8 +56,8 @@ function toEntry(row: {
     id: row.id,
     requestedAt: row.requestedAt,
     tool: row.tool,
-    argumentsJson: row.argumentsJson,
-    responseJson: row.responseJson,
+    argumentsJson: cap(row.argumentsJson) ?? "",
+    responseJson: cap(row.responseJson),
     error: row.error,
     ok: row.ok,
     elapsedMs: row.elapsedMs,
