@@ -49,6 +49,10 @@
   --shadow-hover: 0 8px 28px rgba(0, 0, 0, 0.12);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.05);
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.06);
+
+  /* Translucent nav backdrop — a token so themes (esp. dark) can override
+     the frosted-glass tint. */
+  --nav-bg: rgba(255, 255, 255, 0.72);
 }
 
 * {
@@ -93,7 +97,7 @@ pre {
   gap: var(--space-4);
   padding: var(--space-3) var(--space-5);
   border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--nav-bg);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
@@ -1971,4 +1975,271 @@ h3 {
 .btn-small {
   padding: 0.15rem 0.5rem;
   font-size: 0.78rem;
+}
+
+/* ===================================================================== */
+/* Themes — each overrides the token set on <html data-theme="…">.        */
+/* Switchable from the top-right Appearance menu (lib/appearance.ts).      */
+/* ===================================================================== */
+
+/* Paper — warm editorial light (Stripe Press / NYT), serif, terracotta. */
+[data-theme="paper"] {
+  --bg: #f6f3ec;
+  --surface: #fffdf8;
+  --surface-2: #efe9dd;
+  --surface-elevated: #fffdf8;
+  --text: #1b1a17;
+  --muted: #5c574d;
+  --subtle: #8a8475;
+  --primary: #b4451f;
+  --primary-soft: rgba(180, 69, 31, 0.12);
+  --primary-glow: rgba(180, 69, 31, 0.2);
+  --primary-dim: #d98a6e;
+  --link: #9c3b1a;
+  --on-accent: #fffdf8;
+  --border: #ddd5c5;
+  --border-strong: #cdc4b0;
+  --nav-bg: rgba(255, 253, 248, 0.8);
+  --radius-card: 10px;
+  --radius-inner: 8px;
+  --radius-control: 6px;
+  --font-sans: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;
+  --shadow-card: 0 1px 2px rgba(60, 50, 30, 0.05), 0 8px 24px rgba(60, 50, 30, 0.06);
+  --shadow-hover: 0 8px 28px rgba(60, 50, 30, 0.12);
+  --shadow-soft: 0 1px 2px rgba(60, 50, 30, 0.07);
+}
+
+/* Graphite — Apple dark. */
+[data-theme="graphite"] {
+  --bg: #1d1d1f;
+  --surface: #2a2a2d;
+  --surface-2: #242427;
+  --surface-elevated: #313135;
+  --text: #f5f5f7;
+  --muted: #a1a1a6;
+  --subtle: #86868b;
+  --primary: #2997ff;
+  --primary-soft: rgba(41, 151, 255, 0.16);
+  --primary-glow: rgba(41, 151, 255, 0.28);
+  --primary-dim: #1c5fa8;
+  --link: #2997ff;
+  --on-accent: #ffffff;
+  --border: #3a3a3d;
+  --border-strong: #48484c;
+  --nav-bg: rgba(29, 29, 31, 0.72);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-hover: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+/* Midnight — deep indigo, violet accent (Linear / Vercel). */
+[data-theme="midnight"] {
+  --bg: #0b0b14;
+  --surface: #14141f;
+  --surface-2: #101019;
+  --surface-elevated: #1b1b29;
+  --text: #e6e6f0;
+  --muted: #9a9ab0;
+  --subtle: #6c6c84;
+  --primary: #7c6cff;
+  --primary-soft: rgba(124, 108, 255, 0.16);
+  --primary-glow: rgba(124, 108, 255, 0.3);
+  --primary-dim: #4b3fb0;
+  --link: #9a8cff;
+  --on-accent: #ffffff;
+  --border: #24243a;
+  --border-strong: #32324e;
+  --nav-bg: rgba(11, 11, 20, 0.72);
+  --radius-card: 12px;
+  --radius-inner: 8px;
+  --radius-control: 6px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 30px rgba(0, 0, 0, 0.45);
+  --shadow-hover: 0 10px 34px rgba(0, 0, 0, 0.55);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Terminal — monospace, square, green-on-black (dev-tool). */
+[data-theme="terminal"] {
+  --bg: #0b0e0c;
+  --surface: #11150f;
+  --surface-2: #0e120d;
+  --surface-elevated: #161b13;
+  --text: #cfe8c3;
+  --muted: #7fa06f;
+  --subtle: #5c7350;
+  --primary: #39d353;
+  --primary-soft: rgba(57, 211, 83, 0.14);
+  --primary-glow: rgba(57, 211, 83, 0.3);
+  --primary-dim: #1f7a32;
+  --link: #57d977;
+  --on-accent: #06140a;
+  --border: #21331c;
+  --border-strong: #2d4527;
+  --nav-bg: rgba(11, 14, 12, 0.85);
+  --ok: #39d353;
+  --warn: #e3b341;
+  --bad: #ff6b6b;
+  --radius-card: 6px;
+  --radius-inner: 4px;
+  --radius-control: 4px;
+  --radius-pill: 4px;
+  --font-sans: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --shadow-card: none;
+  --shadow-hover: 0 0 0 1px var(--primary-glow);
+  --shadow-soft: none;
+}
+
+/* ===================================================================== */
+/* Layout — sidebar variant on <html data-layout="sidebar">.              */
+/* Desktop only; narrow viewports fall back to the top bar.               */
+/* ===================================================================== */
+@media (min-width: 981px) {
+  [data-layout="sidebar"] .nav {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 208px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-3);
+    border-bottom: none;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+  }
+  [data-layout="sidebar"] .nav-brand {
+    font-size: 1rem;
+  }
+  [data-layout="sidebar"] .nav-links {
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.9rem;
+  }
+  [data-layout="sidebar"] .nav-links a {
+    padding: 5px 8px;
+    border-radius: var(--radius-control);
+  }
+  [data-layout="sidebar"] .nav-links a:hover {
+    background: var(--surface-2);
+  }
+  [data-layout="sidebar"] .nav-links a.active {
+    background: var(--primary-soft);
+    color: var(--text);
+  }
+  [data-layout="sidebar"] .nav-meta {
+    margin-left: 0;
+    margin-top: auto;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+  [data-layout="sidebar"] main {
+    margin-left: 208px;
+    max-width: none;
+    padding-left: var(--space-5);
+    padding-right: var(--space-5);
+  }
+}
+
+/* ===================================================================== */
+/* Appearance menu (top-right theme/layout switcher).                      */
+/* ===================================================================== */
+.appearance {
+  position: relative;
+  display: inline-flex;
+}
+.appearance-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.appearance-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  min-width: 250px;
+  padding: var(--space-2);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-inner);
+  box-shadow: var(--shadow-card);
+}
+.appearance-group {
+  margin: var(--space-2) var(--space-2) var(--space-1);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--subtle);
+}
+.appearance-group:first-child {
+  margin-top: var(--space-1);
+}
+.appearance-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  font: inherit;
+}
+.appearance-item:hover {
+  background: var(--surface-2);
+}
+.appearance-item.active {
+  background: var(--primary-soft);
+}
+.appearance-item > svg {
+  margin-left: auto;
+  color: var(--primary);
+}
+.appearance-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.appearance-label {
+  font-size: 0.85rem;
+}
+.appearance-hint {
+  font-size: 0.7rem;
+  color: var(--subtle);
+}
+
+/* Preview swatches — diagonal bg/accent split per theme. */
+.swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  display: inline-block;
+  vertical-align: middle;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+}
+.swatch-aurora {
+  background: linear-gradient(135deg, #f5f5f7 0 50%, #0071e3 50% 100%);
+}
+.swatch-paper {
+  background: linear-gradient(135deg, #f6f3ec 0 50%, #b4451f 50% 100%);
+}
+.swatch-graphite {
+  background: linear-gradient(135deg, #1d1d1f 0 50%, #2997ff 50% 100%);
+}
+.swatch-midnight {
+  background: linear-gradient(135deg, #0b0b14 0 50%, #7c6cff 50% 100%);
+}
+.swatch-terminal {
+  background: linear-gradient(135deg, #0b0e0c 0 50%, #39d353 50% 100%);
+}
+/* Layout swatches adapt to the current theme's tokens. */
+.swatch-layout-top {
+  background: linear-gradient(to bottom, var(--primary) 0 30%, var(--surface-2) 30% 100%);
+}
+.swatch-layout-sidebar {
+  background: linear-gradient(to right, var(--primary) 0 35%, var(--surface-2) 35% 100%);
 }
