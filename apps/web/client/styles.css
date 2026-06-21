@@ -1653,6 +1653,76 @@ h3 {
 .config-save-error {
   flex-basis: 100%;
 }
+
+/* Master-detail: settings columns on the left, a sticky help panel on the
+   right that tracks the active row. */
+.config-layout {
+  display: block;
+}
+.config-main {
+  min-width: 0;
+}
+@media (min-width: 981px) {
+  .config-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: var(--space-4);
+    align-items: start;
+  }
+}
+.config-help {
+  position: sticky;
+  top: 60px;
+  align-self: start;
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  font-size: 0.85rem;
+}
+@media (max-width: 980px) {
+  .config-help {
+    position: static;
+    margin-top: var(--space-4);
+  }
+}
+.config-help-eyebrow {
+  margin: 0 0 4px;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--subtle);
+}
+.config-help-title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+}
+.config-help-text {
+  margin: 0 0 var(--space-3);
+  color: var(--muted);
+  line-height: 1.5;
+}
+.config-help-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px var(--space-3);
+  margin: 0;
+  font-size: 0.8rem;
+}
+.config-help-meta dt {
+  align-self: center;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--subtle);
+}
+.config-help-meta dd {
+  margin: 0;
+  color: var(--text);
+  word-break: break-word;
+}
+
 .config-section {
   margin: var(--space-4) 0;
 }
@@ -1679,6 +1749,10 @@ h3 {
 }
 .config-field:first-child {
   border-top: none;
+}
+.config-field.active {
+  background: var(--surface-2);
+  border-radius: var(--radius-control);
 }
 .config-field.pending {
   background: var(--primary-soft);
