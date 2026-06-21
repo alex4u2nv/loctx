@@ -25,7 +25,6 @@ import { useMemo, useState } from "react";
 import { AdminTabs } from "../components/admin-tabs";
 import { confirm } from "../components/confirm";
 import { Icon } from "../components/icon";
-import { type NavSection, SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
 
@@ -41,6 +40,10 @@ export function ConfigPage() {
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const [restartState, setRestartState] = useState<"idle" | "restarting" | "done">("idle");
+  // Field whose help shows in the right detail panel — follows the row the
+  // pointer/keyboard is on. Null until first hover; the panel then defaults
+  // to the first field so it's never empty.
+  const [activeKey, setActiveKey] = useState<string | null>(null);
 
   if (loading && data === null) return <p className="pullquote">Loading…</p>;
   if (error !== null)
@@ -92,10 +95,17 @@ export function ConfigPage() {
     }
   };
 
-  const navSections: NavSection[] = data.schema.map((s) => ({
-    id: `cfg-${s.id}`,
-    label: s.label,
-  }));
+  // Flat field lookup so the help panel can resolve the active field +
+  // its section regardless of which section it lives in.
+  const fieldIndex = new Map<
+    string,
+    { field: ConfigFieldSchemaWire; section: ConfigSectionSchemaWire }
+  >();
+  for (const section of data.schema) {
+    for (const f of section.fields) fieldIndex.set(f.key, { field: f, section });
+  }
+  const activeFieldKey = activeKey ?? data.schema[0]?.fields[0]?.key ?? null;
+  const active = activeFieldKey !== null ? (fieldIndex.get(activeFieldKey) ?? null) : null;
 
   return (
     <section>
@@ -126,22 +136,28 @@ export function ConfigPage() {
         />
       ) : null}
 
-      {data.schema.map((section) => (
-        <SectionEditor
-          key={section.id}
-          section={section}
-          data={data}
-          patch={patch}
-          onChange={setField}
-        />
-      ))}
+      <div className="config-layout">
+        <div className="config-main">
+          {data.schema.map((section) => (
+            <SectionEditor
+              key={section.id}
+              section={section}
+              data={data}
+              patch={patch}
+              onChange={setField}
+              activeKey={activeFieldKey}
+              onActivate={setActiveKey}
+            />
+          ))}
 
-      <p className="dim" style={{ fontSize: "0.85rem", marginTop: "var(--space-5)" }}>
-        Filtering rules (gitignore-style) live in <code>~/.loctx/config_overrides/*.yaml</code>{" "}
-        and aren't edited here.
-      </p>
+          <p className="dim" style={{ fontSize: "0.85rem", marginTop: "var(--space-5)" }}>
+            Filtering rules (gitignore-style) live in{" "}
+            <code>~/.loctx/config_overrides/*.yaml</code> and aren't edited here.
+          </p>
+        </div>
 
-      <SectionNav sections={navSections} />
+        <ConfigHelp active={active} data={data} patch={patch} />
+      </div>
     </section>
   );
 }
@@ -256,11 +272,15 @@ function SectionEditor({
   data,
   patch,
   onChange,
+  activeKey,
+  onActivate,
 }: {
   section: ConfigSectionSchemaWire;
   data: ConfigPayload;
   patch: Patch;
   onChange: (key: string, value: unknown) => void;
+  activeKey: string | null;
+  onActivate: (key: string) => void;
 }) {
   return (
     <article className="config-section card" id={`cfg-${section.id}`}>
@@ -276,6 +296,8 @@ function SectionEditor({
             data={data}
             patch={patch}
             onChange={onChange}
+            active={field.key === activeKey}
+            onActivate={onActivate}
           />
         ))}
       </div>
@@ -288,11 +310,15 @@ function FieldRow({
   data,
   patch,
   onChange,
+  active,
+  onActivate,
 }: {
   field: ConfigFieldSchemaWire;
   data: ConfigPayload;
   patch: Patch;
   onChange: (key: string, value: unknown) => void;
+  active: boolean;
+  onActivate: (key: string) => void;
 }) {
   const baseline = data.effective[field.key];
   const pending = field.key in patch;
@@ -304,16 +330,15 @@ function FieldRow({
   const onReset = () => onChange(field.key, field.default);
 
   return (
-    <div className={`config-field ${pending ? "pending" : ""}`}>
+    <div
+      className={`config-field ${pending ? "pending" : ""} ${active ? "active" : ""}`}
+      onMouseEnter={() => onActivate(field.key)}
+      onFocusCapture={() => onActivate(field.key)}
+    >
       <div className="config-field-head">
-        <label className="config-field-label" htmlFor={`f-${field.key}`} title={field.help}>
+        <label className="config-field-label" htmlFor={`f-${field.key}`}>
           {field.label}
         </label>
-        {field.help ? (
-          <span className="config-info" title={field.help} aria-label={field.help} role="note">
-            ?
-          </span>
-        ) : null}
         <SourcePill kind={source} field={field} />
       </div>
       <div className="config-field-control">
@@ -350,6 +375,57 @@ function SourcePill({ kind, field }: { kind: ConfigSourceKind; field: ConfigFiel
 function formatDefault(field: ConfigFieldSchemaWire): string {
   if (field.type === "bool") return field.default === true ? "on" : "off";
   return formatDisplay(field.default);
+}
+
+/** Sticky right-hand detail panel: full help + metadata for the active
+ *  field. Stays open and re-renders as the pointer/keyboard moves between
+ *  rows, so help is always one glance away without crowding the rows. */
+function ConfigHelp({
+  active,
+  data,
+  patch,
+}: {
+  active: { field: ConfigFieldSchemaWire; section: ConfigSectionSchemaWire } | null;
+  data: ConfigPayload;
+  patch: Patch;
+}) {
+  if (active === null) {
+    return (
+      <aside className="config-help">
+        <p className="dim">Hover or focus a setting to see its details.</p>
+      </aside>
+    );
+  }
+  const { field, section } = active;
+  const source: ConfigSourceKind = data.sources[field.key] ?? "default";
+  const value = field.key in patch ? patch[field.key] : data.effective[field.key];
+  return (
+    <aside className="config-help">
+      <p className="config-help-eyebrow">{section.label}</p>
+      <h3 className="config-help-title">{field.label}</h3>
+      {field.help ? <p className="config-help-text">{field.help}</p> : null}
+      <dl className="config-help-meta">
+        <dt>key</dt>
+        <dd>
+          <code>{field.key}</code>
+        </dd>
+        <dt>type</dt>
+        <dd>{field.type}</dd>
+        <dt>default</dt>
+        <dd>
+          <code>{formatDefault(field)}</code>
+        </dd>
+        <dt>current</dt>
+        <dd>
+          <code>{formatDisplay(value)}</code>
+        </dd>
+        <dt>source</dt>
+        <dd>
+          <SourcePill kind={source} field={field} />
+        </dd>
+      </dl>
+    </aside>
+  );
 }
 
 function FieldEditor({
