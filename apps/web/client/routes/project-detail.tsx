@@ -492,9 +492,11 @@ function SearchHitMeta({ hit }: { hit: SearchHit }) {
             {hit.symbols.map((s, i) => (
               <span key={s}>
                 {i > 0 ? ", " : ""}
-                {hit.language === "markdown" ? (
-                  // Markdown "symbols" are the heading path, not code symbols
-                  // in the cross-ref graph — search instead of find-usages.
+                {hit.kind.startsWith("section") ? (
+                  // Markdown section "symbols" are the heading path, not code
+                  // symbols in the cross-ref graph — search, not find-usages.
+                  // Key on `kind` (always set) not `language` (lexical hits
+                  // can leave it empty).
                   <Link
                     className="btn-link"
                     to={`/search?q=${encodeURIComponent(s)}`}

@@ -299,10 +299,12 @@ function Results({ response }: { response: SearchPayload }) {
                   {r.symbols.map((s, i) => (
                     <span key={s}>
                       {i > 0 ? ", " : ""}
-                      {r.language === "markdown" ? (
-                        // Markdown chunks expose the heading path as "symbols"
-                        // (not code identifiers in the cross-ref graph), so
-                        // find-usages would return nothing — search instead.
+                      {r.kind.startsWith("section") ? (
+                        // Markdown section chunks expose the heading path as
+                        // "symbols" (never in the symbol_refs cross-ref graph),
+                        // so find-usages returns nothing — search instead. We
+                        // key on `kind` (always set) not `language` (the
+                        // lexical branch can leave it empty).
                         <Link
                           className="btn-link"
                           to={`/search?q=${encodeURIComponent(s)}`}
