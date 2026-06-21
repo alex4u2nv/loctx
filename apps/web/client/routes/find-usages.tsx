@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { DataTable } from "../components/data-table";
 import { QueryForm } from "../components/query-form";
+import { SearchTabs } from "../components/search-tabs";
 import { SectionNav } from "../components/section-nav";
 import { SnippetModal } from "../components/snippet-modal";
 import { api } from "../lib/api";
@@ -58,6 +59,8 @@ export function FindUsagesPage() {
         Exact-match symbol jump. Returns every definition and call/import/reference of a name
         across the indexed projects.
       </p>
+
+      <SearchTabs />
 
       <div className="card-stack">
         <div className="card" id="fu-query">

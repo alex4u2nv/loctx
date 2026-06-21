@@ -11,6 +11,7 @@
 import type { FindLiteralPayload, LiteralHit } from "@shared/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { SearchTabs } from "../components/search-tabs";
 import { SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
@@ -76,6 +77,8 @@ export function FindLiteralPage() {
         <code>find-usages</code> (exact code symbol). For total file coverage on
         safety-critical audits, supplement with <code>rg</code>.
       </p>
+
+      <SearchTabs />
 
       <div className="card-stack">
       <div className="card" id="fl-query">

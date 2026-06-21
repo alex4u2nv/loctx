@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from "react";
-import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { AppearanceMenu } from "./components/appearance-menu";
 import { ConfirmHost } from "./components/confirm";
 import { LiveRefresh } from "./components/live-refresh";
@@ -88,9 +88,7 @@ export function App() {
           dashboard
         </NavLink>
         <NavLink to="/projects">projects</NavLink>
-        <NavLink to="/search">search</NavLink>
-        <NavLink to="/find-usages">find-usages</NavLink>
-        <NavLink to="/find-literal">find-literal</NavLink>
+        <SearchNavLink />
         <NavLink to="/doctor">doctor</NavLink>
         <NavLink to="/models">models</NavLink>
         <NavLink to="/config">config</NavLink>
@@ -131,6 +129,20 @@ const ROUTE_LABELS: ReadonlyArray<{ readonly prefix: string; readonly label: str
   { prefix: "/logs", label: "Logs" },
   { prefix: "/admin", label: "Admin" },
 ];
+
+const SEARCH_ROUTES = ["/search", "/find-usages", "/find-literal"];
+
+/** Single nav entry for the unified Search Explorer — active across all
+ *  three search modes (the in-page tab strip switches between them). */
+function SearchNavLink() {
+  const { pathname } = useLocation();
+  const active = SEARCH_ROUTES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  return (
+    <Link to="/search" className={active ? "active" : undefined}>
+      search
+    </Link>
+  );
+}
 
 /** loctx / <current section> breadcrumb in the command bar. */
 function Breadcrumb() {

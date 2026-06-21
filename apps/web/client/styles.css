@@ -706,6 +706,33 @@ h3 {
   letter-spacing: 0.04em;
 }
 
+/* Search Explorer mode tabs — a segmented pill control. */
+.search-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: var(--space-4);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+.search-tab {
+  padding: 5px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: color 120ms ease, background 120ms ease;
+}
+.search-tab:hover {
+  color: var(--text);
+}
+.search-tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-soft);
+}
+
 /* IDE-style search result: file-path header + relevance badge + a code
    viewport with a line-number gutter. */
 .result-card-head {
