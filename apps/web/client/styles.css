@@ -126,6 +126,13 @@ pre {
   color: var(--text);
 }
 
+/* Current page — accent colour so you can always see where you are in the
+   top bar (the sidebar layout adds its own pill highlight). Colour-only,
+   so the active item doesn't reflow its neighbours. */
+.nav-links a.active {
+  color: var(--primary);
+}
+
 .nav-meta {
   margin-left: auto;
   display: flex;
