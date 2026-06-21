@@ -23,14 +23,14 @@ export const THEMES: ReadonlyArray<AppearanceOption> = [
 ];
 
 export const LAYOUTS: ReadonlyArray<AppearanceOption> = [
-  { id: "top", label: "Top bar", hint: "Horizontal nav (default)" },
-  { id: "sidebar", label: "Sidebar", hint: "Left vertical rail" },
+  { id: "sidebar", label: "Sidebar", hint: "Left vertical rail (default)" },
+  { id: "top", label: "Top bar", hint: "Horizontal nav" },
 ];
 
 const THEME_KEY = "loctx.theme";
 const LAYOUT_KEY = "loctx.layout";
 const DEFAULT_THEME = "aurora";
-const DEFAULT_LAYOUT = "top";
+const DEFAULT_LAYOUT = "sidebar";
 
 function read(key: string, fallback: string, valid: ReadonlyArray<AppearanceOption>): string {
   try {

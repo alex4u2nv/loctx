@@ -2104,7 +2104,19 @@ h3 {
     padding: var(--space-4) var(--space-3);
     border-bottom: none;
     border-right: 1px solid var(--border);
-    overflow-y: auto;
+    /* `visible`, not `auto`: an overflow ancestor would clip the
+       Appearance / notifications dropdowns. The rail holds a fixed, small
+       set of links so it fits without scrolling on desktop (narrow
+       viewports fall back to the top bar via the media query). */
+    overflow: visible;
+  }
+  /* The trigger sits at the bottom of the rail — open the panel upward and
+     let it extend right past the rail edge instead of off-screen. */
+  [data-layout="sidebar"] .appearance-panel {
+    top: auto;
+    bottom: calc(100% + 6px);
+    left: 0;
+    right: auto;
   }
   [data-layout="sidebar"] .nav-brand {
     font-size: 1rem;
