@@ -22,6 +22,7 @@ import type {
   ConfigSourceKind,
 } from "@shared/contracts";
 import { useMemo, useState } from "react";
+import { AdminTabs } from "../components/admin-tabs";
 import { confirm } from "../components/confirm";
 import { Icon } from "../components/icon";
 import { type NavSection, SectionNav } from "../components/section-nav";
@@ -104,6 +105,8 @@ export function ConfigPage() {
         Layered YAML config — global ⊳ project ⊳ env. Each field shows where its current value
         came from; pick a save target before applying changes.
       </p>
+
+      <AdminTabs />
 
       <LayerSummary data={data} />
 

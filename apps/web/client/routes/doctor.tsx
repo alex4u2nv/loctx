@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { AdminTabs } from "../components/admin-tabs";
 import { DataTable } from "../components/data-table";
 import { Icon } from "../components/icon";
 import { api } from "../lib/api";
@@ -44,6 +45,9 @@ export function DoctorPage() {
       <p className="subtitle">
         Configuration, storage, daemon, schema, discovery and analyzer health.
       </p>
+
+      <AdminTabs />
+
       <div className="card">
       <p style={{ marginTop: 0 }}>
         <button

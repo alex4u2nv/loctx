@@ -1,5 +1,6 @@
 import type { McpLogEntry } from "@shared/contracts";
 import { useEffect, useState } from "react";
+import { AdminTabs } from "../components/admin-tabs";
 import { confirm } from "../components/confirm";
 import { DataTable } from "../components/data-table";
 import { Icon } from "../components/icon";
@@ -56,6 +57,8 @@ export function LogsPage() {
         MCP requests, questions and answers from connected agents. Click a row to inspect the full
         request arguments and response.
       </p>
+
+      <AdminTabs />
 
       {error !== null ? (
         <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
