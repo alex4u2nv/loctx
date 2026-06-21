@@ -88,22 +88,24 @@ pre {
   font-family: var(--font-mono);
 }
 
-/* Sticky nav */
-.nav {
+/* Command bar — persistent top chrome: brand + breadcrumb (left), status
+   + controls (right). Floats full-width across every screen. */
+.command-bar {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 20;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-4);
-  padding: var(--space-3) var(--space-5);
+  height: 52px;
+  padding: 0 var(--space-4);
   border-bottom: 1px solid var(--border);
   background: var(--nav-bg);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
 
-.nav-brand {
+.cb-brand {
   font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -111,30 +113,24 @@ pre {
   color: var(--primary);
 }
 
-.nav-links {
+.cb-crumbs {
   display: flex;
-  gap: var(--space-3);
-  font-size: 0.9375rem;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: 0.85rem;
 }
-
-.nav-links a {
+.cb-crumb-root {
   color: var(--muted);
-  font-weight: 400;
-  transition: color 120ms ease;
 }
-
-.nav-links a:hover {
+.cb-crumb-sep {
+  color: var(--subtle);
+}
+.cb-crumb-leaf {
   color: var(--text);
+  font-weight: 500;
 }
 
-/* Current page — accent colour so you can always see where you are in the
-   top bar (the sidebar layout adds its own pill highlight). Colour-only,
-   so the active item doesn't reflow its neighbours. */
-.nav-links a.active {
-  color: var(--primary);
-}
-
-.nav-meta {
+.cb-meta {
   margin-left: auto;
   display: flex;
   align-items: center;
@@ -142,10 +138,64 @@ pre {
   font-size: 0.8125rem;
   color: var(--subtle);
 }
-
-.nav-meta code {
+.cb-meta code {
   color: var(--muted);
   font-size: 0.8125rem;
+}
+
+/* Daemon liveness + port chip. */
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.status-chip code {
+  color: var(--text);
+  font-size: 0.78rem;
+}
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--subtle);
+}
+.status-chip.ok .status-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.status-chip.bad .status-dot {
+  background: var(--bad);
+}
+
+/* Route nav — default (top-bar layout): a horizontal strip under the
+   command bar. The sidebar layout repositions it to a left rail. */
+.route-nav {
+  position: sticky;
+  top: 52px;
+  z-index: 15;
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  font-size: 0.9375rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--nav-bg);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  overflow-x: auto;
+}
+.route-nav a {
+  color: var(--muted);
+  font-weight: 400;
+  white-space: nowrap;
+  transition: color 120ms ease;
+}
+.route-nav a:hover {
+  color: var(--text);
+}
+.route-nav a.active {
+  color: var(--primary);
 }
 
 .nav-mcp {
@@ -2197,55 +2247,33 @@ h3 {
 /* Desktop only; narrow viewports fall back to the top bar.               */
 /* ===================================================================== */
 @media (min-width: 981px) {
-  [data-layout="sidebar"] .nav {
+  /* Command bar stays full-width on top; the route nav becomes a fixed
+     left rail starting just below it. */
+  [data-layout="sidebar"] .route-nav {
     position: fixed;
-    inset: 0 auto 0 0;
+    top: 52px;
+    left: 0;
+    bottom: 0;
     width: 208px;
     flex-direction: column;
-    align-items: stretch;
-    gap: var(--space-3);
-    padding: var(--space-4) var(--space-3);
+    gap: 2px;
+    padding: var(--space-3);
+    font-size: 0.9rem;
     border-bottom: none;
     border-right: 1px solid var(--border);
-    /* `visible`, not `auto`: an overflow ancestor would clip the
-       Appearance / notifications dropdowns. The rail holds a fixed, small
-       set of links so it fits without scrolling on desktop (narrow
-       viewports fall back to the top bar via the media query). */
-    overflow: visible;
+    overflow-y: auto;
+    overflow-x: visible;
   }
-  /* The trigger sits at the bottom of the rail — open the panel upward and
-     let it extend right past the rail edge instead of off-screen. */
-  [data-layout="sidebar"] .appearance-panel {
-    top: auto;
-    bottom: calc(100% + 6px);
-    left: 0;
-    right: auto;
-  }
-  [data-layout="sidebar"] .nav-brand {
-    font-size: 1rem;
-  }
-  [data-layout="sidebar"] .nav-links {
-    flex-direction: column;
-    gap: 2px;
-    font-size: 0.9rem;
-  }
-  [data-layout="sidebar"] .nav-links a {
+  [data-layout="sidebar"] .route-nav a {
     padding: 5px 8px;
     border-radius: var(--radius-control);
   }
-  [data-layout="sidebar"] .nav-links a:hover {
+  [data-layout="sidebar"] .route-nav a:hover {
     background: var(--surface-2);
   }
-  [data-layout="sidebar"] .nav-links a.active {
+  [data-layout="sidebar"] .route-nav a.active {
     background: var(--primary-soft);
     color: var(--text);
-  }
-  [data-layout="sidebar"] .nav-meta {
-    margin-left: 0;
-    margin-top: auto;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--space-2);
   }
   [data-layout="sidebar"] main {
     margin-left: 208px;

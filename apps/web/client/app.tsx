@@ -1,10 +1,12 @@
 import { lazy, Suspense, useState } from "react";
-import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
+import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { AppearanceMenu } from "./components/appearance-menu";
 import { ConfirmHost } from "./components/confirm";
 import { LiveRefresh } from "./components/live-refresh";
 import { McpHelpModal } from "./components/mcp-help";
 import { NotificationsBell } from "./components/notifications-bell";
+import { api } from "./lib/api";
+import { useFetch } from "./lib/use-fetch";
 
 // Route-level code splitting (#218). Each page chunk loads on first
 // navigation rather than ship in the initial bundle. The status page
@@ -58,23 +60,16 @@ export function App() {
   const [mcpHelpOpen, setMcpHelpOpen] = useState(false);
   return (
     <BrowserRouter>
-      <header className="nav">
-        <span className="nav-brand">loctx</span>
-        <nav className="nav-links">
-          <NavLink to="/" end>
-            dashboard
-          </NavLink>
-          <NavLink to="/projects">projects</NavLink>
-          <NavLink to="/search">search</NavLink>
-          <NavLink to="/find-usages">find-usages</NavLink>
-          <NavLink to="/find-literal">find-literal</NavLink>
-          <NavLink to="/doctor">doctor</NavLink>
-          <NavLink to="/models">models</NavLink>
-          <NavLink to="/config">config</NavLink>
-          <NavLink to="/logs">logs</NavLink>
-          <NavLink to="/admin">admin</NavLink>
-        </nav>
-        <span className="nav-meta">
+      {/* Persistent command bar: brand + breadcrumb (left), status/port +
+          controls (right). Floats full-width across every screen. The route
+          links live in `.route-nav` below — a left rail in the sidebar
+          layout, a horizontal strip in the top-bar layout (one DOM instance,
+          repositioned by CSS, so links never duplicate). */}
+      <header className="command-bar">
+        <span className="cb-brand">loctx</span>
+        <Breadcrumb />
+        <span className="cb-meta">
+          <StatusChip />
           <AppearanceMenu />
           <LiveRefresh />
           <NotificationsBell />
@@ -88,6 +83,20 @@ export function App() {
           </button>
         </span>
       </header>
+      <nav className="route-nav" aria-label="Primary">
+        <NavLink to="/" end>
+          dashboard
+        </NavLink>
+        <NavLink to="/projects">projects</NavLink>
+        <NavLink to="/search">search</NavLink>
+        <NavLink to="/find-usages">find-usages</NavLink>
+        <NavLink to="/find-literal">find-literal</NavLink>
+        <NavLink to="/doctor">doctor</NavLink>
+        <NavLink to="/models">models</NavLink>
+        <NavLink to="/config">config</NavLink>
+        <NavLink to="/logs">logs</NavLink>
+        <NavLink to="/admin">admin</NavLink>
+      </nav>
       <main>
         <Suspense fallback={ROUTE_FALLBACK}>
           <Routes>
@@ -108,5 +117,48 @@ export function App() {
       <ConfirmHost />
       {mcpHelpOpen ? <McpHelpModal onClose={() => setMcpHelpOpen(false)} /> : null}
     </BrowserRouter>
+  );
+}
+
+const ROUTE_LABELS: ReadonlyArray<{ readonly prefix: string; readonly label: string }> = [
+  { prefix: "/projects", label: "Projects" },
+  { prefix: "/search", label: "Search" },
+  { prefix: "/find-usages", label: "Find usages" },
+  { prefix: "/find-literal", label: "Find literal" },
+  { prefix: "/doctor", label: "Doctor" },
+  { prefix: "/models", label: "Models" },
+  { prefix: "/config", label: "Config" },
+  { prefix: "/logs", label: "Logs" },
+  { prefix: "/admin", label: "Admin" },
+];
+
+/** loctx / <current section> breadcrumb in the command bar. */
+function Breadcrumb() {
+  const { pathname } = useLocation();
+  const match = ROUTE_LABELS.find((r) => pathname === r.prefix || pathname.startsWith(`${r.prefix}/`));
+  const label = match?.label ?? "Dashboard";
+  return (
+    <span className="cb-crumbs" aria-label="breadcrumb">
+      <span className="cb-crumb-root">loctx</span>
+      <span className="cb-crumb-sep">/</span>
+      <span className="cb-crumb-leaf">{label}</span>
+    </span>
+  );
+}
+
+/** Compact daemon liveness + port indicator, always visible. */
+function StatusChip() {
+  const { data } = useFetch(() => api.status(), []);
+  if (data === undefined || data === null) return null;
+  const running = data.daemon.running;
+  const port = running ? data.daemon.port : null;
+  return (
+    <span
+      className={`status-chip ${running ? "ok" : "bad"}`}
+      title={running ? `Daemon running on port ${port}` : "Daemon not running"}
+    >
+      <span className="status-dot" />
+      {running && port !== null ? <code>:{port}</code> : "offline"}
+    </span>
   );
 }
