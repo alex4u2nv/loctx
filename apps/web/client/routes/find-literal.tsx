@@ -11,6 +11,7 @@
 import type { FindLiteralPayload, LiteralHit } from "@shared/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
 
@@ -77,7 +78,7 @@ export function FindLiteralPage() {
       </p>
 
       <div className="card-stack">
-      <div className="card">
+      <div className="card" id="fl-query">
       <form
         className="search-form"
         onSubmit={(e) => {
@@ -136,7 +137,7 @@ export function FindLiteralPage() {
         </p>
       ) : null}
 
-      <div className="card">
+      <div className="card" id="fl-results">
       {error !== null ? null : response === null ? (
         pattern ? null : (
           <p className="pullquote">
@@ -149,6 +150,14 @@ export function FindLiteralPage() {
       )}
       </div>
       </div>
+      {response !== null ? (
+        <SectionNav
+          sections={[
+            { id: "fl-query", label: "Query" },
+            { id: "fl-results", label: "Results" },
+          ]}
+        />
+      ) : null}
     </section>
   );
 }

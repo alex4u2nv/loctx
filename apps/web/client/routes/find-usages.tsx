@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { DataTable } from "../components/data-table";
 import { QueryForm } from "../components/query-form";
+import { SectionNav } from "../components/section-nav";
 import { SnippetModal } from "../components/snippet-modal";
 import { api } from "../lib/api";
 import { useSnippetSelection } from "../lib/use-snippet-selection";
@@ -59,7 +60,7 @@ export function FindUsagesPage() {
       </p>
 
       <div className="card-stack">
-        <div className="card">
+        <div className="card" id="fu-query">
           <QueryForm
             // Re-mount the form when URL params change so the inputs pick up
             // fresh defaultValues. Cheap; the form is uncontrolled.
@@ -93,11 +94,19 @@ export function FindUsagesPage() {
             {error}
           </p>
         ) : response === null ? null : (
-          <div className="card">
+          <div className="card" id="fu-results">
             <Results r={response} scopedPath={urlPath} onClearScope={() => void submit(response.symbol, "")} />
           </div>
         )}
       </div>
+      {response !== null ? (
+        <SectionNav
+          sections={[
+            { id: "fu-query", label: "Query" },
+            { id: "fu-results", label: "Results" },
+          ]}
+        />
+      ) : null}
     </section>
   );
 }

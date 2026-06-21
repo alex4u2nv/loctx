@@ -10,6 +10,7 @@ import { confirm } from "../components/confirm";
 import { ConnectEditorModal } from "../components/connect-editor-modal";
 import { Icon, type IconName } from "../components/icon";
 import { IconButton } from "../components/icon-button";
+import { OverflowMenu, type OverflowItem } from "../components/overflow-menu";
 import { useLiveRefreshEvent } from "../components/live-refresh";
 import { type NavSection, SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
@@ -555,76 +556,91 @@ function RowActionButtons({
   isPurging: boolean;
 }) {
   const isBusy = busy !== null;
+  // Live, in-flight states stay visible inline — they're feedback, not
+  // actions. Only idle actions collapse into the overflow menu so the row
+  // reads cleanly at a glance.
+  const job = row.rebuilding;
+  const rebuildShown =
+    (job !== null && (job.status === "running" || job.status === "failed")) ||
+    (job === null && row.rebuildPendingAt !== null);
+
+  const items: OverflowItem[] = [];
+  if (actions.pause && row.watcher === "active")
+    items.push({
+      label: "pause",
+      icon: "pause",
+      disabled: isBusy,
+      onSelect: () => void actions.pause?.(row.id, row.name),
+    });
+  if (actions.resume && (row.watcher === "paused" || row.watcher === "failed"))
+    items.push({
+      label: "resume",
+      icon: "play",
+      disabled: isBusy,
+      onSelect: () => void actions.resume?.(row.id, row.name),
+    });
+  if (actions.rebuild && !rebuildShown)
+    items.push({
+      label: "rebuild",
+      icon: "rebuild",
+      disabled: isBusy,
+      onSelect: () => void actions.rebuild?.(row.root, row.name),
+    });
+  if (actions.connect)
+    items.push({
+      label: "connect editor",
+      icon: "index",
+      onSelect: () => actions.connect?.(row.root, row.name),
+    });
+  if (actions.deactivate)
+    items.push({
+      label: "deactivate",
+      icon: "pause",
+      disabled: isBusy,
+      onSelect: async () => {
+        const ok = await confirm({
+          title: `Deactivate ${row.name}?`,
+          message:
+            "Watcher stops and indexing pauses. Indexed data stays — use purge to remove it.",
+          confirmLabel: "Deactivate",
+        });
+        if (!ok) return;
+        void actions.deactivate?.(row.root, row.name);
+      },
+    });
+  if (actions.purge && !isPurging)
+    items.push({
+      label: "purge",
+      icon: "purge",
+      danger: true,
+      disabled: isBusy,
+      onSelect: () => void actions.purge?.(row.root, row.name),
+    });
+
   return (
-    <span style={{ display: "inline-flex", gap: "0.4rem", flexWrap: "wrap" }}>
+    <span className="row-actions">
       <IconButton
         icon="search"
         label="inspect"
         href={`/projects/${encodeURIComponent(row.id)}`}
         title="Inspect: view stats and scoped search/find-usages for this project"
       />
-      {actions.pause && row.watcher === "active" ? (
-        <IconButton
-          icon="pause"
-          label="pause"
-          onClick={() => void actions.pause?.(row.id, row.name)}
-          disabled={isBusy}
-        />
-      ) : null}
-      {actions.resume && (row.watcher === "paused" || row.watcher === "failed") ? (
-        <IconButton
-          icon="play"
-          label="resume"
-          onClick={() => void actions.resume?.(row.id, row.name)}
-          disabled={isBusy}
-        />
-      ) : null}
-      {actions.rebuild ? (
+      {rebuildShown ? (
         <RebuildButton
           row={row}
           onClick={() => void actions.rebuild?.(row.root, row.name)}
           disabled={isBusy}
         />
       ) : null}
-      {actions.connect ? (
-        <IconButton
-          icon="index"
-          label="connect editor"
-          onClick={() => actions.connect?.(row.root, row.name)}
-          title="Write project-scoped MCP + usage config so your coding agents use loctx here"
-        />
+      {isPurging ? (
+        <span
+          className="row-progress"
+          title="Purge in progress — clearing this project's vectors + state from disk. The row disappears once it completes."
+        >
+          purging…
+        </span>
       ) : null}
-      {actions.purge ? (
-        <IconButton
-          icon="purge"
-          label={isPurging ? "purging…" : "purge"}
-          onClick={() => void actions.purge?.(row.root, row.name)}
-          disabled={isBusy || isPurging}
-          {...(isPurging
-            ? {
-                title:
-                  "Purge in progress — clearing this project's vectors + state from disk. The row will disappear once it completes.",
-              }
-            : {})}
-        />
-      ) : null}
-      {actions.deactivate ? (
-        <IconButton
-          icon="pause"
-          label="deactivate"
-          onClick={async () => {
-            const ok = await confirm({
-              title: `Deactivate ${row.name}?`,
-              message:
-                "Watcher stops and indexing pauses. Indexed data stays — use purge to remove it.",
-              confirmLabel: "Deactivate",
-            });
-            if (!ok) return;
-            void actions.deactivate?.(row.root, row.name);
-          }}
-          disabled={isBusy}
-        />
-      ) : null}
+      <OverflowMenu items={items} disabled={isBusy} />
     </span>
   );
 }

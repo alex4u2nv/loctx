@@ -158,7 +158,7 @@ function IndexFlowHero({
     <article id="dash-flow" className="card hero">
       <header className="hero-head">
         <div>
-          <p className="card-eyebrow">Index</p>
+          <p className="card-section-title">Index</p>
           <h2 className="card-title">
             Index
             <br />
@@ -216,7 +216,7 @@ function DaemonCard({ status, baseUrl }: { status: StatusPayload; baseUrl: strin
   return (
     <article id="dash-daemon" className="card daemon-card">
       <header>
-        <p className="card-eyebrow">Daemon</p>
+        <p className="card-section-title">Daemon</p>
         <h3 className="card-title">{daemon.running ? "Online" : "Offline"}</h3>
       </header>
       <dl className="daemon-kv">
@@ -271,7 +271,7 @@ function CoverageGauge({
   return (
     <article id="dash-coverage" className="card gauge-card">
       <header>
-        <p className="card-eyebrow">Coverage</p>
+        <p className="card-section-title">Coverage</p>
         <h3 className="card-title-sm">Index health</h3>
       </header>
       <div className="gauge-wrap">
@@ -313,7 +313,7 @@ function DetailsTile({ status }: { status: StatusPayload }) {
       : `${r.reconciliationIntervalSeconds}s${r.reconciliationRunOnStart ? " + boot" : ""}`;
   return (
     <article id="dash-details" className="card">
-      <p className="card-eyebrow">Details</p>
+      <p className="card-section-title">Details</p>
       <div className="tile-grid">
         <Metric label="Mode" value={r.retrievalMode} />
         <Metric label="Embedding" value={r.embeddingModel} />
@@ -336,7 +336,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 function ActivityTile({ events }: { events: ReadonlyArray<WatcherEvent> }) {
   return (
     <article id="dash-activity" className="card">
-      <p className="card-eyebrow">Activity</p>
+      <p className="card-section-title">Activity</p>
       {events.length === 0 ? (
         <p className="activity-empty">Idle — waiting for file events…</p>
       ) : (
@@ -371,7 +371,7 @@ function McpTile({ baseUrl }: { baseUrl: string }) {
   );
   return (
     <article id="dash-mcp" className="card">
-      <p className="card-eyebrow">MCP</p>
+      <p className="card-section-title">MCP</p>
       <p className="card-title-sm">Client snippets</p>
       <p className="metric-label" style={{ marginTop: 0 }}>
         HTTP

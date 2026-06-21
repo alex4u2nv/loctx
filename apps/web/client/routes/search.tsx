@@ -1,6 +1,7 @@
 import type { SearchHit, SearchPayload } from "@shared/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { SectionNav } from "../components/section-nav";
 import { SnippetModal } from "../components/snippet-modal";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
@@ -85,7 +86,7 @@ export function SearchPage() {
       </p>
 
       <div className="card-stack">
-      <div className="card">
+      <div className="card" id="search-query">
       <form
         className="search-form"
         onSubmit={(e) => {
@@ -189,7 +190,7 @@ export function SearchPage() {
         </p>
       ) : null}
 
-      <div className="card">
+      <div className="card" id="search-results">
       {error !== null ? null : response === null ? (
         query ? null /* URL-driven submit is in flight; brief blank is OK */ : (
           <p className="pullquote">Enter a query to search the locally-indexed workspace.</p>
@@ -199,6 +200,14 @@ export function SearchPage() {
       )}
       </div>
       </div>
+      {response !== null ? (
+        <SectionNav
+          sections={[
+            { id: "search-query", label: "Query" },
+            { id: "search-results", label: "Results" },
+          ]}
+        />
+      ) : null}
     </section>
   );
 }

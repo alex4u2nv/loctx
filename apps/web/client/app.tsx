@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
+import { AppearanceMenu } from "./components/appearance-menu";
 import { ConfirmHost } from "./components/confirm";
 import { LiveRefresh } from "./components/live-refresh";
 import { McpHelpModal } from "./components/mcp-help";
@@ -74,6 +75,7 @@ export function App() {
           <NavLink to="/admin">admin</NavLink>
         </nav>
         <span className="nav-meta">
+          <AppearanceMenu />
           <LiveRefresh />
           <NotificationsBell />
           <button

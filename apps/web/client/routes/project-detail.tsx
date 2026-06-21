@@ -25,6 +25,7 @@ import { BarChart, type BarRow } from "../components/bar-chart";
 import { type Column, DataTable } from "../components/data-table";
 import { useLiveRefreshEvent } from "../components/live-refresh";
 import { QueryForm } from "../components/query-form";
+import { SectionNav } from "../components/section-nav";
 import { SnippetModal } from "../components/snippet-modal";
 import { SurfaceCard } from "../components/surface-card";
 import { useSnippetSelection } from "../lib/use-snippet-selection";
@@ -70,6 +71,7 @@ export function ProjectDetailPage() {
           charts. Charts are rendered ahead of the search box because
           search results push the page down. */}
       <div
+        id="pd-overview"
         style={{
           display: "flex",
           gap: "var(--space-4)",
@@ -141,9 +143,11 @@ export function ProjectDetailPage() {
         </div>
       </div>
 
-      <ScopedSearchPanel projectRoot={project.root} />
+      <div id="pd-query">
+        <ScopedSearchPanel projectRoot={project.root} />
+      </div>
 
-      <h2>Recently indexed</h2>
+      <h2 id="pd-files">Recently indexed</h2>
       <FilesTable rows={stats.recentFiles} kind="recent" />
 
       {stats.failingFiles.length > 0 ? (
@@ -152,6 +156,14 @@ export function ProjectDetailPage() {
           <FailingTable rows={stats.failingFiles} />
         </>
       ) : null}
+
+      <SectionNav
+        sections={[
+          { id: "pd-overview", label: "Overview" },
+          { id: "pd-query", label: "Query" },
+          { id: "pd-files", label: "Files" },
+        ]}
+      />
     </section>
   );
 }

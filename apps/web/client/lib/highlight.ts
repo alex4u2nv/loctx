@@ -31,9 +31,13 @@ const PRIMARY_LANGS = [
   "shell",
 ] as const;
 
-// Light theme to match the Apple-style admin UI; a dark code block would
-// be the one jarring island on the otherwise light pages.
-const THEME: BundledTheme = "github-light";
+// Dual-theme output: Shiki emits each token with both `--shiki-light` and
+// `--shiki-dark` CSS variables and `defaultColor: false` so no colour is
+// baked in. styles.css then picks light or dark per active app theme — so
+// a code preview follows the chosen theme (no more jarring light island on
+// the dark themes) with zero re-highlighting on switch.
+const LIGHT_THEME: BundledTheme = "github-light";
+const DARK_THEME: BundledTheme = "github-dark";
 
 let highlighterPromise: Promise<Highlighter> | null = null;
 const loadedLangs = new Set<string>(PRIMARY_LANGS);
@@ -44,7 +48,7 @@ async function getHighlighter(): Promise<Highlighter> {
     // a separate chunk loaded on the first modal open.
     highlighterPromise = import("shiki").then((m) =>
       m.createHighlighter({
-        themes: [THEME],
+        themes: [LIGHT_THEME, DARK_THEME],
         langs: PRIMARY_LANGS as unknown as BundledLanguage[],
       }),
     );
@@ -72,7 +76,11 @@ export async function highlightCode(
       await h.loadLanguage(lang as BundledLanguage);
       loadedLangs.add(lang);
     }
-    return h.codeToHtml(code, { lang, theme: THEME });
+    return h.codeToHtml(code, {
+      lang,
+      themes: { light: LIGHT_THEME, dark: DARK_THEME },
+      defaultColor: false,
+    });
   } catch {
     // Unknown language, network failure on grammar fetch (Shiki bundles
     // them, but a custom shiki build could miss one) — degrade to plain.
