@@ -33,10 +33,6 @@ import { api } from "../lib/api";
 import { compressPath, relativeTime } from "../lib/format";
 import { useFetch } from "../lib/use-fetch";
 
-// A real code identifier vs a prose/markdown heading the chunker also
-// surfaces as a "symbol" — only the former is meaningful to find-usages.
-const CODE_SYMBOL = /^[A-Za-z_$][\w$.]*$/;
-
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   // The page hard-requires an id segment; absent means the route
@@ -496,20 +492,21 @@ function SearchHitMeta({ hit }: { hit: SearchHit }) {
             {hit.symbols.map((s, i) => (
               <span key={s}>
                 {i > 0 ? ", " : ""}
-                {CODE_SYMBOL.test(s) ? (
-                  <Link
-                    className="btn-link"
-                    to={`/find-usages?symbol=${encodeURIComponent(s)}`}
-                    title={`find usages of ${s}`}
-                  >
-                    {s}
-                  </Link>
-                ) : (
-                  // Prose/markdown heading — not a code symbol; search instead.
+                {hit.language === "markdown" ? (
+                  // Markdown "symbols" are the heading path, not code symbols
+                  // in the cross-ref graph — search instead of find-usages.
                   <Link
                     className="btn-link"
                     to={`/search?q=${encodeURIComponent(s)}`}
                     title={`search for "${s}"`}
+                  >
+                    {s}
+                  </Link>
+                ) : (
+                  <Link
+                    className="btn-link"
+                    to={`/find-usages?symbol=${encodeURIComponent(s)}`}
+                    title={`find usages of ${s}`}
                   >
                     {s}
                   </Link>
