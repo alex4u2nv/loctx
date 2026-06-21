@@ -706,9 +706,10 @@ h3 {
   letter-spacing: 0.04em;
 }
 
-/* Search Explorer mode tabs — a segmented pill control. */
-.search-tabs {
+/* Segmented pill tab control — shared by the Search Explorer + Admin hub. */
+.tab-strip {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 3px;
   margin-bottom: var(--space-4);
@@ -716,7 +717,7 @@ h3 {
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
 }
-.search-tab {
+.tab-strip-item {
   padding: 5px 14px;
   border-radius: var(--radius-pill);
   font-size: 0.85rem;
@@ -724,10 +725,10 @@ h3 {
   white-space: nowrap;
   transition: color 120ms ease, background 120ms ease;
 }
-.search-tab:hover {
+.tab-strip-item:hover {
   color: var(--text);
 }
-.search-tab.active {
+.tab-strip-item.active {
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow-soft);

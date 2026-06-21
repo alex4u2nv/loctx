@@ -89,11 +89,7 @@ export function App() {
         </NavLink>
         <NavLink to="/projects">projects</NavLink>
         <SearchNavLink />
-        <NavLink to="/doctor">doctor</NavLink>
-        <NavLink to="/models">models</NavLink>
-        <NavLink to="/config">config</NavLink>
-        <NavLink to="/logs">logs</NavLink>
-        <NavLink to="/admin">admin</NavLink>
+        <AdminNavLink />
       </nav>
       <main>
         <Suspense fallback={ROUTE_FALLBACK}>
@@ -131,17 +127,36 @@ const ROUTE_LABELS: ReadonlyArray<{ readonly prefix: string; readonly label: str
 ];
 
 const SEARCH_ROUTES = ["/search", "/find-usages", "/find-literal"];
+const ADMIN_ROUTES = ["/admin", "/config", "/models", "/doctor", "/logs"];
 
-/** Single nav entry for the unified Search Explorer — active across all
- *  three search modes (the in-page tab strip switches between them). */
-function SearchNavLink() {
+/** A nav entry that collapses several routes behind one label and stays
+ *  active across all of them (the in-page tab strip switches between them). */
+function GroupNavLink({
+  to,
+  label,
+  routes,
+}: {
+  to: string;
+  label: string;
+  routes: ReadonlyArray<string>;
+}) {
   const { pathname } = useLocation();
-  const active = SEARCH_ROUTES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  const active = routes.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   return (
-    <Link to="/search" className={active ? "active" : undefined}>
-      search
+    <Link to={to} className={active ? "active" : undefined}>
+      {label}
     </Link>
   );
+}
+
+/** Unified Search Explorer entry (search / find-usages / find-literal). */
+function SearchNavLink() {
+  return <GroupNavLink to="/search" label="search" routes={SEARCH_ROUTES} />;
+}
+
+/** Admin hub entry (admin / config / models / doctor / logs). */
+function AdminNavLink() {
+  return <GroupNavLink to="/admin" label="admin" routes={ADMIN_ROUTES} />;
 }
 
 /** loctx / <current section> breadcrumb in the command bar. */

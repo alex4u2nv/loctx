@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AdminTabs } from "../components/admin-tabs";
 import { confirm } from "../components/confirm";
 import { DataTable } from "../components/data-table";
 import { api } from "../lib/api";
@@ -61,6 +62,9 @@ export function ModelsPage() {
         Switch the active embedding model or pre-download one for offline use. A model change
         invalidates the existing index — reset + re-index after switching.
       </p>
+
+      <AdminTabs />
+
       {message ? (
         <p className="pullquote" style={{ borderLeftColor: "var(--warn)" }}>
           {message}

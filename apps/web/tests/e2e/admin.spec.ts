@@ -151,17 +151,10 @@ test.describe("loctx admin UI", () => {
 
   test("nav exposes every route", async ({ page }) => {
     await page.goto("/");
-    // find-usages / find-literal are now sub-tabs of the unified Search
-    // Explorer (one "search" entry in the global nav).
-    for (const label of [
-      "dashboard",
-      "projects",
-      "search",
-      "doctor",
-      "models",
-      "config",
-      "admin",
-    ]) {
+    // find-usages/find-literal are sub-tabs of the Search Explorer, and
+    // config/models/doctor/logs are sub-tabs of the Admin hub — so the
+    // global nav collapses to these top-level entries.
+    for (const label of ["dashboard", "projects", "search", "admin"]) {
       await expect(page.getByRole("link", { name: label })).toBeVisible();
     }
   });

@@ -1,27 +1,17 @@
 /**
- * Segmented tab strip unifying the three top-level search modes into one
- * "Search Explorer" surface. Each tab is a route link (the modes stay
- * separate routes so deep-links — ?q=, ?symbol=, ?pattern= — and the
- * symbol→find-usages jumps keep working); the strip just makes switching
- * feel like one tool. The active tab is driven by the current route.
+ * Search Explorer mode tabs — unifies the three search routes into one
+ * surface. Routes stay separate so deep-links (?q=, ?symbol=, ?pattern=)
+ * and symbol→find-usages jumps keep working.
  */
 
-import { NavLink } from "react-router-dom";
+import { type Tab, TabStrip } from "./tab-strip";
 
-const TABS: ReadonlyArray<{ readonly to: string; readonly label: string }> = [
+const SEARCH_TABS: ReadonlyArray<Tab> = [
   { to: "/search", label: "Workspace search" },
   { to: "/find-usages", label: "Find usages" },
   { to: "/find-literal", label: "Find literal" },
 ];
 
 export function SearchTabs() {
-  return (
-    <nav className="search-tabs" aria-label="Search modes">
-      {TABS.map((t) => (
-        <NavLink key={t.to} to={t.to} className="search-tab">
-          {t.label}
-        </NavLink>
-      ))}
-    </nav>
-  );
+  return <TabStrip tabs={SEARCH_TABS} ariaLabel="Search modes" />;
 }

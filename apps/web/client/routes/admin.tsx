@@ -5,6 +5,7 @@
 
 import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
+import { AdminTabs } from "../components/admin-tabs";
 import { confirm } from "../components/confirm";
 import { Icon } from "../components/icon";
 import { useLiveRefreshEvent } from "../components/live-refresh";
@@ -105,6 +106,8 @@ export function AdminPage() {
         Workspace-wide controls. Per-project actions (pause / rebuild / purge) live on{" "}
         <Link to="/projects">projects</Link>.
       </p>
+
+      <AdminTabs />
 
       {ops.message ? (
         <p className="pullquote" style={{ borderLeftColor: "var(--warn)" }}>
