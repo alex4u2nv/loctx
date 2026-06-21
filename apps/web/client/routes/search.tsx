@@ -1,6 +1,7 @@
 import type { SearchHit, SearchPayload } from "@shared/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { CodeBlock } from "../components/code-block";
 import { SectionNav } from "../components/section-nav";
 import { SnippetModal } from "../components/snippet-modal";
 import { api } from "../lib/api";
@@ -271,17 +272,24 @@ function Results({ response }: { response: SearchPayload }) {
       {warnings}
       <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
         {response.results.map((r) => (
-          <li key={`${r.relPath}:${r.startLine}`} className="result">
-            <div className="result-meta">
-              <span className="result-score">{r.score.toFixed(3)}</span>
+          <li key={`${r.relPath}:${r.startLine}`} className="result result-card">
+            <div className="result-card-head">
               <button
                 type="button"
-                className="result-path btn-link"
+                className="result-card-path"
                 onClick={() => open(r)}
-                title="Click to view full snippet"
+                title="Click to view the full syntax-highlighted snippet"
               >
-                {r.absPath ?? r.relPath}:{r.startLine}-{r.endLine}
+                {r.absPath ?? r.relPath}
+                <span className="result-card-lines">
+                  :{r.startLine}-{r.endLine}
+                </span>
               </button>
+              <span className="result-badge" title={`relevance score ${r.score.toFixed(3)}`}>
+                {r.score.toFixed(3)}
+              </span>
+            </div>
+            <div className="result-meta">
               <span className="result-tag">[{r.kind}]</span>
               {r.symbols.length > 0 ? (
                 <span className="dim">
@@ -342,7 +350,7 @@ function Results({ response }: { response: SearchPayload }) {
                 {f.message ? `: ${f.message}` : ""}
               </div>
             ))}
-            <pre className="snippet">{clip(r.snippet, 14)}</pre>
+            <CodeBlock snippet={r.snippet} startLine={r.startLine} maxLines={14} />
           </li>
         ))}
       </ul>
@@ -404,8 +412,3 @@ function NoResults({ response }: { response: SearchPayload }) {
   );
 }
 
-function clip(text: string, maxLines: number): string {
-  const lines = text.split("\n");
-  if (lines.length <= maxLines) return text;
-  return [...lines.slice(0, maxLines), `... (${lines.length - maxLines} more lines)`].join("\n");
-}
