@@ -12,6 +12,7 @@ import {
   faChevronDown,
   faCircleXmark,
   faCopy,
+  faEllipsisVertical,
   faEraser,
   faHammer,
   faMagnifyingGlass,
@@ -41,6 +42,7 @@ const ICONS = {
   live: faWifi,
   bell: faBell,
   "chevron-down": faChevronDown,
+  more: faEllipsisVertical,
 } as const;
 
 export type IconName = keyof typeof ICONS;
