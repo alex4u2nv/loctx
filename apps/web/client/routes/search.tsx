@@ -216,6 +216,11 @@ export function SearchPage() {
   );
 }
 
+// A real code identifier (function/class/var name, optionally dotted) — vs a
+// prose/markdown heading the chunker also surfaces as a "symbol". Only the
+// former is meaningful to find-usages (exact-symbol cross-ref).
+const CODE_SYMBOL = /^[A-Za-z_$][\w$.]*$/;
+
 function Results({ response }: { response: SearchPayload }) {
   const { selected, open, close } = useSnippetSelection<SearchHit>();
   const [, setParams] = useSearchParams();
@@ -299,13 +304,27 @@ function Results({ response }: { response: SearchPayload }) {
                   {r.symbols.map((s, i) => (
                     <span key={s}>
                       {i > 0 ? ", " : ""}
-                      <Link
-                        className="btn-link"
-                        to={`/find-usages?symbol=${encodeURIComponent(s)}`}
-                        title={`find usages of ${s}`}
-                      >
-                        {s}
-                      </Link>
+                      {CODE_SYMBOL.test(s) ? (
+                        // A real code identifier → exact-symbol cross-ref.
+                        <Link
+                          className="btn-link"
+                          to={`/find-usages?symbol=${encodeURIComponent(s)}`}
+                          title={`find usages of ${s}`}
+                        >
+                          {s}
+                        </Link>
+                      ) : (
+                        // A prose/markdown heading (e.g. "Allure Reports
+                        // Dashboard") isn't a code symbol — find-usages would
+                        // return nothing. Route it to a workspace search.
+                        <Link
+                          className="btn-link"
+                          to={`/search?q=${encodeURIComponent(s)}`}
+                          title={`search for "${s}"`}
+                        >
+                          {s}
+                        </Link>
+                      )}
                     </span>
                   ))}
                 </span>
