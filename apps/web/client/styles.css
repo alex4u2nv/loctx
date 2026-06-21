@@ -1635,6 +1635,32 @@ h3 {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* Shiki dual-theme preview — Shiki emits each token with --shiki-light /
+   --shiki-dark vars (defaultColor:false in lib/highlight.ts) and bakes in
+   no colour. Light app themes use --shiki-light; the dark themes use
+   --shiki-dark, so a code preview follows the active theme instead of
+   staying a light island. */
+.shiki {
+  margin: 0;
+  padding: var(--space-3);
+  background-color: var(--shiki-light-bg);
+  color: var(--shiki-light);
+}
+.shiki span {
+  color: var(--shiki-light);
+}
+[data-theme="graphite"] .shiki,
+[data-theme="midnight"] .shiki,
+[data-theme="terminal"] .shiki {
+  background-color: var(--shiki-dark-bg);
+  color: var(--shiki-dark);
+}
+[data-theme="graphite"] .shiki span,
+[data-theme="midnight"] .shiki span,
+[data-theme="terminal"] .shiki span {
+  color: var(--shiki-dark);
+}
+
 .mcp-snippet {
   font-family: var(--font-mono);
   font-size: 0.78rem;
