@@ -306,32 +306,34 @@ function FieldRow({
   return (
     <div className={`config-field ${pending ? "pending" : ""}`}>
       <div className="config-field-head">
-        <label className="config-field-label" htmlFor={`f-${field.key}`}>
+        <label className="config-field-label" htmlFor={`f-${field.key}`} title={field.help}>
           {field.label}
         </label>
+        {field.help ? (
+          <span className="config-info" title={field.help} aria-label={field.help} role="note">
+            ?
+          </span>
+        ) : null}
         <SourcePill kind={source} field={field} />
       </div>
-      <p className="config-field-help dim">{field.help}</p>
-      <FieldEditor
-        field={field}
-        value={value}
-        onChange={(v) => onChange(field.key, v)}
-        disabled={false}
-      />
-      {validation !== null ? (
-        <p className="err" style={{ fontSize: "0.8rem" }}>
-          {validation}
-        </p>
-      ) : null}
-      {pending ? (
-        <p className="config-field-foot">
-          <span className="dim">was: </span>
-          <code className="config-was">{formatDisplay(baseline)}</code>
-          <button type="button" className="btn-link" onClick={onReset}>
-            reset
-          </button>
-        </p>
-      ) : null}
+      <div className="config-field-control">
+        <FieldEditor
+          field={field}
+          value={value}
+          onChange={(v) => onChange(field.key, v)}
+          disabled={false}
+        />
+        {validation !== null ? <p className="config-field-error err">{validation}</p> : null}
+        {pending ? (
+          <span className="config-field-foot">
+            <span className="dim">was</span>
+            <code className="config-was">{formatDisplay(baseline)}</code>
+            <button type="button" className="btn-link" onClick={onReset}>
+              reset
+            </button>
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }
