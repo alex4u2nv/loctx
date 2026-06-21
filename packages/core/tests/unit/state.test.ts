@@ -1194,4 +1194,50 @@ describe("StateStore", () => {
     const fileIds = groups[0]?.members.map((m) => m.fileId).sort();
     expect(fileIds).toEqual(["f-a", "f-b"]);
   });
+
+  it("findDuplicateGroups scopes to one project when projectId is given", () => {
+    const p1 = Object.freeze({ id: projectId("proj01"), name: "r1", root: join(tmp, "r1") });
+    const p2 = Object.freeze({ id: projectId("proj02"), name: "r2", root: join(tmp, "r2") });
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(p1);
+    store.upsertProject(p2);
+    const mk = (p: Project, id: string, rel: string): FileState => ({
+      ...fileState(p),
+      fileId: toFileId(id),
+      relPath: rel,
+      projectId: p.id,
+    });
+    const files = [
+      mk(p1, "p1-a", "a.ts"),
+      mk(p1, "p1-b", "b.ts"),
+      mk(p2, "p2-a", "a.ts"),
+      mk(p2, "p2-b", "b.ts"),
+    ];
+    for (const f of files) store.upsertFile(f);
+    const win = (h: string): string =>
+      JSON.stringify({ windows: [{ hash: h, startLine: 1, endLine: 20 }] });
+    const enrich = (f: FileState, h: string): void =>
+      store.upsertFileEnrichment({
+        fileId: f.fileId,
+        analyzer: "duplicates",
+        analyzerVersion: 1,
+        contentSha: f.contentSha,
+        status: "complete",
+        payloadJson: win(h),
+      });
+    enrich(files[0] as FileState, "h1"); // p1 duplicate pair
+    enrich(files[1] as FileState, "h1");
+    enrich(files[2] as FileState, "h2"); // p2 duplicate pair
+    enrich(files[3] as FileState, "h2");
+
+    expect(
+      store
+        .findDuplicateGroups(2)
+        .map((g) => g.hash)
+        .sort(),
+    ).toEqual(["h1", "h2"]);
+    const scoped = store.findDuplicateGroups(2, "proj01");
+    expect(scoped).toHaveLength(1);
+    expect(scoped[0]?.hash).toBe("h1");
+  });
 });

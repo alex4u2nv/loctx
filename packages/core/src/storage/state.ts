@@ -856,39 +856,49 @@ export class StateStore {
    * during indexing. Output is sorted by group size (most-duplicated
    * first).
    */
-  findDuplicateGroups(minMembers = 2): DuplicateGroup[] {
-    const rows = this.readAll<{ file_id: string; payload_json: string | null }>(
-      "list_file_enrichments_by_analyzer",
-      ["duplicates"],
-    );
+  /**
+   * Cross-file duplicate groups, hash-grouped in SQL (json_each over the
+   * windows) so we never materialise every token-window in JS — the old
+   * load-all-payloads-and-Map approach OOM-aborted the MCP process on a
+   * workspace with a large project. `projectId` scopes to one project;
+   * null spans the whole workspace. Output is capped (top groups by member
+   * count, members per group) so a heavily-duplicated workspace can't
+   * produce an unbounded response.
+   */
+  findDuplicateGroups(minMembers = 2, projectId: string | null = null): DuplicateGroup[] {
+    const MAX_GROUPS = 200;
+    const MAX_MEMBERS_PER_GROUP = 50;
+    const min = Math.max(2, minMembers);
+    const rows =
+      projectId === null
+        ? this.readAll<{ hash: string; file_id: string; start_line: number; end_line: number }>(
+            "find_duplicate_groups_all",
+            [min],
+          )
+        : this.readAll<{ hash: string; file_id: string; start_line: number; end_line: number }>(
+            "find_duplicate_groups_in_project",
+            [projectId, min],
+          );
+
+    // Rows arrive ordered by hash; group contiguously, capping members so
+    // one pathological group can't dominate memory or the response.
     const byHash = new Map<string, DuplicateMember[]>();
     for (const row of rows) {
-      if (row.payload_json === null) continue;
-      let payload: {
-        windows?: ReadonlyArray<{ hash: string; startLine: number; endLine: number }>;
-      };
-      try {
-        payload = JSON.parse(row.payload_json);
-      } catch {
-        continue;
-      }
-      for (const w of payload.windows ?? []) {
-        const list = byHash.get(w.hash) ?? [];
+      const list = byHash.get(row.hash) ?? [];
+      if (list.length < MAX_MEMBERS_PER_GROUP) {
         list.push({
           fileId: row.file_id as FileId,
-          startLine: w.startLine,
-          endLine: w.endLine,
+          startLine: row.start_line,
+          endLine: row.end_line,
         });
-        byHash.set(w.hash, list);
       }
+      byHash.set(row.hash, list);
     }
     const groups: DuplicateGroup[] = [];
     for (const [hash, members] of byHash.entries()) {
-      const distinctFiles = new Set(members.map((m) => m.fileId));
-      if (distinctFiles.size < minMembers) continue;
       groups.push({ hash, members: Object.freeze(members) });
     }
-    return groups.sort((a, b) => b.members.length - a.members.length);
+    return groups.sort((a, b) => b.members.length - a.members.length).slice(0, MAX_GROUPS);
   }
 
   // ---- file enrichments (#61, #62) ------------------------------------
