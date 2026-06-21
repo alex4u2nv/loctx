@@ -151,12 +151,12 @@ test.describe("loctx admin UI", () => {
 
   test("nav exposes every route", async ({ page }) => {
     await page.goto("/");
+    // find-usages / find-literal are now sub-tabs of the unified Search
+    // Explorer (one "search" entry in the global nav).
     for (const label of [
       "dashboard",
       "projects",
       "search",
-      "find-usages",
-      "find-literal",
       "doctor",
       "models",
       "config",

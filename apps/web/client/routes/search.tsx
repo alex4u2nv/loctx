@@ -2,6 +2,7 @@ import type { SearchHit, SearchPayload } from "@shared/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { CodeBlock } from "../components/code-block";
+import { SearchTabs } from "../components/search-tabs";
 import { SectionNav } from "../components/section-nav";
 import { SnippetModal } from "../components/snippet-modal";
 import { api } from "../lib/api";
@@ -85,6 +86,8 @@ export function SearchPage() {
         Vector + lexical search over the locally-indexed workspace. Scope by project root or any
         subtree.
       </p>
+
+      <SearchTabs />
 
       <div className="card-stack">
       <div className="card" id="search-query">
