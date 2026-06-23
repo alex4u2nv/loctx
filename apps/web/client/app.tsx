@@ -93,7 +93,7 @@ export function App() {
   const [navOpen, setNavOpen] = useState(false);
   return (
     <BrowserRouter>
-      <div className="flex min-h-screen">
+      <div className="min-h-screen">
         <Sidebar open={navOpen} onNavigate={() => setNavOpen(false)} />
         {/* Mobile scrim */}
         {navOpen ? (
@@ -105,7 +105,7 @@ export function App() {
           />
         ) : null}
 
-        <div className="flex min-w-0 flex-1 flex-col lg:ml-[290px]">
+        <div className="min-w-0 lg:ml-[290px]">
           <Header onMenu={() => setNavOpen((v) => !v)} onMcp={() => setMcpHelpOpen(true)} />
           <main>
             <Suspense fallback={ROUTE_FALLBACK}>

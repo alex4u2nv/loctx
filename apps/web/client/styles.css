@@ -2446,46 +2446,9 @@ h3 {
   --shadow-soft: none;
 }
 
-/* ===================================================================== */
-/* Layout — fixed left sidebar on desktop. Narrow viewports (< 981px) keep */
-/* the base horizontal route strip as a responsive fallback.              */
-/* ===================================================================== */
-@media (min-width: 981px) {
-  /* Command bar stays full-width on top; the route nav becomes a fixed
-     left rail starting just below it. */
-  .route-nav {
-    position: fixed;
-    top: 52px;
-    left: 0;
-    bottom: 0;
-    width: 208px;
-    flex-direction: column;
-    gap: 2px;
-    padding: var(--space-3);
-    font-size: 0.9rem;
-    border-bottom: none;
-    border-right: 1px solid var(--border);
-    overflow-y: auto;
-    overflow-x: visible;
-  }
-  .route-nav a {
-    padding: 5px 8px;
-    border-radius: var(--radius-control);
-  }
-  .route-nav a:hover {
-    background: var(--surface-2);
-  }
-  .route-nav a.active {
-    background: var(--primary-soft);
-    color: var(--text);
-  }
-  main {
-    margin-left: 208px;
-    max-width: none;
-    padding-left: var(--space-5);
-    padding-right: var(--space-5);
-  }
-}
+/* (Removed: the old fixed left-rail layout for `.route-nav` + a
+   `main { margin-left: 208px }` clear. The TailAdmin shell now owns the
+   sidebar offset via `lg:ml-[290px]` on the content wrapper.) */
 
 /* ===================================================================== */
 /* Appearance menu (top-right theme/layout switcher).                      */
