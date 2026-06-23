@@ -148,18 +148,23 @@ export function isWired(plan: AgentSetupPlan): boolean {
 }
 
 /**
- * Re-stamp the loctx rules/skill in projects already wired, bringing them up
- * to the latest template. Scoped to rules targets only — the MCP entry is
- * left alone so a refresh never flips an http transport choice back to stdio
- * (or vice versa). Never creates new config; an unwired project is untouched.
+ * Bring every already-wired agent's rules/skill up to the latest template,
+ * per agent: an agent counts as wired when any of its targets already
+ * contains loctx (e.g. its MCP entry), and refresh then writes ALL its rules
+ * targets — updating existing ones AND creating newly-introduced files like
+ * the Claude skill that didn't exist when the project was first wired. The
+ * MCP entry itself is left alone (so a refresh never flips an http transport
+ * back to stdio), and an agent with no loctx config is never wired here.
  * Used by `setup-agent --refresh` to propagate playbook changes.
  */
 export function refreshAgentSetup(plan: AgentSetupPlan): ApplyResult[] {
   const results: ApplyResult[] = [];
   for (const ap of plan.plans) {
+    const agentWired = ap.targets.some((t) => t.present);
+    if (!agentWired) continue;
     for (const t of ap.targets) {
-      if (t.purpose === "mcp") continue;
-      if (!t.present || t.action === "skip") continue;
+      if (t.purpose === "mcp") continue; // preserve the user's transport choice
+      if (t.action === "skip") continue; // already current
       const content = plan.writes.get(t.path);
       if (content === undefined) continue;
       try {

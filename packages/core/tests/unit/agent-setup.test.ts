@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -153,6 +153,11 @@ describe("planAgentSetup / applyAgentSetup", () => {
         JSON.stringify({ mcpServers: { loctx: { command: "OLD" } } }, null, 2),
       );
 
+      // Simulate a project wired before the skill existed: delete it. Refresh
+      // must re-create it (a wired agent gets newly-introduced rules pieces).
+      const skillPath = join(tmp, ".claude", "skills", "loctx", "SKILL.md");
+      rmSync(skillPath);
+
       const plan = await planAgentSetup({ projectRoot: tmp, homeDir: home, stdio: STDIO });
       expect(isWired(plan)).toBe(true);
       refreshAgentSetup(plan);
@@ -160,6 +165,9 @@ describe("planAgentSetup / applyAgentSetup", () => {
       // Rules re-stamped to the latest playbook…
       expect(readFileSync(claudeMd, "utf8")).not.toContain("STALE");
       expect(readFileSync(claudeMd, "utf8")).toContain("find_usages");
+      // …the missing skill is created…
+      expect(existsSync(skillPath)).toBe(true);
+      expect(readFileSync(skillPath, "utf8")).toContain("name: loctx");
       // …but the MCP entry is left exactly as the user had it.
       expect(JSON.parse(readFileSync(mcpPath, "utf8")).mcpServers.loctx.command).toBe("OLD");
 
