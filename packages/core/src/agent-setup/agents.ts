@@ -11,6 +11,8 @@ import {
   LOCTX_MARKER_START,
   type McpStdioSpec,
   RULES_BODY,
+  RULES_POINTER,
+  RULES_TITLE,
 } from "./templates.js";
 import { type ContentPlan, mergeServerJson, standaloneFile, upsertMarkerBlock } from "./writers.js";
 
@@ -63,6 +65,22 @@ ${LOCTX_MARKER_END}
 `;
 }
 
+/** Claude Code skill — the idiomatic auto-loading instruction file. The
+ *  description gates when Claude pulls it in; the body is the use-case
+ *  playbook. Marked so it's recognised as ours on refresh. */
+function claudeSkill(): string {
+  return `---
+name: loctx
+description: Use the loctx MCP tools (find_usages, search_workspace, find_literal, find_duplicates, workspace_status) for code navigation, refactor planning, and audits in this workspace instead of grep/find.
+---
+${LOCTX_MARKER_START}
+# ${RULES_TITLE}
+
+${RULES_BODY}
+${LOCTX_MARKER_END}
+`;
+}
+
 /** Plain marked rules file (Windsurf). */
 function markedRules(): string {
   return `${LOCTX_MARKER_START}\n${RULES_BODY}\n${LOCTX_MARKER_END}\n`;
@@ -85,10 +103,20 @@ export const AGENTS: ReadonlyArray<AgentDef> = [
         render: (cur) => mergeServerJson(cur, "mcpServers", "loctx", serverEntry(c, "standard")),
       },
       {
+        // Always-on pointer so Claude knows loctx exists even when the
+        // skill's description doesn't match the task.
         purpose: "rules",
         path: join(c.projectRoot, "CLAUDE.md"),
         scope: "project",
-        render: (cur) => upsertMarkerBlock(cur, RULES_BODY),
+        render: (cur) => upsertMarkerBlock(cur, RULES_POINTER),
+      },
+      {
+        // The detailed use-case playbook, as a Claude Code skill that
+        // auto-loads on code-navigation / refactor / audit tasks.
+        purpose: "rules",
+        path: join(c.projectRoot, ".claude", "skills", "loctx", "SKILL.md"),
+        scope: "project",
+        render: (cur) => standaloneFile(cur, claudeSkill()),
       },
     ],
   },
