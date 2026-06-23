@@ -1,34 +1,78 @@
 /*
- * Design tokens — Apple iCloud/CloudKit dashboard look: light, airy,
- * system-blue accent, soft shadows, generous radii, SF Pro type.
- * Never write hex or px directly in components; only use these vars.
+ * TailAdmin-flavoured design system (spike: spike/tailadmin-ui).
+ *
+ * Tailwind v4 is the engine now. The TailAdmin look (brand #465fff, Outfit
+ * type, gray-50 canvas, rounded-2xl white cards, soft shadows, light/dark
+ * via `.dark` on <html>) lives in the `@theme` block. The legacy `--*`
+ * token names below are KEPT and remapped onto the TailAdmin palette so the
+ * ~200 existing component classes and the inline `var(--…)` styles scattered
+ * through the routes re-skin automatically without touching every file.
  */
 
+@import "tailwindcss";
+
+/* Dark mode driven by a `.dark` class on <html> (TailAdmin convention),
+   toggled from the header (lib/appearance.ts). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* TailAdmin brand + status palettes (utility classes: bg-brand-500, …). */
+  --color-brand-25: #f2f7ff;
+  --color-brand-50: #ecf3ff;
+  --color-brand-100: #dde9ff;
+  --color-brand-200: #c2d6ff;
+  --color-brand-300: #9cb9ff;
+  --color-brand-400: #7592ff;
+  --color-brand-500: #465fff;
+  --color-brand-600: #3641f5;
+  --color-brand-700: #2a31d8;
+  --color-brand-800: #252dae;
+  --color-brand-900: #262e89;
+
+  --color-gray-25: #fcfcfd;
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f2f4f7;
+  --color-gray-200: #e4e7ec;
+  --color-gray-300: #d0d5dd;
+  --color-gray-400: #98a2b3;
+  --color-gray-500: #667085;
+  --color-gray-600: #475467;
+  --color-gray-700: #344054;
+  --color-gray-800: #1d2939;
+  --color-gray-900: #101828;
+  --color-gray-950: #0c111d;
+
+  --color-success-500: #12b76a;
+  --color-warning-500: #f79009;
+  --color-error-500: #f04438;
+
+  --font-sans: "Outfit Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
 :root {
-  --bg: #f5f5f7;
+  /* Legacy contract → TailAdmin light. */
+  --bg: #f9fafb;
   --surface: #ffffff;
-  --surface-2: #f5f5f7;
+  --surface-2: #f9fafb;
   --surface-elevated: #ffffff;
-  --text: #1d1d1f;
-  --muted: #6e6e73;
-  --subtle: #86868b;
-  --primary: #0071e3;
-  --primary-soft: rgba(0, 113, 227, 0.12);
-  --primary-glow: rgba(0, 113, 227, 0.22);
-  --primary-dim: #7fb0ec;
-  --link: #0066cc;
-  /* Text/icon color on saturated accent fills (filled buttons, the flow
-     source node). White reads correctly on blue/green/red, unlike the
-     dark-on-amber the previous theme used. */
+  --text: #1d2939;
+  --muted: #475467;
+  --subtle: #98a2b3;
+  --primary: #465fff;
+  --primary-soft: rgba(70, 95, 255, 0.12);
+  --primary-glow: rgba(70, 95, 255, 0.25);
+  --primary-dim: #9cb9ff;
+  --link: #465fff;
+  --accent: #465fff;
   --on-accent: #ffffff;
-  --border: #d2d2d7;
-  --border-strong: #c7c7cc;
+  --border: #e4e7ec;
+  --border-strong: #d0d5dd;
 
-  --ok: #34c759;
-  --warn: #ff9f0a;
-  --bad: #ff3b30;
+  --ok: #12b76a;
+  --warn: #f79009;
+  --bad: #f04438;
 
-  --radius-card: 18px;
+  --radius-card: 16px;
   --radius-inner: 12px;
   --radius-pill: 9999px;
   --radius-control: 8px;
@@ -42,18 +86,45 @@
   --space-7: 80px;
   --space-8: 120px;
 
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue",
-    system-ui, sans-serif;
+  --font-sans: "Outfit Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     monospace;
 
-  --shadow-hover: 0 8px 28px rgba(0, 0, 0, 0.12);
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.05);
-  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-hover: 0 12px 34px rgba(16, 24, 40, 0.12);
+  --shadow-card: 0 1px 3px rgba(16, 24, 40, 0.1), 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-soft: 0 1px 2px rgba(16, 24, 40, 0.05);
 
-  /* Translucent nav backdrop — a token so themes (esp. dark) can override
-     the frosted-glass tint. */
-  --nav-bg: rgba(255, 255, 255, 0.72);
+  --nav-bg: #ffffff;
+}
+
+/* Legacy contract → TailAdmin dark (gray-900 canvas, gray-800 borders). */
+.dark {
+  --bg: #101828;
+  --surface: #1a2436;
+  --surface-2: #232f44;
+  --surface-elevated: #1a2436;
+  --text: #f2f4f7;
+  --muted: #98a2b3;
+  --subtle: #667085;
+  --primary: #465fff;
+  --primary-soft: rgba(70, 95, 255, 0.18);
+  --primary-glow: rgba(70, 95, 255, 0.3);
+  --primary-dim: #344054;
+  --link: #7592ff;
+  --accent: #465fff;
+  --on-accent: #ffffff;
+  --border: #1d2939;
+  --border-strong: #344054;
+
+  --ok: #32d583;
+  --warn: #fdb022;
+  --bad: #f97066;
+
+  --shadow-hover: 0 14px 40px rgba(0, 0, 0, 0.5);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  --nav-bg: #1a2436;
 }
 
 * {
@@ -222,11 +293,11 @@ pre {
   outline: none;
 }
 
-/* Layout — control-plane density */
+/* Layout — content column inside the TailAdmin shell */
 main {
-  max-width: 90rem;
+  max-width: 96rem;
   margin: 0 auto;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4);
 }
 
 /* Symmetric horizontal gutters on viewports where the floating section
@@ -417,20 +488,21 @@ h3 {
 .input {
   appearance: none;
   width: 100%;
-  padding: 0.7em 1em;
-  border-radius: var(--radius-card);
+  padding: 0.6em 0.9em;
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
   font-family: var(--font-mono);
   font-size: 0.9375rem;
   line-height: 1.4;
-  transition: border-color 120ms ease;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
 .input:focus {
   outline: none;
   border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
 .input::placeholder {
@@ -443,23 +515,25 @@ h3 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.35em;
-  padding: 0.3em 0.7em;
+  gap: 0.4em;
+  padding: 0.5em 0.95em;
   border-radius: var(--radius-control);
   font-family: var(--font-sans);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   letter-spacing: 0;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease,
+    box-shadow 120ms ease;
   border: 1px solid var(--border);
-  background: var(--surface-2);
+  background: var(--surface);
   color: var(--muted);
   line-height: 1.3;
+  box-shadow: var(--shadow-soft);
 }
 
 .btn:hover:not(:disabled) {
-  background: var(--surface-elevated);
+  background: var(--surface-2);
   color: var(--text);
   border-color: var(--border-strong);
 }
@@ -483,11 +557,15 @@ h3 {
   font-weight: 600;
 }
 
+.btn-primary {
+  box-shadow: 0 1px 2px rgba(70, 95, 255, 0.3);
+}
+
 .btn-primary:hover:not(:disabled) {
-  background: var(--primary);
-  border-color: var(--primary);
+  background: var(--color-brand-600);
+  border-color: var(--color-brand-600);
   color: var(--on-accent);
-  opacity: 0.92;
+  opacity: 1;
 }
 
 /* Transient confirmation: briefly replaces .btn-primary after a
@@ -868,12 +946,12 @@ h3 {
   }
 }
 
-/* Card primitive — refined for the dashboard surface */
+/* Card primitive — TailAdmin "box": rounded-2xl, hairline border, soft shadow */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4);
   box-shadow: var(--shadow-card);
   position: relative;
   overflow: hidden;
@@ -1314,10 +1392,14 @@ h3 {
 
 .daemon-status.ok {
   color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  border-color: transparent;
 }
 
 .daemon-status.bad {
   color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 14%, transparent);
+  border-color: transparent;
 }
 
 .daemon-kv {
@@ -1900,15 +1982,11 @@ h3 {
 .shiki span {
   color: var(--shiki-light);
 }
-[data-theme="graphite"] .shiki,
-[data-theme="midnight"] .shiki,
-[data-theme="terminal"] .shiki {
+.dark .shiki {
   background-color: var(--shiki-dark-bg);
   color: var(--shiki-dark);
 }
-[data-theme="graphite"] .shiki span,
-[data-theme="midnight"] .shiki span,
-[data-theme="terminal"] .shiki span {
+.dark .shiki span {
   color: var(--shiki-dark);
 }
 
