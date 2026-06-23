@@ -1,26 +1,16 @@
 /**
- * Theme + layout switcher in the top-right nav. A lightweight dropdown
- * (no portal — it's a menu, not a modal) listing the available themes and
- * layouts, each with a colour swatch so you can preview-pick. Selections
- * apply instantly and persist via lib/appearance.
+ * Theme switcher in the top-right command bar. A lightweight dropdown (no
+ * portal — it's a menu, not a modal) listing the themes, each with a colour
+ * swatch so you can preview-pick. Selection applies instantly and persists.
  */
 
 import { useEffect, useRef, useState } from "react";
-import {
-  type AppearanceOption,
-  applyLayout,
-  applyTheme,
-  getLayout,
-  getTheme,
-  LAYOUTS,
-  THEMES,
-} from "../lib/appearance";
+import { applyTheme, getTheme, THEMES } from "../lib/appearance";
 import { Icon } from "./icon";
 
 export function AppearanceMenu() {
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState(getTheme);
-  const [layout, setLayout] = useState(getLayout);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -43,10 +33,6 @@ export function AppearanceMenu() {
     setTheme(id);
     applyTheme(id);
   };
-  const pickLayout = (id: string): void => {
-    setLayout(id);
-    applyLayout(id);
-  };
   const label = THEMES.find((t) => t.id === theme)?.label ?? "Theme";
 
   return (
@@ -57,63 +43,33 @@ export function AppearanceMenu() {
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        title="Theme & layout"
+        title="Theme"
       >
-        <span className={`swatch swatch-${theme}`} aria-hidden /> {label} <Icon name="chevron-down" />
+        <span className={`swatch swatch-${theme}`} aria-hidden /> {label}{" "}
+        <Icon name="chevron-down" />
       </button>
       {open ? (
         <div className="appearance-panel" role="menu">
           <p className="appearance-group">Theme</p>
           {THEMES.map((t) => (
-            <OptionRow
+            <button
               key={t.id}
-              option={t}
-              active={t.id === theme}
-              onPick={() => pickTheme(t.id)}
-              swatchClass={`swatch-${t.id}`}
-            />
-          ))}
-          <p className="appearance-group">Layout</p>
-          {LAYOUTS.map((l) => (
-            <OptionRow
-              key={l.id}
-              option={l}
-              active={l.id === layout}
-              onPick={() => pickLayout(l.id)}
-              swatchClass={`swatch-layout-${l.id}`}
-            />
+              type="button"
+              role="menuitemradio"
+              aria-checked={t.id === theme}
+              className={`appearance-item${t.id === theme ? " active" : ""}`}
+              onClick={() => pickTheme(t.id)}
+            >
+              <span className={`swatch swatch-${t.id}`} aria-hidden />
+              <span className="appearance-text">
+                <span className="appearance-label">{t.label}</span>
+                <span className="appearance-hint">{t.hint}</span>
+              </span>
+              {t.id === theme ? <Icon name="ok" /> : null}
+            </button>
           ))}
         </div>
       ) : null}
     </div>
-  );
-}
-
-function OptionRow({
-  option,
-  active,
-  onPick,
-  swatchClass,
-}: {
-  option: AppearanceOption;
-  active: boolean;
-  onPick: () => void;
-  swatchClass: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="menuitemradio"
-      aria-checked={active}
-      className={`appearance-item${active ? " active" : ""}`}
-      onClick={onPick}
-    >
-      <span className={`swatch ${swatchClass}`} aria-hidden />
-      <span className="appearance-text">
-        <span className="appearance-label">{option.label}</span>
-        <span className="appearance-hint">{option.hint}</span>
-      </span>
-      {active ? <Icon name="ok" /> : null}
-    </button>
   );
 }

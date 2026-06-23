@@ -2369,13 +2369,13 @@ h3 {
 }
 
 /* ===================================================================== */
-/* Layout — sidebar variant on <html data-layout="sidebar">.              */
-/* Desktop only; narrow viewports fall back to the top bar.               */
+/* Layout — fixed left sidebar on desktop. Narrow viewports (< 981px) keep */
+/* the base horizontal route strip as a responsive fallback.              */
 /* ===================================================================== */
 @media (min-width: 981px) {
   /* Command bar stays full-width on top; the route nav becomes a fixed
      left rail starting just below it. */
-  [data-layout="sidebar"] .route-nav {
+  .route-nav {
     position: fixed;
     top: 52px;
     left: 0;
@@ -2390,18 +2390,18 @@ h3 {
     overflow-y: auto;
     overflow-x: visible;
   }
-  [data-layout="sidebar"] .route-nav a {
+  .route-nav a {
     padding: 5px 8px;
     border-radius: var(--radius-control);
   }
-  [data-layout="sidebar"] .route-nav a:hover {
+  .route-nav a:hover {
     background: var(--surface-2);
   }
-  [data-layout="sidebar"] .route-nav a.active {
+  .route-nav a.active {
     background: var(--primary-soft);
     color: var(--text);
   }
-  [data-layout="sidebar"] main {
+  main {
     margin-left: 208px;
     max-width: none;
     padding-left: var(--space-5);
@@ -2581,11 +2581,4 @@ h3 {
 }
 .swatch-terminal {
   background: linear-gradient(135deg, #0b0e0c 0 50%, #39d353 50% 100%);
-}
-/* Layout swatches adapt to the current theme's tokens. */
-.swatch-layout-top {
-  background: linear-gradient(to bottom, var(--primary) 0 30%, var(--surface-2) 30% 100%);
-}
-.swatch-layout-sidebar {
-  background: linear-gradient(to right, var(--primary) 0 35%, var(--surface-2) 35% 100%);
 }
