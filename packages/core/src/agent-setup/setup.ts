@@ -19,6 +19,8 @@ export interface TargetPlan {
   readonly scope: "project" | "user";
   readonly action: WriteAction;
   readonly reason: string;
+  /** loctx config already exists in this file (vs. would be newly added). */
+  readonly present: boolean;
 }
 
 export interface AgentPlan {
@@ -88,6 +90,7 @@ export async function planAgentSetup(opts: PlanOptions): Promise<AgentSetupPlan>
         scope: t.scope,
         action: cp.action,
         reason: cp.reason,
+        present: cp.present,
       });
     }
     plans.push({
@@ -136,4 +139,37 @@ export function applyAgentSetup(
  *  the crawl-time nudge and the UI banner care about. */
 export function pendingAgents(plan: AgentSetupPlan): ReadonlyArray<AgentPlan> {
   return plan.plans.filter((p) => p.present && !p.registered);
+}
+
+/** True when any agent config in this project already contains loctx — i.e.
+ *  the project is "wired" and a candidate for `--refresh`. */
+export function isWired(plan: AgentSetupPlan): boolean {
+  return plan.plans.some((p) => p.targets.some((t) => t.present));
+}
+
+/**
+ * Re-stamp the loctx rules/skill in projects already wired, bringing them up
+ * to the latest template. Scoped to rules targets only — the MCP entry is
+ * left alone so a refresh never flips an http transport choice back to stdio
+ * (or vice versa). Never creates new config; an unwired project is untouched.
+ * Used by `setup-agent --refresh` to propagate playbook changes.
+ */
+export function refreshAgentSetup(plan: AgentSetupPlan): ApplyResult[] {
+  const results: ApplyResult[] = [];
+  for (const ap of plan.plans) {
+    for (const t of ap.targets) {
+      if (t.purpose === "mcp") continue;
+      if (!t.present || t.action === "skip") continue;
+      const content = plan.writes.get(t.path);
+      if (content === undefined) continue;
+      try {
+        mkdirSync(dirname(t.path), { recursive: true });
+        writeFileSync(t.path, content);
+        results.push({ path: t.path, action: t.action, ok: true });
+      } catch (err) {
+        results.push({ path: t.path, action: t.action, ok: false, error: (err as Error).message });
+      }
+    }
+  }
+  return results;
 }

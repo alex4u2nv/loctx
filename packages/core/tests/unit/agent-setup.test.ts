@@ -3,8 +3,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   applyAgentSetup,
+  isWired,
   mergeServerJson,
   planAgentSetup,
+  refreshAgentSetup,
   standaloneFile,
   upsertMarkerBlock,
 } from "../../src/agent-setup/index.js";
@@ -122,6 +124,55 @@ describe("planAgentSetup / applyAgentSetup", () => {
       const mcp = JSON.parse(readFileSync(join(tmp, ".mcp.json"), "utf8"));
       expect(mcp.mcpServers.github.command).toBe("gh-mcp"); // preserved
       expect(mcp.mcpServers.loctx.command).toBe(STDIO.command);
+    } finally {
+      rmTmpDir(tmp);
+      rmTmpDir(home);
+    }
+  });
+
+  it("refreshAgentSetup re-stamps stale rules but leaves the MCP entry + unwired projects", async () => {
+    const tmp = mkTmpDir("loctx-agent-");
+    const home = mkTmpDir("loctx-home-");
+    try {
+      // Wire the project, then stale the CLAUDE.md loctx block + tamper the
+      // MCP command to prove refresh touches rules only.
+      applyAgentSetup(await planAgentSetup({ projectRoot: tmp, homeDir: home, stdio: STDIO }), [
+        "claude",
+      ]);
+      const claudeMd = join(tmp, "CLAUDE.md");
+      writeFileSync(
+        claudeMd,
+        readFileSync(claudeMd, "utf8").replace(
+          /<!-- loctx:start -->[\s\S]*?<!-- loctx:end -->/,
+          "<!-- loctx:start -->\nSTALE\n<!-- loctx:end -->",
+        ),
+      );
+      const mcpPath = join(tmp, ".mcp.json");
+      writeFileSync(
+        mcpPath,
+        JSON.stringify({ mcpServers: { loctx: { command: "OLD" } } }, null, 2),
+      );
+
+      const plan = await planAgentSetup({ projectRoot: tmp, homeDir: home, stdio: STDIO });
+      expect(isWired(plan)).toBe(true);
+      refreshAgentSetup(plan);
+
+      // Rules re-stamped to the latest playbook…
+      expect(readFileSync(claudeMd, "utf8")).not.toContain("STALE");
+      expect(readFileSync(claudeMd, "utf8")).toContain("find_usages");
+      // …but the MCP entry is left exactly as the user had it.
+      expect(JSON.parse(readFileSync(mcpPath, "utf8")).mcpServers.loctx.command).toBe("OLD");
+
+      // An unwired project is never touched.
+      const bare = mkTmpDir("loctx-bare-");
+      try {
+        const barePlan = await planAgentSetup({ projectRoot: bare, homeDir: home, stdio: STDIO });
+        expect(isWired(barePlan)).toBe(false);
+        expect(refreshAgentSetup(barePlan)).toHaveLength(0);
+        expect(existsSync(join(bare, "CLAUDE.md"))).toBe(false);
+      } finally {
+        rmTmpDir(bare);
+      }
     } finally {
       rmTmpDir(tmp);
       rmTmpDir(home);

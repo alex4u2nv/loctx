@@ -18,6 +18,10 @@ export interface ContentPlan {
   readonly action: WriteAction;
   /** Human-readable explanation for the preview / logs. */
   readonly reason: string;
+  /** True when loctx config already exists in this file (vs. would be newly
+   *  added). `--refresh` re-stamps only present targets so it never wires a
+   *  project that wasn't already wired. */
+  readonly present: boolean;
 }
 
 /**
@@ -43,6 +47,7 @@ export function mergeServerJson(
         content: "",
         action: "skip",
         reason: "existing file is not valid JSON — left untouched",
+        present: false,
       };
     }
   }
@@ -52,11 +57,13 @@ export function mergeServerJson(
       ? { ...(existingTop as Record<string, unknown>) }
       : {};
   const prev = servers[serverKey];
-  if (prev !== undefined && JSON.stringify(prev) === JSON.stringify(spec)) {
+  const present = prev !== undefined;
+  if (present && JSON.stringify(prev) === JSON.stringify(spec)) {
     return {
       content: current ?? "",
       action: "skip",
       reason: "loctx already registered with the same command",
+      present: true,
     };
   }
   servers[serverKey] = spec;
@@ -64,7 +71,8 @@ export function mergeServerJson(
   return {
     content: `${JSON.stringify(next, null, 2)}\n`,
     action: current === null || current.trim() === "" ? "create" : "update",
-    reason: prev === undefined ? "added loctx server entry" : "updated loctx server entry",
+    reason: present ? "updated loctx server entry" : "added loctx server entry",
+    present,
   };
 }
 
@@ -77,21 +85,32 @@ export function mergeServerJson(
 export function upsertMarkerBlock(current: string | null, blockBody: string): ContentPlan {
   const block = `${LOCTX_MARKER_START}\n${blockBody}\n${LOCTX_MARKER_END}`;
   if (current === null || current.trim() === "") {
-    return { content: `${block}\n`, action: "create", reason: "created file with loctx block" };
+    return {
+      content: `${block}\n`,
+      action: "create",
+      reason: "created file with loctx block",
+      present: false,
+    };
   }
   const start = current.indexOf(LOCTX_MARKER_START);
   const end = current.indexOf(LOCTX_MARKER_END);
   if (start !== -1 && end !== -1 && end > start) {
     const updated = current.slice(0, start) + block + current.slice(end + LOCTX_MARKER_END.length);
     return updated === current
-      ? { content: current, action: "skip", reason: "loctx block already up to date" }
-      : { content: updated, action: "update", reason: "refreshed loctx block" };
+      ? {
+          content: current,
+          action: "skip",
+          reason: "loctx block already up to date",
+          present: true,
+        }
+      : { content: updated, action: "update", reason: "refreshed loctx block", present: true };
   }
   const sep = current.endsWith("\n") ? "\n" : "\n\n";
   return {
     content: `${current}${sep}${block}\n`,
     action: "update",
     reason: "appended loctx block",
+    present: false,
   };
 }
 
@@ -102,14 +121,19 @@ export function upsertMarkerBlock(current: string | null, blockBody: string): Co
  * without our marker we skip rather than clobber unrelated content.
  */
 export function standaloneFile(current: string | null, content: string): ContentPlan {
-  if (current === null) return { content, action: "create", reason: "created loctx file" };
-  if (current === content) return { content, action: "skip", reason: "already up to date" };
+  if (current === null) {
+    return { content, action: "create", reason: "created loctx file", present: false };
+  }
+  if (current === content) {
+    return { content, action: "skip", reason: "already up to date", present: true };
+  }
   if (current.includes(LOCTX_MARKER_START)) {
-    return { content, action: "update", reason: "refreshed loctx file" };
+    return { content, action: "update", reason: "refreshed loctx file", present: true };
   }
   return {
     content: "",
     action: "skip",
     reason: "file exists and isn't loctx-managed — left untouched",
+    present: false,
   };
 }

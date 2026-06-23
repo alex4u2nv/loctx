@@ -65,6 +65,20 @@ export function AdminPage() {
     toolsReq.reload();
   };
 
+  // Result of the last "refresh agent configs" run.
+  const [agentMsg, setAgentMsg] = useState<string | null>(null);
+  const refreshAgents = async (): Promise<void> => {
+    setAgentMsg(null);
+    const r = await ops.run("refresh agent configs", () => api.agentSetupRefresh());
+    if (r !== undefined) {
+      setAgentMsg(
+        r.wired === 0
+          ? "No wired projects found — set one up from the projects page first."
+          : `Re-stamped ${r.wired} wired project(s); ${r.filesWritten} file(s) updated.`,
+      );
+    }
+  };
+
   const indexAll = (): Promise<unknown> => ops.run("index all", () => api.index());
   const refreshAll = (): Promise<unknown> => ops.run("refresh", () => api.refresh());
   const resetIndex = async (): Promise<unknown> => {
@@ -212,6 +226,30 @@ export function AdminPage() {
         </div>
 
         <div className="card">
+          <p className="card-section-title" id="admin-agents">Agents</p>
+          <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
+            Re-stamp the loctx rules + skill in every already-wired project under your workspace
+            roots, propagating the latest usage playbook. Won't wire new projects or change MCP
+            transport. Per-project setup lives on <Link to="/projects">projects</Link>.
+          </p>
+          <p>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void refreshAgents()}
+              disabled={ops.busy !== null}
+            >
+              <Icon name="refresh" /> refresh agent configs
+            </button>
+          </p>
+          {agentMsg !== null ? (
+            <p className="dim" style={{ marginBottom: 0 }}>
+              {agentMsg}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="card">
           <p className="card-section-title" id="admin-daemon">Daemon</p>
           <p>
             <button
@@ -237,6 +275,7 @@ export function AdminPage() {
         sections={[
           { id: "admin-index", label: "Index" },
           { id: "admin-tools", label: "Tools" },
+          { id: "admin-agents", label: "Agents" },
           { id: "admin-daemon", label: "Daemon" },
         ]}
       />

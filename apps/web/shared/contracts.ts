@@ -578,3 +578,12 @@ export interface AgentSetupApplyResponse {
     readonly error?: string;
   }>;
 }
+
+export interface AgentRefreshResponse {
+  readonly ok: true;
+  /** Number of already-wired projects re-stamped. */
+  readonly wired: number;
+  /** Total rules/skill files updated across those projects. */
+  readonly filesWritten: number;
+  readonly projects: ReadonlyArray<{ readonly root: string; readonly updated: number }>;
+}

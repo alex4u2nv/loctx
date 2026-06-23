@@ -22,6 +22,7 @@ import {
   findContainingProject,
   installTool,
   inventoryProjects,
+  isWired,
   loadConfig,
   makeProject,
   NoDaemonError,
@@ -29,6 +30,8 @@ import {
   pendingAgents,
   planAgentSetup,
   readActiveDaemon,
+  refreshAgentSetup,
+  resolveMcpStdioSpec,
   runDoctorChecks,
   SearcherError,
   StateStore,
@@ -200,6 +203,42 @@ async function runAgentSetup(projectRoot: string, opts: AgentSetupOpts): Promise
   if (opts.transport === "stdio" && wrote.length > 0) {
     console.error("  Reload your editor's MCP servers (or restart it) to pick up loctx.");
   }
+}
+
+/**
+ * Re-stamp every already-wired project under workspace_roots with the latest
+ * rules + skill templates. Only touches projects that already contain loctx
+ * config (MCP entry left as-is) — never newly wires one. Use after a
+ * playbook bump.
+ */
+async function runAgentRefresh(opts: {
+  transport: "stdio" | "http";
+  port?: number;
+}): Promise<void> {
+  const config = loadConfigOrFail(getCtx());
+  const stdio = await resolveMcpStdioSpec();
+  const projects = new WorkspaceDiscovery(config.workspaceRoots).discoverProjects();
+  let wired = 0;
+  let wrote = 0;
+  for (const project of projects) {
+    const plan = await planAgentSetup({
+      projectRoot: project.root,
+      stdio,
+      transport: opts.transport,
+      ...(opts.port !== undefined ? { port: opts.port } : {}),
+    });
+    if (!isWired(plan)) continue;
+    wired += 1;
+    const results = refreshAgentSetup(plan);
+    const n = results.filter((r) => r.ok && r.action !== "skip").length;
+    wrote += n;
+    console.error(`  ${project.root}: ${n} file(s) updated`);
+  }
+  if (wired === 0) {
+    console.error("[setup-agent] no wired projects found — run `loctx setup-agent` in one first.");
+    return;
+  }
+  console.error(`[setup-agent] refreshed ${wired} wired project(s); ${wrote} file(s) updated.`);
 }
 
 /**
@@ -1459,13 +1498,17 @@ program
     false,
   )
   .option("--dry-run", "Show what would change without writing.", false)
+  .option(
+    "--refresh",
+    "Re-stamp every already-wired project under workspace_roots with the latest rules/skill. Doesn't wire new projects.",
+    false,
+  )
   .option("-y, --yes", "Skip the confirmation prompt.", false)
   .action(
     async (
       agentsArg: string[],
-      opts: { path?: string; http: boolean; dryRun: boolean; yes: boolean },
+      opts: { path?: string; http: boolean; dryRun: boolean; refresh: boolean; yes: boolean },
     ) => {
-      const projectRoot = opts.path !== undefined ? resolve(opts.path) : process.cwd();
       let port: number | undefined;
       if (opts.http) {
         try {
@@ -1476,6 +1519,14 @@ program
           return;
         }
       }
+      if (opts.refresh) {
+        await runAgentRefresh({
+          transport: opts.http ? "http" : "stdio",
+          ...(port !== undefined ? { port } : {}),
+        });
+        return;
+      }
+      const projectRoot = opts.path !== undefined ? resolve(opts.path) : process.cwd();
       await runAgentSetup(projectRoot, {
         requested: agentsArg,
         transport: opts.http ? "http" : "stdio",

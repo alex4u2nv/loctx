@@ -5,11 +5,17 @@ import {
   type AgentId,
   applyAgentSetup,
   type Config,
+  isWired,
   planAgentSetup,
+  refreshAgentSetup,
   type Runtime,
 } from "@loctx/core";
 import type { Hono } from "hono";
-import type { AgentSetupApplyResponse, AgentSetupPayload } from "../../shared/contracts.js";
+import type {
+  AgentRefreshResponse,
+  AgentSetupApplyResponse,
+  AgentSetupPayload,
+} from "../../shared/contracts.js";
 
 /**
  * Agent integration for the admin UI. `GET` returns, for one project, which
@@ -73,5 +79,34 @@ export function mountAgentSetup(
     const plan = await planAgentSetup({ projectRoot: root });
     const results = applyAgentSetup(plan, agents);
     return c.json({ ok: true, results } satisfies AgentSetupApplyResponse);
+  });
+
+  // Re-stamp the loctx rules/skill in every already-wired known project,
+  // propagating the latest playbook. Never wires a new project (MCP entry +
+  // unwired projects untouched).
+  app.post("/api/agent-setup/refresh", async (c) => {
+    let rt: Runtime;
+    try {
+      rt = await getRuntime();
+    } catch {
+      return c.json({ error: "runtime not ready" }, 503);
+    }
+    const roots = [...new Set(rt.state.listProjects().map((p) => realOrSelf(p.root)))];
+    const projects: Array<{ root: string; updated: number }> = [];
+    let filesWritten = 0;
+    for (const root of roots) {
+      const plan = await planAgentSetup({ projectRoot: root });
+      if (!isWired(plan)) continue;
+      const results = refreshAgentSetup(plan);
+      const updated = results.filter((r) => r.ok && r.action !== "skip").length;
+      filesWritten += updated;
+      projects.push({ root, updated });
+    }
+    return c.json({
+      ok: true,
+      wired: projects.length,
+      filesWritten,
+      projects,
+    } satisfies AgentRefreshResponse);
   });
 }
