@@ -80,10 +80,13 @@ describe("planAgentSetup / applyAgentSetup", () => {
       const results = applyAgentSetup(plan, ["claude", "cursor", "agents-md", "vscode"]);
       expect(results.every((r) => r.ok)).toBe(true);
 
-      // Claude: project .mcp.json + CLAUDE.md block.
+      // Claude: project .mcp.json + CLAUDE.md pointer + a loctx skill.
       const mcp = JSON.parse(readFileSync(join(tmp, ".mcp.json"), "utf8"));
       expect(mcp.mcpServers.loctx.command).toBe(STDIO.command);
       expect(readFileSync(join(tmp, "CLAUDE.md"), "utf8")).toContain("<!-- loctx:start -->");
+      const skill = readFileSync(join(tmp, ".claude", "skills", "loctx", "SKILL.md"), "utf8");
+      expect(skill).toContain("name: loctx");
+      expect(skill).toContain("find_usages");
 
       // Cursor: .cursor/mcp.json + .cursor/rules/loctx.mdc.
       expect(existsSync(join(tmp, ".cursor", "mcp.json"))).toBe(true);

@@ -54,13 +54,25 @@ export function mcpHttpUrl(port: number, hostname = "localhost"): string {
  */
 export const RULES_TITLE = "loctx — local code search";
 
-export const RULES_BODY = `This workspace is indexed by **loctx**, a local code-search + retrieval MCP server. Prefer its tools over raw \`grep\`/\`find\` for the questions below — they return ranked, classified, cross-referenced results with the surrounding code, usually in one call.
+/** One-line pointer for always-on context (e.g. a CLAUDE.md block). */
+export const RULES_POINTER = `This workspace is indexed by **loctx** (a local code-search MCP server). Prefer its tools — \`find_usages\`, \`search_workspace\`, \`find_literal\`, \`find_duplicates\`, \`workspace_status\` — over \`grep\`/\`find\` for code navigation, refactor planning, and audits. They return ranked, classified, cross-referenced results with surrounding code in one call.`;
 
-- **"where is X used / defined", finding broken references** → \`find_usages\` (each hit classified def / call / import, with the surrounding chunk).
-- **"where is this literal / string / path referenced"** → \`find_literal\`.
-- **conceptual — "how does X work", "where do we do Y"** → \`search_workspace\` (semantic + lexical; surfaces code that implements an idea without naming it).
-- **duplicated code before a refactor** → \`find_duplicates\` (pass \`path\` to scope to one project on large workspaces).
-- **"is this repo indexed / what's covered"** → \`workspace_status\` (call once when unsure).
-- **just changed files and need them seen now** → \`refresh_workspace\`.
+/** The full use-case playbook — shared by every agent's rules file and the
+ *  Claude Code skill. Workflow-oriented, not just a tool glossary. */
+export const RULES_BODY = `This workspace is indexed by **loctx**, a local code-search + retrieval MCP server. Prefer its tools over raw \`grep\`/\`find\` — they return ranked, classified, cross-referenced results with the surrounding code, usually in one call.
+
+**Which tool for which question**
+- **"where is X defined / used", is this change safe** → \`find_usages\` (each hit classified def / call / import, with the surrounding chunk).
+- **"where is this literal / path / config key referenced"** (exhaustive) → \`find_literal\`.
+- **"how does Y work", "where do we do Z"** (no exact term) → \`search_workspace\` (semantic + lexical; finds code that implements an idea without naming it).
+- **duplicated code / boilerplate before refactoring** → \`find_duplicates\` (pass \`path\` to scope to one project on large workspaces).
+- **"is this repo indexed / what's covered"** → \`workspace_status\`.
+- **just edited files and need them seen now** → \`refresh_workspace\`.
+
+**Use it for these workflows**
+- *Unfamiliar repo:* \`workspace_status\` to confirm coverage, then \`search_workspace\` to orient before opening files.
+- *Before editing or renaming a symbol:* \`find_usages\` to map every call site — don't infer the blast radius from one file.
+- *Refactor planning ("what else touches X"):* \`search_workspace\` with \`coverage: true\`, or \`find_usages\`.
+- *Stale-reference audit (old URL, deprecated key, dead flag):* \`find_literal\`.
 
 Fall back to \`rg\`/\`grep\` for exhaustive, safety-critical literal audits. If a loctx tool returns nothing, check \`workspace_status\` / \`indexHealth.reconciling\` before concluding the match doesn't exist.`;
