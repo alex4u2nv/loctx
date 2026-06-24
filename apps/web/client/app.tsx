@@ -48,12 +48,14 @@ interface NavItem {
 }
 interface NavGroup {
   readonly heading?: string;
+  readonly icon?: IconName;
   readonly items: ReadonlyArray<NavItem>;
 }
 
 const NAV: ReadonlyArray<NavGroup> = [
   {
     heading: "Menu",
+    icon: "home",
     items: [
       { to: "/", label: "Dashboard", icon: "dashboard", end: true },
       { to: "/projects", label: "Projects", icon: "projects" },
@@ -61,6 +63,7 @@ const NAV: ReadonlyArray<NavGroup> = [
   },
   {
     heading: "Search",
+    icon: "search",
     items: [
       { to: "/search", label: "Search", icon: "search" },
       { to: "/find-usages", label: "Find usages", icon: "usages" },
@@ -69,6 +72,7 @@ const NAV: ReadonlyArray<NavGroup> = [
   },
   {
     heading: "Admin",
+    icon: "admin",
     items: [
       { to: "/admin", label: "Admin", icon: "admin" },
       { to: "/config", label: "Config", icon: "config" },
@@ -110,9 +114,16 @@ export function App() {
           />
         ) : null}
 
-        <div className="min-w-0 lg:ml-[290px]">
+        <div className="min-w-0 bg-[var(--nav-bg)] lg:ml-[290px]">
           <Header onMenu={() => setNavOpen((v) => !v)} onMcp={() => setMcpHelpOpen(true)} />
-          <main>
+          {/* Content panel: a distinct --bg surface that tucks into the
+              header+sidebar frame with a rounded top-left inner corner,
+              matching the rounded cards inside it. */}
+          <div
+            className="min-h-[calc(100vh-4rem)] rounded-tl-2xl border-l border-t bg-[var(--bg)]"
+            style={{ borderColor: "var(--border)" }}
+          >
+            <main>
             <Suspense fallback={ROUTE_FALLBACK}>
               <Routes>
                 <Route path="/" element={<StatusPage />} />
@@ -129,7 +140,8 @@ export function App() {
                 <Route path="/admin" element={<AdminPage />} />
               </Routes>
             </Suspense>
-          </main>
+            </main>
+          </div>
         </div>
       </div>
       <ConfirmHost />
@@ -170,10 +182,9 @@ function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () => void }
   const { collapsed, toggle } = useCollapsedGroups();
   return (
     <aside
-      className={`fixed left-0 top-0 z-40 flex h-screen w-[290px] flex-col border-r bg-[var(--nav-bg)] transition-transform duration-200 lg:translate-x-0 ${
+      className={`fixed left-0 top-0 z-40 flex h-screen w-[290px] flex-col bg-[var(--nav-bg)] transition-transform duration-200 lg:translate-x-0 ${
         open ? "translate-x-0" : "-translate-x-full"
       }`}
-      style={{ borderColor: "var(--border)" }}
     >
       <div className="flex h-16 items-center gap-2.5 px-6">
         <img src="/logo.png" alt="loctx" className="h-9 w-9 rounded-lg" />
@@ -192,7 +203,14 @@ function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () => void }
                   aria-expanded={!isCollapsed}
                   className="mb-1 flex w-full items-center justify-between rounded-md px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-wider text-[var(--subtle)] transition-colors hover:text-[var(--text)]"
                 >
-                  {group.heading}
+                  <span className="flex items-center gap-2">
+                    {group.icon ? (
+                      <span className="text-[0.8rem]">
+                        <Icon name={group.icon} />
+                      </span>
+                    ) : null}
+                    {group.heading}
+                  </span>
                   <span
                     className={`text-[0.7rem] transition-transform duration-200 ${
                       isCollapsed ? "-rotate-90" : ""
@@ -238,8 +256,7 @@ function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () => void }
 function Header({ onMenu, onMcp }: { onMenu: () => void; onMcp: () => void }) {
   return (
     <header
-      className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b bg-[var(--nav-bg)] px-4 lg:px-6"
-      style={{ borderColor: "var(--border)" }}
+      className="sticky top-0 z-20 flex h-16 items-center gap-3 bg-[var(--nav-bg)] px-4 lg:px-6"
     >
       <button
         type="button"

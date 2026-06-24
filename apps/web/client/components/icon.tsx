@@ -20,6 +20,7 @@ import {
   faGaugeHigh,
   faGear,
   faHammer,
+  faHouse,
   faFlask,
   faMagnifyingGlass,
   faMoon,
@@ -57,6 +58,7 @@ const ICONS = {
   "chevron-down": faChevronDown,
   more: faEllipsisVertical,
   // Sidebar nav + theme toggle (TailAdmin shell)
+  home: faHouse,
   dashboard: faGaugeHigh,
   projects: faFolderTree,
   usages: faSitemap,
