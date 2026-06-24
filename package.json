@@ -21,7 +21,11 @@
     "prepare": "lefthook install",
     "dev:cli": "pnpm --filter @loctx/cli dev --",
     "dev:web": "pnpm --filter @loctx/web dev",
-    "dev:mcp": "pnpm --filter @loctx/mcp dev"
+    "dev:mcp": "pnpm --filter @loctx/mcp dev",
+    "eval": "pnpm --filter @loctx/eval eval --",
+    "eval:run": "pnpm --filter @loctx/eval eval -- run",
+    "eval:report": "pnpm --filter @loctx/eval eval -- report",
+    "eval:compare": "pnpm --filter @loctx/eval eval -- compare"
   },
   "license": "Apache-2.0",
   "author": "Alex Mahabir",

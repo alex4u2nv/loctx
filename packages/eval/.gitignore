@@ -1,0 +1,4 @@
+# Generated run artifacts (TREC files, run JSONs, rendered reports).
+# Each run is reproducible from the pinned corpus + the version-stamped
+# `loctx` sha in the run JSON, so we don't track them.
+runs/
