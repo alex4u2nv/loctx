@@ -20,11 +20,9 @@ export function AdminPage() {
   // is in flight — they'd 409 anyway (#312) and a pre-disabled
   // button + tooltip beats clicking → reading an error toast.
   const statusReq = useFetch(() => api.status(), []);
-  const toolsReq = useFetch(() => api.toolsStatus(), []);
   const onRefresh = useCallback(() => {
     statusReq.reload();
-    toolsReq.reload();
-  }, [statusReq.reload, toolsReq.reload]);
+  }, [statusReq.reload]);
   useLiveRefreshEvent(onRefresh);
   const reconcile = statusReq.data?.reconciliation;
   const reconcileBlocked = reconcile?.running ?? false;
@@ -41,29 +39,6 @@ export function AdminPage() {
   const resetTooltip = daemonRunning
     ? "Daemon is running — stop it first (Daemon → stop, below). /api/reset/index would 409."
     : undefined;
-
-  // Install output, shown verbatim in the Tools card so the user can see
-  // what happened (pip / fetch / unzip) and why a tool failed — installs
-  // used to run silently (#install-logs).
-  const [installLog, setInstallLog] = useState<{
-    tool: string;
-    ok: boolean;
-    log: string;
-  } | null>(null);
-  const installTool = async (name: string): Promise<void> => {
-    setInstallLog(null);
-    await ops.run(`install ${name}`, async () => {
-      const res = await api.toolsInstall(name);
-      setInstallLog({
-        tool: name,
-        ok: res.ok,
-        log: res.log ?? (res.ok ? "(no output)" : res.error),
-      });
-      if (!res.ok) throw new Error(res.error);
-      return res;
-    });
-    toolsReq.reload();
-  };
 
   // Result of the last "refresh agent configs" run.
   const [agentMsg, setAgentMsg] = useState<string | null>(null);
@@ -163,67 +138,7 @@ export function AdminPage() {
           </p>
         </div>
 
-        <div className="card">
-          <p className="card-section-title" id="admin-tools">Tools</p>
-          <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
-            Optional analyzers. loctx installs these into managed locations (no system changes),
-            enables them, and backfills your existing index. semgrep and ast-grep also need rule
-            dirs set on <Link to="/config">config</Link> before they run.
-          </p>
-          {(toolsReq.data?.tools ?? []).map((t) => (
-            <div key={t.name} className="tool-row">
-              <span className="metric-value" style={{ minWidth: "6rem", display: "inline-block" }}>
-                {t.name}
-              </span>
-              <span className={`daemon-status ${t.installed ? "ok" : "bad"}`}>
-                <span className="dot-mark" />
-                {t.installed
-                  ? t.needsRules
-                    ? "installed · needs rule dirs"
-                    : "installed"
-                  : t.enabled
-                    ? "enabled, not installed"
-                    : "available"}
-              </span>{" "}
-              {t.installed ? null : (
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => void installTool(t.name)}
-                  disabled={ops.busy !== null}
-                  style={{ marginLeft: "var(--space-2)" }}
-                >
-                  <Icon name="index" /> install {t.name}
-                </button>
-              )}
-            </div>
-          ))}
-          {ops.busy?.startsWith("install ") ? (
-            <p className="dim" style={{ marginBottom: 0 }}>
-              <Icon name="refresh" animate /> {ops.busy}… this can take up to a minute (semgrep pulls
-              ~60 packages).
-            </p>
-          ) : null}
-          {installLog !== null ? (
-            <details open style={{ marginTop: "var(--space-3)" }}>
-              <summary>
-                <span className={`daemon-status ${installLog.ok ? "ok" : "bad"}`}>
-                  <span className="dot-mark" />
-                  {installLog.tool} install {installLog.ok ? "log" : "failed"}
-                </span>{" "}
-                <button
-                  type="button"
-                  className="btn btn-small"
-                  onClick={() => setInstallLog(null)}
-                  style={{ marginLeft: "var(--space-2)" }}
-                >
-                  dismiss
-                </button>
-              </summary>
-              <pre className="log-output">{installLog.log}</pre>
-            </details>
-          ) : null}
-        </div>
+        <AnalyzersCard />
 
         <div className="card">
           <p className="card-section-title" id="admin-agents">Agents</p>
@@ -274,11 +189,217 @@ export function AdminPage() {
       <SectionNav
         sections={[
           { id: "admin-index", label: "Index" },
-          { id: "admin-tools", label: "Tools" },
+          { id: "admin-analyzers", label: "Analyzers" },
           { id: "admin-agents", label: "Agents" },
           { id: "admin-daemon", label: "Daemon" },
         ]}
       />
     </section>
+  );
+}
+
+// ---- analyzers panel ---------------------------------------------------
+
+/** Config dot-path for each rule-pack tool's rule directories. */
+const RULE_DIR_KEY: Partial<Record<string, string>> = {
+  semgrep: "analyzers.semgrep.ruleDirs",
+  "ast-grep": "analyzers.astGrep.ruleDirs",
+};
+
+interface ToolRow {
+  readonly name: string;
+  readonly enabled: boolean;
+  readonly installed: boolean;
+  readonly needsRules: boolean;
+  readonly ruleDirs: ReadonlyArray<string> | null;
+}
+
+function statusBadge(t: ToolRow): { cls: string; warn: boolean; label: string } {
+  if (!t.installed) return { cls: "", warn: false, label: "available" };
+  if (t.needsRules) return { cls: "", warn: true, label: "installed · needs rule dirs" };
+  if (t.enabled) return { cls: "ok", warn: false, label: "installed · enabled" };
+  return { cls: "", warn: false, label: "installed · disabled" };
+}
+
+/**
+ * Unified analyzer admin: one place to install+enable+backfill each tool,
+ * set its rule dirs, and reindex — replacing the old split between the
+ * Config page (enable/rule_dirs) and a separate Tools install card.
+ */
+function AnalyzersCard() {
+  const req = useFetch(() => api.toolsStatus(), []);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [log, setLog] = useState<{ tool: string; ok: boolean; text: string } | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [dirEdits, setDirEdits] = useState<Record<string, string>>({});
+
+  const install = async (name: string): Promise<void> => {
+    setBusy(name);
+    setLog(null);
+    setMsg(null);
+    try {
+      const r = await api.toolsInstall(name);
+      setLog({
+        tool: name,
+        ok: r.ok,
+        text: r.ok ? (r.log ?? "(no output)") : r.log ? `${r.error}\n\n${r.log}` : r.error,
+      });
+      if (r.ok) setMsg(`${name} installed & enabled · backfill enqueued ${r.backfilled}`);
+    } finally {
+      setBusy(null);
+      req.reload();
+    }
+  };
+
+  const reindex = async (name: string): Promise<void> => {
+    setBusy(name);
+    setMsg(null);
+    try {
+      const r = await api.toolsBackfill(name);
+      setMsg(r.ok ? `${name} · reindex enqueued ${r.backfilled}` : `${name}: ${r.error}`);
+    } catch (e) {
+      setMsg(`${name}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const saveDirs = async (name: string): Promise<void> => {
+    const key = RULE_DIR_KEY[name];
+    if (key === undefined) return;
+    const dirs = (dirEdits[name] ?? "")
+      .split(/[\n,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setBusy(name);
+    setMsg(null);
+    try {
+      await api.configWrite({ patch: { [key]: dirs } });
+      const r = await api.toolsBackfill(name);
+      setMsg(
+        `${name} · saved ${dirs.length} rule dir(s)${r.ok ? `, reindex enqueued ${r.backfilled}` : ""}`,
+      );
+      req.reload();
+    } catch (e) {
+      setMsg(`${name}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const tools = (req.data?.tools ?? []) as ReadonlyArray<ToolRow>;
+  return (
+    <div className="card">
+      <p className="card-section-title" id="admin-analyzers">
+        Analyzers
+      </p>
+      <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
+        Optional code analyzers. <strong>Install &amp; enable</strong> downloads the tool into a
+        loctx-managed location (no system changes), turns it on, and backfills your index in one
+        step. semgrep and ast-grep also need rule directories before they produce findings.
+      </p>
+      {tools.map((t) => {
+        const badge = statusBadge(t);
+        const acting = busy === t.name;
+        const dirValue = dirEdits[t.name] ?? (t.ruleDirs ?? []).join(", ");
+        return (
+          <div
+            key={t.name}
+            style={{ borderTop: "1px solid var(--border)", padding: "var(--space-3) 0" }}
+          >
+            <div className="tool-row" style={{ borderTop: "none", padding: 0 }}>
+              <span className="metric-value" style={{ minWidth: "6rem", display: "inline-block" }}>
+                {t.name}
+              </span>
+              <span
+                className={`daemon-status ${badge.cls}`}
+                {...(badge.warn ? { style: { color: "var(--warn)" } } : {})}
+              >
+                <span className="dot-mark" />
+                {badge.label}
+              </span>
+              <span style={{ marginLeft: "auto" }}>
+                {t.installed ? (
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={acting}
+                    onClick={() => void reindex(t.name)}
+                  >
+                    <Icon name="refresh" animate={acting} /> reindex
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={acting}
+                    onClick={() => void install(t.name)}
+                  >
+                    <Icon name="index" /> install &amp; enable
+                  </button>
+                )}
+              </span>
+            </div>
+            {t.ruleDirs !== null ? (
+              <div
+                style={{
+                  display: "flex",
+                  gap: "var(--space-2)",
+                  marginTop: "var(--space-2)",
+                  alignItems: "center",
+                }}
+              >
+                <input
+                  className="input"
+                  placeholder="rule dirs (comma-separated absolute paths)"
+                  value={dirValue}
+                  onChange={(e) => setDirEdits((p) => ({ ...p, [t.name]: e.target.value }))}
+                  style={{ fontSize: "0.8125rem" }}
+                />
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={acting}
+                  onClick={() => void saveDirs(t.name)}
+                  style={{ whiteSpace: "nowrap" }}
+                >
+                  save &amp; reindex
+                </button>
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+      {busy !== null ? (
+        <p className="dim" style={{ marginTop: "var(--space-3)", marginBottom: 0 }}>
+          <Icon name="refresh" animate /> working on {busy}… install can take up to a minute (semgrep
+          pulls ~60 packages).
+        </p>
+      ) : null}
+      {msg !== null ? (
+        <p className="dim" style={{ marginBottom: 0 }}>
+          {msg}
+        </p>
+      ) : null}
+      {log !== null ? (
+        <details open style={{ marginTop: "var(--space-3)" }}>
+          <summary>
+            <span className={`daemon-status ${log.ok ? "ok" : "bad"}`}>
+              <span className="dot-mark" />
+              {log.tool} install {log.ok ? "log" : "failed"}
+            </span>{" "}
+            <button
+              type="button"
+              className="btn btn-small"
+              onClick={() => setLog(null)}
+              style={{ marginLeft: "var(--space-2)" }}
+            >
+              dismiss
+            </button>
+          </summary>
+          <pre className="log-output">{log.text}</pre>
+        </details>
+      ) : null}
+    </div>
   );
 }

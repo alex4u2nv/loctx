@@ -22,6 +22,7 @@ import type {
   ConfigSourceKind,
 } from "@shared/contracts";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { AdminTabs } from "../components/admin-tabs";
 import { confirm } from "../components/confirm";
 import { Icon } from "../components/icon";
@@ -29,6 +30,9 @@ import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
 
 type Patch = Record<string, unknown>;
+
+/** Analyzer sections owned by the Admin → Analyzers panel; hidden here. */
+const PANEL_OWNED_SECTIONS = new Set(["analyzers.lizard", "analyzers.semgrep", "analyzers.astGrep"]);
 
 export function ConfigPage() {
   const { data, error, loading, reload } = useFetch(() => api.config(), []);
@@ -95,16 +99,23 @@ export function ConfigPage() {
     }
   };
 
+  // The per-tool analyzer sections (install / enable / rule_dirs) are now
+  // owned by the unified Analyzers panel on Admin, so they're hidden from
+  // this generic editor — a bare `enabled` toggle here was a no-op footgun
+  // (it didn't download the binary or backfill). Tuning that isn't tool
+  // provisioning (background/concurrency/timeouts, duplicates) stays here.
+  const sections = data.schema.filter((s) => !PANEL_OWNED_SECTIONS.has(s.id));
+
   // Flat field lookup so the help panel can resolve the active field +
   // its section regardless of which section it lives in.
   const fieldIndex = new Map<
     string,
     { field: ConfigFieldSchemaWire; section: ConfigSectionSchemaWire }
   >();
-  for (const section of data.schema) {
+  for (const section of sections) {
     for (const f of section.fields) fieldIndex.set(f.key, { field: f, section });
   }
-  const activeFieldKey = activeKey ?? data.schema[0]?.fields[0]?.key ?? null;
+  const activeFieldKey = activeKey ?? sections[0]?.fields[0]?.key ?? null;
   const active = activeFieldKey !== null ? (fieldIndex.get(activeFieldKey) ?? null) : null;
 
   return (
@@ -138,7 +149,7 @@ export function ConfigPage() {
 
       <div className="config-layout">
         <div className="config-main">
-          {data.schema.map((section) => (
+          {sections.map((section) => (
             <SectionEditor
               key={section.id}
               section={section}
@@ -151,8 +162,10 @@ export function ConfigPage() {
           ))}
 
           <p className="dim" style={{ fontSize: "0.85rem", marginTop: "var(--space-5)" }}>
-            Filtering rules (gitignore-style) live in{" "}
-            <code>~/.loctx/config_overrides/*.yaml</code> and aren't edited here.
+            Analyzers (lizard, semgrep, ast-grep) — install, enable, rule dirs and reindex — are
+            managed on the <Link to="/admin">Admin → Analyzers</Link> panel. Filtering rules
+            (gitignore-style) live in <code>~/.loctx/config_overrides/*.yaml</code> and aren't
+            edited here.
           </p>
         </div>
 

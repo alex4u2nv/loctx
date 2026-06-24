@@ -12,7 +12,12 @@ import {
   writeConfigPatch,
 } from "@loctx/core";
 import type { Hono } from "hono";
-import type { ToolsInstallResponse, ToolsStatusPayload, ToolStatus } from "../../shared/contracts.js";
+import type {
+  ToolsBackfillResponse,
+  ToolsInstallResponse,
+  ToolsStatusPayload,
+  ToolStatus,
+} from "../../shared/contracts.js";
 
 /**
  * Optional analyzer tools (lizard, semgrep, ast-grep). `/api/tools/status`
@@ -25,8 +30,8 @@ interface ToolSpec {
   detect(command: string): Promise<string | null>;
   command(config: Config): string;
   enabled(config: Config): boolean;
-  /** Rule-dir count for rule-pack tools; null when N/A (lizard). */
-  ruleDirCount(config: Config): number | null;
+  /** Configured rule dirs for rule-pack tools; null when N/A (lizard). */
+  ruleDirs(config: Config): ReadonlyArray<string> | null;
   readonly commandKey: string;
   readonly enabledKey: string;
 }
@@ -37,7 +42,7 @@ const SPECS: ReadonlyArray<ToolSpec> = [
     detect: detectLizard,
     command: (c) => c.analyzers.lizard.command,
     enabled: (c) => c.analyzers.lizard.enabled,
-    ruleDirCount: () => null,
+    ruleDirs: () => null,
     commandKey: "analyzers.lizard.command",
     enabledKey: "analyzers.lizard.enabled",
   },
@@ -46,7 +51,7 @@ const SPECS: ReadonlyArray<ToolSpec> = [
     detect: detectSemgrep,
     command: (c) => c.analyzers.semgrep.command,
     enabled: (c) => c.analyzers.semgrep.enabled,
-    ruleDirCount: (c) => c.analyzers.semgrep.ruleDirs.length,
+    ruleDirs: (c) => c.analyzers.semgrep.ruleDirs,
     commandKey: "analyzers.semgrep.command",
     enabledKey: "analyzers.semgrep.enabled",
   },
@@ -55,7 +60,7 @@ const SPECS: ReadonlyArray<ToolSpec> = [
     detect: detectAstGrep,
     command: (c) => c.analyzers.astGrep.command,
     enabled: (c) => c.analyzers.astGrep.enabled,
-    ruleDirCount: (c) => c.analyzers.astGrep.ruleDirs.length,
+    ruleDirs: (c) => c.analyzers.astGrep.ruleDirs,
     commandKey: "analyzers.astGrep.command",
     enabledKey: "analyzers.astGrep.enabled",
   },
@@ -69,16 +74,50 @@ export function mountTools(
 ): void {
   app.get("/api/tools/status", async (c) => {
     const tools: ToolStatus[] = await Promise.all(
-      SPECS.map(async (s) => ({
-        name: s.name,
-        enabled: s.enabled(config),
-        installed: (await s.detect(s.command(config))) !== null,
-        command: s.command(config),
-        managedPath: managedToolCommand(config, s.name),
-        needsRules: s.ruleDirCount(config) === 0,
-      })),
+      SPECS.map(async (s) => {
+        const ruleDirs = s.ruleDirs(config);
+        return {
+          name: s.name,
+          enabled: s.enabled(config),
+          installed: (await s.detect(s.command(config))) !== null,
+          command: s.command(config),
+          managedPath: managedToolCommand(config, s.name),
+          needsRules: ruleDirs !== null && ruleDirs.length === 0,
+          ruleDirs,
+        };
+      }),
     );
     return c.json({ tools } satisfies ToolsStatusPayload);
+  });
+
+  // Re-run an already-installed analyzer over the existing index (the
+  // "Reindex" action on the Analyzers panel — install does this once, this
+  // lets the user re-trigger it after editing rule dirs).
+  app.post("/api/tools/backfill", async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ ok: false, tool: "?", error: "invalid JSON body" } satisfies ToolsBackfillResponse, 400);
+    }
+    const requested = (body as { tool?: unknown } | null)?.tool;
+    const spec = SPECS.find((s) => s.name === requested);
+    if (spec === undefined) {
+      return c.json(
+        { ok: false, tool: String(requested), error: `unknown tool; expected one of ${TOOL_NAMES.join(", ")}` } satisfies ToolsBackfillResponse,
+        400,
+      );
+    }
+    try {
+      const rt = await getRuntime();
+      const { enqueued } = await rt.backfillAnalyzers([spec.name]);
+      return c.json({ ok: true, tool: spec.name, backfilled: enqueued } satisfies ToolsBackfillResponse);
+    } catch (err) {
+      return c.json(
+        { ok: false, tool: spec.name, error: (err as Error).message } satisfies ToolsBackfillResponse,
+        503,
+      );
+    }
   });
 
   app.post("/api/tools/install", async (c) => {
