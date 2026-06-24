@@ -52,19 +52,19 @@ export function mcpHttpUrl(port: number, hostname = "localhost"): string {
  * which loctx tool answers which class of question, and when to fall back
  * to grep.
  */
-export const RULES_TITLE = "loctx — local code search";
+export const RULES_TITLE = "loctx — local code & docs search";
 
 /** One-line pointer for always-on context (e.g. a CLAUDE.md block). */
-export const RULES_POINTER = `This workspace is indexed by **loctx** (a local code-search MCP server). Prefer its tools — \`find_usages\`, \`search_workspace\`, \`find_literal\`, \`find_duplicates\`, \`workspace_status\` — over \`grep\`/\`find\` for code navigation, refactor planning, and audits. They return ranked, classified, cross-referenced results with surrounding code in one call.`;
+export const RULES_POINTER = `This workspace is indexed by **loctx** (a local search + retrieval MCP server over code **and** prose — markdown, docs, runbooks, prompts, notes). For navigation, refactor planning, and stale-reference audits, prefer its tools — \`find_usages\`, \`search_workspace\`, \`find_literal\`, \`find_duplicates\`, \`workspace_status\` — over \`grep\`/\`find\`. They return ranked, classified, cross-referenced results with surrounding content in one call.`;
 
 /** The full use-case playbook — shared by every agent's rules file and the
  *  Claude Code skill. Workflow-oriented, not just a tool glossary. */
-export const RULES_BODY = `This workspace is indexed by **loctx**, a local code-search + retrieval MCP server. Prefer its tools over raw \`grep\`/\`find\` — they return ranked, classified, cross-referenced results with the surrounding code, usually in one call.
+export const RULES_BODY = `This workspace is indexed by **loctx**, a local search + retrieval MCP server over **code and prose alike** — source files, markdown/docs, runbooks, agent specs, prompt/skill files, and notes. Prefer its tools over raw \`grep\`/\`find\` — they return ranked, classified, cross-referenced results with the surrounding content, usually in one call.
 
 **Which tool for which question**
-- **"where is X defined / used", is this change safe** → \`find_usages\` (each hit classified def / call / import, with the surrounding chunk).
-- **"where is this literal / path / config key referenced"** (exhaustive) → \`find_literal\`.
-- **"how does Y work", "where do we do Z"** (no exact term) → \`search_workspace\` (semantic + lexical; finds code that implements an idea without naming it).
+- **"where is X defined / used", is this change safe** → \`find_usages\` (each hit classified def / call / import, with the surrounding chunk). Code symbols only.
+- **"where is this literal / path / config key / URL referenced"** (exhaustive, code **or** docs) → \`find_literal\`.
+- **"how does Y work", "where do we do Z", "where is W documented"** (no exact term) → \`search_workspace\` (semantic + lexical over code and prose; finds the chunk that implements or describes an idea without naming it).
 - **duplicated code / boilerplate before refactoring** → \`find_duplicates\` (pass \`path\` to scope to one project on large workspaces).
 - **"is this repo indexed / what's covered"** → \`workspace_status\`.
 - **just edited files and need them seen now** → \`refresh_workspace\`.
@@ -73,6 +73,7 @@ export const RULES_BODY = `This workspace is indexed by **loctx**, a local code-
 - *Unfamiliar repo:* \`workspace_status\` to confirm coverage, then \`search_workspace\` to orient before opening files.
 - *Before editing or renaming a symbol:* \`find_usages\` to map every call site — don't infer the blast radius from one file.
 - *Refactor planning ("what else touches X"):* \`search_workspace\` with \`coverage: true\`, or \`find_usages\`.
-- *Stale-reference audit (old URL, deprecated key, dead flag):* \`find_literal\`.
+- *Understanding a process or runbook ("how is onboarding documented", "which doc covers X"):* \`search_workspace\` — it ranks doc/markdown sections, not just code.
+- *Stale-reference audit (old URL, deprecated key, dead flag — in code or docs):* \`find_literal\`.
 
 Fall back to \`rg\`/\`grep\` for exhaustive, safety-critical literal audits. If a loctx tool returns nothing, check \`workspace_status\` / \`indexHealth.reconciling\` before concluding the match doesn't exist.`;

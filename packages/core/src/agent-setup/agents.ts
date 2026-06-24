@@ -71,7 +71,7 @@ ${LOCTX_MARKER_END}
 function claudeSkill(): string {
   return `---
 name: loctx
-description: Use the loctx MCP tools (find_usages, search_workspace, find_literal, find_duplicates, workspace_status) for code navigation, refactor planning, and audits in this workspace instead of grep/find.
+description: Use whenever locating where something is defined or used, planning a refactor, auditing for stale references, or orienting in this workspace — across code AND prose (markdown, docs, runbooks, prompts, notes), not just code. Prefer the loctx MCP tools (find_usages, search_workspace, find_literal, find_duplicates, workspace_status) over grep/find; they return ranked, classified, cross-referenced results with surrounding context in one call.
 ---
 ${LOCTX_MARKER_START}
 # ${RULES_TITLE}
