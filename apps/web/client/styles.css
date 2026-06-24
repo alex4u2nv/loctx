@@ -127,36 +127,42 @@
   --nav-bg: #1a2436;
 }
 
-* {
-  box-sizing: border-box;
-}
+/* Base element styles live in @layer base so Tailwind utilities (which sit
+   in a later layer) win over them — e.g. the sidebar nav's text-[var(--muted)]
+   must beat the bare `a { color: var(--link) }` reset. Plain content links
+   (no utility class) still pick up the base colour. */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
 
-html,
-body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-sans);
-  font-size: 17px;
-  line-height: 1.6;
-  font-weight: 400;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 17px;
+    line-height: 1.6;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 
-a {
-  color: var(--link);
-  text-decoration: none;
-}
+  a {
+    color: var(--link);
+    text-decoration: none;
+  }
 
-a:hover {
-  color: var(--primary);
-}
+  a:hover {
+    color: var(--primary);
+  }
 
-code,
-pre {
-  font-family: var(--font-mono);
+  code,
+  pre {
+    font-family: var(--font-mono);
+  }
 }
 
 /* Command bar — persistent top chrome: brand + breadcrumb (left), status
