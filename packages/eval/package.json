@@ -1,6 +1,6 @@
 {
   "name": "@loctx/eval",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Offline retrieval-quality eval harness for loctx. Versioned gold sets, TREC run files, Hit/MRR/nDCG/Recall metrics, Markdown reports.",
   "private": true,
   "type": "module",
