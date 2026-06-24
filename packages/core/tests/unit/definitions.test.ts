@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   type DefinitionSchemaSpec,
   extractFrontmatter,
+  extractMarkdownLinks,
+  findBrokenLinks,
   matchesDefinitionGlobs,
   OKF_V01_SCHEMA,
   resolveDefinitionSchemas,
@@ -133,5 +135,33 @@ describe("definition file selection + schema resolution", () => {
     const specs = resolveDefinitionSchemas(true, ["https://example.com/schema.json"]);
     expect(specs.map((s) => s.id)).toEqual(["okf/v0.1"]);
     expect(resolveDefinitionSchemas(false, [])).toHaveLength(0);
+  });
+});
+
+describe("cross-link integrity", () => {
+  it("extracts inline links with line numbers and ignores external/anchor", () => {
+    const md = "see [a](./a.md)\n\nand [ext](https://x.io) and [sec](#top)\n[b](../b.md)";
+    const links = extractMarkdownLinks(md);
+    expect(links).toEqual([
+      { target: "./a.md", line: 1 },
+      { target: "https://x.io", line: 3 },
+      { target: "#top", line: 3 },
+      { target: "../b.md", line: 4 },
+    ]);
+  });
+
+  it("flags only relative links that don't resolve", () => {
+    const md = "[ok](./exists.md) [bad](./missing.md) [ext](https://x.io) [anchor](#a)";
+    const exists = (p: string): boolean => p.endsWith("/exists.md");
+    const broken = findBrokenLinks(md, "/proj/skills", exists);
+    expect(broken).toHaveLength(1);
+    expect(broken[0]?.ruleId).toBe("definitions/broken-link");
+    expect(broken[0]?.message).toContain("./missing.md");
+    expect(broken[0]?.severity).toBe("warning");
+  });
+
+  it("strips anchors from relative targets before resolving", () => {
+    const exists = (p: string): boolean => p.endsWith("/doc.md");
+    expect(findBrokenLinks("[x](./doc.md#section)", "/p", exists)).toHaveLength(0);
   });
 });

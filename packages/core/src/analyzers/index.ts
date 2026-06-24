@@ -9,6 +9,8 @@ export {
   DEFINITIONS_VERSION,
   type DefinitionSchemaSpec,
   extractFrontmatter,
+  extractMarkdownLinks,
+  findBrokenLinks,
   loadSchemaFile,
   matchesDefinitionGlobs,
   OKF_V01_SCHEMA,

@@ -251,6 +251,7 @@ function enqueueFileAnalyzers(
                 schemas,
                 maxFindingsPerFile: def.maxFindingsPerFile,
                 requireFrontmatter: def.requireFrontmatter,
+                checkLinks: def.checkLinks,
               }),
           }),
         );
