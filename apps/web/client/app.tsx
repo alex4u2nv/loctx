@@ -132,8 +132,36 @@ export function App() {
   );
 }
 
+const NAV_COLLAPSE_KEY = "loctx.nav.collapsed";
+
+/** Per-group collapse state, persisted so a folded section stays folded. */
+function useCollapsedGroups(): {
+  collapsed: Record<string, boolean>;
+  toggle: (heading: string) => void;
+} {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(NAV_COLLAPSE_KEY) ?? "{}") as Record<string, boolean>;
+    } catch {
+      return {};
+    }
+  });
+  const toggle = (heading: string): void =>
+    setCollapsed((prev) => {
+      const next = { ...prev, [heading]: !prev[heading] };
+      try {
+        localStorage.setItem(NAV_COLLAPSE_KEY, JSON.stringify(next));
+      } catch {
+        // storage disabled — collapse still works for the session
+      }
+      return next;
+    });
+  return { collapsed, toggle };
+}
+
 /** Fixed left rail — TailAdmin's signature chrome. */
 function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () => void }) {
+  const { collapsed, toggle } = useCollapsedGroups();
   return (
     <aside
       className={`fixed left-0 top-0 z-40 flex h-screen w-[290px] flex-col border-r bg-[var(--nav-bg)] transition-transform duration-200 lg:translate-x-0 ${
@@ -146,38 +174,56 @@ function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () => void }
         <span className="text-lg font-semibold tracking-tight text-[var(--text)]">loctx</span>
       </div>
       <nav className="flex-1 overflow-y-auto px-4 py-2">
-        {NAV.map((group) => (
-          <div key={group.heading ?? "main"} className="mb-5">
-            {group.heading ? (
-              <p className="mb-2 px-3 text-[0.65rem] font-semibold uppercase tracking-wider text-[var(--subtle)]">
-                {group.heading}
-              </p>
-            ) : null}
-            <ul className="flex flex-col gap-1">
-              {group.items.map((item) => (
-                <li key={item.to}>
-                  <NavLink
-                    to={item.to}
-                    end={item.end === true}
-                    onClick={onNavigate}
-                    className={({ isActive }) =>
-                      `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                        isActive
-                          ? "bg-[var(--primary-soft)] text-[var(--primary)]"
-                          : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
-                      }`
-                    }
+        {NAV.map((group) => {
+          const heading = group.heading ?? "main";
+          const isCollapsed = group.heading !== undefined && collapsed[group.heading] === true;
+          return (
+            <div key={heading} className="mb-4">
+              {group.heading ? (
+                <button
+                  type="button"
+                  onClick={() => toggle(group.heading as string)}
+                  aria-expanded={!isCollapsed}
+                  className="mb-1 flex w-full items-center justify-between rounded-md px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-wider text-[var(--subtle)] transition-colors hover:text-[var(--text)]"
+                >
+                  {group.heading}
+                  <span
+                    className={`text-[0.7rem] transition-transform duration-200 ${
+                      isCollapsed ? "-rotate-90" : ""
+                    }`}
                   >
-                    <span className="w-5 text-center text-base">
-                      <Icon name={item.icon} />
-                    </span>
-                    {item.label}
-                  </NavLink>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+                    <Icon name="chevron-down" />
+                  </span>
+                </button>
+              ) : null}
+              {isCollapsed ? null : (
+                <ul className="flex flex-col gap-1">
+                  {group.items.map((item) => (
+                    <li key={item.to}>
+                      <NavLink
+                        to={item.to}
+                        end={item.end === true}
+                        onClick={onNavigate}
+                        className={({ isActive }) =>
+                          `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                            isActive
+                              ? "bg-[var(--primary-soft)] text-[var(--primary)]"
+                              : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+                          }`
+                        }
+                      >
+                        <span className="w-5 text-center text-base">
+                          <Icon name={item.icon} />
+                        </span>
+                        {item.label}
+                      </NavLink>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })}
       </nav>
     </aside>
   );
