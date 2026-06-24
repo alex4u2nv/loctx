@@ -32,6 +32,9 @@ const FindLiteralPage = lazy(() =>
 const DoctorPage = lazy(() => import("./routes/doctor").then((m) => ({ default: m.DoctorPage })));
 const ModelsPage = lazy(() => import("./routes/models").then((m) => ({ default: m.ModelsPage })));
 const ConfigPage = lazy(() => import("./routes/config").then((m) => ({ default: m.ConfigPage })));
+const AnalyzersPage = lazy(() =>
+  import("./routes/analyzers").then((m) => ({ default: m.AnalyzersPage })),
+);
 const AdminPage = lazy(() => import("./routes/admin").then((m) => ({ default: m.AdminPage })));
 const LogsPage = lazy(() => import("./routes/logs").then((m) => ({ default: m.LogsPage })));
 
@@ -69,6 +72,7 @@ const NAV: ReadonlyArray<NavGroup> = [
     items: [
       { to: "/admin", label: "Admin", icon: "admin" },
       { to: "/config", label: "Config", icon: "config" },
+      { to: "/analyzers", label: "Analyzers", icon: "analyzers" },
       { to: "/models", label: "Models", icon: "models" },
       { to: "/doctor", label: "Doctor", icon: "doctor" },
       { to: "/logs", label: "Logs", icon: "logs" },
@@ -84,6 +88,7 @@ const ROUTE_LABELS: ReadonlyArray<{ readonly prefix: string; readonly label: str
   { prefix: "/doctor", label: "Doctor" },
   { prefix: "/models", label: "Models" },
   { prefix: "/config", label: "Config" },
+  { prefix: "/analyzers", label: "Analyzers" },
   { prefix: "/logs", label: "Logs" },
   { prefix: "/admin", label: "Admin" },
 ];
@@ -119,6 +124,7 @@ export function App() {
                 <Route path="/doctor" element={<DoctorPage />} />
                 <Route path="/models" element={<ModelsPage />} />
                 <Route path="/config" element={<ConfigPage />} />
+                <Route path="/analyzers" element={<AnalyzersPage />} />
                 <Route path="/logs" element={<LogsPage />} />
                 <Route path="/admin" element={<AdminPage />} />
               </Routes>

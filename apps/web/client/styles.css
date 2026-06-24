@@ -509,6 +509,91 @@ h3 {
   color: var(--subtle);
 }
 
+/* Toggle switch — used by the Analyzers panel for enable/disable. */
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.switch-track {
+  width: 38px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--border-strong);
+  transition: background 150ms ease;
+}
+.switch input:checked + .switch-track {
+  background: var(--primary);
+}
+.switch input:focus-visible + .switch-track {
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.switch input:disabled + .switch-track {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+  transition: transform 150ms ease;
+}
+.switch input:checked + .switch-track .switch-thumb {
+  transform: translateX(16px);
+}
+
+/* A labeled settings row: label/help on the left, control on the right. */
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+}
+.setting-row:first-of-type {
+  border-top: none;
+}
+.setting-row-label {
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+.setting-row-help {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 2px 0 0;
+  max-width: 46ch;
+}
+.setting-num {
+  width: 7rem;
+  flex: none;
+}
+
+/* Category divider on the normalized Config page. */
+.config-category {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+.config-category:first-child {
+  margin-top: var(--space-2);
+}
+
 /* Buttons — compact control-plane chip.
  * Density target: a row of 4 action buttons fits in ~280px. */
 .btn {

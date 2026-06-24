@@ -10,6 +10,7 @@ import { type Tab, TabStrip } from "./tab-strip";
 const ADMIN_TABS: ReadonlyArray<Tab> = [
   { to: "/admin", label: "Admin" },
   { to: "/config", label: "Config" },
+  { to: "/analyzers", label: "Analyzers" },
   { to: "/models", label: "Models" },
   { to: "/doctor", label: "Doctor" },
   { to: "/logs", label: "Logs" },
