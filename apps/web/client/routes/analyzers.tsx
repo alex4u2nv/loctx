@@ -563,18 +563,30 @@ function ToolBlock({
         </span>
       </div>
       {tool.ruleDirs !== null ? (
-        <div
-          style={{
-            display: "flex",
-            gap: "var(--space-2)",
-            marginTop: "var(--space-2)",
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
-          <input
-            className="input"
-            placeholder="rule dirs (comma-separated absolute paths)"
+        <>
+          <p
+            style={{
+              margin: "var(--space-3) 0 var(--space-1)",
+              fontSize: "0.65rem",
+              fontWeight: 600,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: "var(--subtle)",
+            }}
+          >
+            {tool.name} rule configuration
+          </p>
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--space-2)",
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <input
+              className="input"
+              placeholder={`${tool.name} rule dirs (comma-separated absolute paths)`}
             value={dirValue}
             onChange={(e) => onDirChange(e.target.value)}
             style={{ fontSize: "0.8125rem", flex: "1 1 18rem" }}
@@ -588,16 +600,17 @@ function ToolBlock({
           >
             save &amp; reindex
           </button>
-          {maxFindings !== null ? (
-            <label
-              className="dim"
-              style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-2)", fontSize: "0.8rem" }}
-            >
-              max findings/file
-              <NumField value={maxFindings} min={1} max={10000} disabled={busy} onSave={onMaxFindings} />
-            </label>
-          ) : null}
-        </div>
+            {maxFindings !== null ? (
+              <label
+                className="dim"
+                style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-2)", fontSize: "0.8rem" }}
+              >
+                max findings/file
+                <NumField value={maxFindings} min={1} max={10000} disabled={busy} onSave={onMaxFindings} />
+              </label>
+            ) : null}
+          </div>
+        </>
       ) : null}
       {tool.ruleDirs !== null ? <RulesHint tool={tool} /> : null}
     </div>
