@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   type DefinitionSchemaSpec,
   extractFrontmatter,
+  matchesDefinitionGlobs,
   OKF_V01_SCHEMA,
+  resolveDefinitionSchemas,
   validateDefinition,
 } from "../../src/analyzers/definitions.js";
 
@@ -109,5 +111,27 @@ body`;
       maxFindingsPerFile: 50,
     });
     expect(r).toContain("team/agent/required:model");
+  });
+});
+
+describe("definition file selection + schema resolution", () => {
+  const GLOBS = [".claude/skills/**/*.md", "**/SKILL.md", "AGENTS.md"];
+
+  it("matches conventional definition paths and rejects generic docs", () => {
+    expect(matchesDefinitionGlobs(".claude/skills/loctx/SKILL.md", GLOBS)).toBe(true);
+    expect(matchesDefinitionGlobs("AGENTS.md", GLOBS)).toBe(true);
+    expect(matchesDefinitionGlobs("packages/core/SKILL.md", GLOBS)).toBe(true);
+    expect(matchesDefinitionGlobs("README.md", GLOBS)).toBe(false);
+    expect(matchesDefinitionGlobs("src/index.ts", GLOBS)).toBe(false);
+  });
+
+  it("empty globs match nothing", () => {
+    expect(matchesDefinitionGlobs("AGENTS.md", [])).toBe(false);
+  });
+
+  it("resolves the OKF default and skips URL sources (handled by the web layer)", () => {
+    const specs = resolveDefinitionSchemas(true, ["https://example.com/schema.json"]);
+    expect(specs.map((s) => s.id)).toEqual(["okf/v0.1"]);
+    expect(resolveDefinitionSchemas(false, [])).toHaveLength(0);
   });
 });
