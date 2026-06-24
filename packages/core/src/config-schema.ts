@@ -386,9 +386,17 @@ export const CONFIG_SCHEMA: ReadonlyArray<SectionSchema> = Object.freeze([
         key: "analyzers.semgrep.ruleDirs",
         yamlPath: ["analyzers", "semgrep", "rule_dirs"],
         label: "rule_dirs",
-        help: "Directories of semgrep rules to load.",
+        help: "Directories of semgrep rules to load. Empty falls back to registry_config.",
         type: "string-array",
         default: [],
+      },
+      {
+        key: "analyzers.semgrep.registryConfig",
+        yamlPath: ["analyzers", "semgrep", "registry_config"],
+        label: "registry_config",
+        help: "Fallback ruleset when rule_dirs is empty — a semgrep registry ref like p/default (curated community pack). Blank disables the fallback. Needs network to fetch.",
+        type: "string",
+        default: "p/default",
       },
       {
         key: "analyzers.semgrep.maxFindingsPerFile",

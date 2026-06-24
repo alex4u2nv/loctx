@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   type Config,
@@ -32,8 +33,13 @@ interface ToolSpec {
   enabled(config: Config): boolean;
   /** Configured rule dirs for rule-pack tools; null when N/A (lizard). */
   ruleDirs(config: Config): ReadonlyArray<string> | null;
+  /** Registry fallback ruleset (semgrep); null for tools without one. */
+  registryConfig(config: Config): string | null;
+  /** Tool-specific rule directory name to auto-detect under project roots. */
+  readonly autoDetectDir?: string;
   readonly commandKey: string;
   readonly enabledKey: string;
+  readonly ruleDirsKey?: string;
 }
 
 const SPECS: ReadonlyArray<ToolSpec> = [
@@ -43,6 +49,7 @@ const SPECS: ReadonlyArray<ToolSpec> = [
     command: (c) => c.analyzers.lizard.command,
     enabled: (c) => c.analyzers.lizard.enabled,
     ruleDirs: () => null,
+    registryConfig: () => null,
     commandKey: "analyzers.lizard.command",
     enabledKey: "analyzers.lizard.enabled",
   },
@@ -52,8 +59,11 @@ const SPECS: ReadonlyArray<ToolSpec> = [
     command: (c) => c.analyzers.semgrep.command,
     enabled: (c) => c.analyzers.semgrep.enabled,
     ruleDirs: (c) => c.analyzers.semgrep.ruleDirs,
+    registryConfig: (c) => c.analyzers.semgrep.registryConfig || null,
+    autoDetectDir: ".semgrep",
     commandKey: "analyzers.semgrep.command",
     enabledKey: "analyzers.semgrep.enabled",
+    ruleDirsKey: "analyzers.semgrep.ruleDirs",
   },
   {
     name: "ast-grep",
@@ -61,10 +71,23 @@ const SPECS: ReadonlyArray<ToolSpec> = [
     command: (c) => c.analyzers.astGrep.command,
     enabled: (c) => c.analyzers.astGrep.enabled,
     ruleDirs: (c) => c.analyzers.astGrep.ruleDirs,
+    registryConfig: () => null,
+    autoDetectDir: ".ast-grep",
     commandKey: "analyzers.astGrep.command",
     enabledKey: "analyzers.astGrep.enabled",
+    ruleDirsKey: "analyzers.astGrep.ruleDirs",
   },
 ];
+
+/** Scan known project roots for a tool's conventional rule directory. */
+function autoDetectRuleDirs(roots: ReadonlyArray<string>, dirName: string): string[] {
+  const found: string[] = [];
+  for (const root of roots) {
+    const candidate = join(root, dirName);
+    if (existsSync(candidate)) found.push(candidate);
+  }
+  return found;
+}
 
 export function mountTools(
   app: Hono,
@@ -76,14 +99,19 @@ export function mountTools(
     const tools: ToolStatus[] = await Promise.all(
       SPECS.map(async (s) => {
         const ruleDirs = s.ruleDirs(config);
+        const registryConfig = s.registryConfig(config);
         return {
           name: s.name,
           enabled: s.enabled(config),
           installed: (await s.detect(s.command(config))) !== null,
           command: s.command(config),
           managedPath: managedToolCommand(config, s.name),
-          needsRules: ruleDirs !== null && ruleDirs.length === 0,
+          // Inert only when it's a rule-pack tool with neither local rules
+          // nor a registry fallback (semgrep's p/default keeps it runnable).
+          needsRules:
+            ruleDirs !== null && ruleDirs.length === 0 && (registryConfig ?? "") === "",
           ruleDirs,
+          registryConfig,
         };
       }),
     );
@@ -156,6 +184,23 @@ export function mountTools(
       [spec.enabledKey]: true,
       [spec.commandKey]: result.command,
     };
+    // Auto-detect: if the workspace already carries this tool's conventional
+    // rule directory (e.g. .semgrep / .ast-grep in a project root), point
+    // rule_dirs at it so the analyzer runs the user's own rules out of the
+    // box. Only when none are configured yet (don't clobber a manual set).
+    if (spec.autoDetectDir !== undefined && spec.ruleDirsKey !== undefined) {
+      const existing = spec.ruleDirs(config) ?? [];
+      if (existing.length === 0) {
+        try {
+          const rt = await getRuntime();
+          const roots = rt.state.listProjects().map((p) => p.root);
+          const detected = autoDetectRuleDirs(roots, spec.autoDetectDir);
+          if (detected.length > 0) patch[spec.ruleDirsKey] = detected;
+        } catch {
+          // runtime not ready — skip auto-detect, registry fallback still applies
+        }
+      }
+    }
     const path = config.source ?? join(config.paths.configDir, "config.yaml");
     const w = writeConfigPatch(path, patch);
     if (!w.ok) {

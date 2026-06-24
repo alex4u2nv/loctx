@@ -174,7 +174,8 @@ function enqueueFileAnalyzers(
   if (
     want("semgrep") &&
     config.analyzers.semgrep.enabled &&
-    config.analyzers.semgrep.ruleDirs.length > 0 &&
+    (config.analyzers.semgrep.ruleDirs.length > 0 ||
+      config.analyzers.semgrep.registryConfig !== "") &&
     toolReady("semgrep", config.analyzers.semgrep.command)
   ) {
     const sg = config.analyzers.semgrep;
@@ -191,6 +192,7 @@ function enqueueFileAnalyzers(
             {
               command: sg.command,
               ruleDirs: sg.ruleDirs,
+              registryConfig: sg.registryConfig,
               maxFindingsPerFile: sg.maxFindingsPerFile,
             },
             signal,
