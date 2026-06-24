@@ -11,6 +11,7 @@ import type {
   ConfigWriteError,
   ConfigWriteRequest,
   ConfigWriteResponse,
+  DefinitionSchemaResponse,
   DoctorPayload,
   FindLiteralPayload,
   FindUsagesPayload,
@@ -70,6 +71,10 @@ export const api = {
   },
   toolsBackfill: (tool: string) =>
     postJson<ToolsBackfillResponse>("/api/tools/backfill", { tool }),
+  definitionsAddSchema: (body: { url?: string; content?: string; name?: string }) =>
+    postJson<DefinitionSchemaResponse>("/api/definitions/schema", body),
+  definitionsGenerateSchema: () =>
+    postJson<DefinitionSchemaResponse>("/api/definitions/schema/generate", {}),
   agentSetup: (path: string) =>
     getJson<AgentSetupPayload>(`/api/agent-setup?path=${encodeURIComponent(path)}`),
   agentSetupApply: (path: string, agents: ReadonlyArray<string>) =>

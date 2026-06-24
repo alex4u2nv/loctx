@@ -6,11 +6,13 @@ export {
   runAstGrep,
 } from "./ast-grep.js";
 export {
+  compileDefinitionSchema,
   DEFINITIONS_VERSION,
   type DefinitionSchemaSpec,
   extractFrontmatter,
   extractMarkdownLinks,
   findBrokenLinks,
+  inferDefinitionSchema,
   loadSchemaFile,
   matchesDefinitionGlobs,
   OKF_V01_SCHEMA,

@@ -547,6 +547,11 @@ export type ToolsBackfillResponse =
   | { readonly ok: true; readonly tool: string; readonly backfilled: number }
   | { readonly ok: false; readonly tool: string; readonly error: string };
 
+/** Result of storing a definitions schema (upload / URL / generated). */
+export type DefinitionSchemaResponse =
+  | { readonly ok: true; readonly path: string; readonly scanned?: number }
+  | { readonly ok: false; readonly error: string };
+
 export type ToolsInstallResponse =
   | {
       readonly ok: true;
