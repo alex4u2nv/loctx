@@ -1,6 +1,6 @@
 {
   "name": "@loctx/web",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Admin / management UI for loctx (Vite SPA + Hono).",
   "type": "module",
   "private": true,
