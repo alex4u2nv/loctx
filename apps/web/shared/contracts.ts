@@ -522,15 +522,24 @@ export interface ToolStatus {
   readonly managedPath: string;
   /**
    * True for rule-pack tools (semgrep, ast-grep) with no rule dirs
-   * configured — installed, but won't run until rules are pointed at it
-   * on the Config page.
+   * configured — installed, but won't run until rules are pointed at it.
    */
   readonly needsRules: boolean;
+  /**
+   * Configured rule directories for rule-pack tools (semgrep, ast-grep),
+   * editable inline on the Analyzers panel. `null` for lizard (no rules).
+   */
+  readonly ruleDirs: ReadonlyArray<string> | null;
 }
 
 export interface ToolsStatusPayload {
   readonly tools: ReadonlyArray<ToolStatus>;
 }
+
+/** Result of re-running an installed analyzer over the existing index. */
+export type ToolsBackfillResponse =
+  | { readonly ok: true; readonly tool: string; readonly backfilled: number }
+  | { readonly ok: false; readonly tool: string; readonly error: string };
 
 export type ToolsInstallResponse =
   | {

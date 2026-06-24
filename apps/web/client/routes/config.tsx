@@ -22,6 +22,7 @@ import type {
   ConfigSourceKind,
 } from "@shared/contracts";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { AdminTabs } from "../components/admin-tabs";
 import { confirm } from "../components/confirm";
 import { Icon } from "../components/icon";
@@ -29,6 +30,29 @@ import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
 
 type Patch = Record<string, unknown>;
+
+/** Analyzer sections owned by the Analyzers tab; hidden from this editor. */
+const PANEL_OWNED_SECTIONS = new Set([
+  "analyzers",
+  "analyzers.lizard",
+  "analyzers.duplicates",
+  "analyzers.semgrep",
+  "analyzers.astGrep",
+]);
+
+/**
+ * Normalized grouping for the remaining settings so related concerns sit
+ * together instead of a flat schema dump. Sections not listed fall under
+ * "Other" at the end (keeps new schema sections visible without a code
+ * change here).
+ */
+const CONFIG_CATEGORIES: ReadonlyArray<{ readonly label: string; readonly ids: ReadonlyArray<string> }> = [
+  {
+    label: "Indexing & search",
+    ids: ["workspace", "discovery", "embedding", "retrieval", "watcher", "reconciliation"],
+  },
+  { label: "Server & network", ids: ["daemon", "mcp", "network"] },
+];
 
 export function ConfigPage() {
   const { data, error, loading, reload } = useFetch(() => api.config(), []);
@@ -95,16 +119,36 @@ export function ConfigPage() {
     }
   };
 
+  // The per-tool analyzer sections (install / enable / rule_dirs) are now
+  // owned by the unified Analyzers panel on Admin, so they're hidden from
+  // this generic editor — a bare `enabled` toggle here was a no-op footgun
+  // (it didn't download the binary or backfill). Tuning that isn't tool
+  // provisioning (background/concurrency/timeouts, duplicates) stays here.
+  const sections = data.schema.filter((s) => !PANEL_OWNED_SECTIONS.has(s.id));
+
+  // Group the visible sections into normalized categories; anything not
+  // explicitly placed lands in a trailing "Other" group.
+  const placed = new Set(CONFIG_CATEGORIES.flatMap((c) => c.ids));
+  const categorized: ReadonlyArray<{ label: string; sections: ConfigSectionSchemaWire[] }> = [
+    ...CONFIG_CATEGORIES.map((c) => ({
+      label: c.label,
+      sections: c.ids
+        .map((id) => sections.find((s) => s.id === id))
+        .filter((s): s is ConfigSectionSchemaWire => s !== undefined),
+    })),
+    { label: "Other", sections: sections.filter((s) => !placed.has(s.id)) },
+  ].filter((g) => g.sections.length > 0);
+
   // Flat field lookup so the help panel can resolve the active field +
   // its section regardless of which section it lives in.
   const fieldIndex = new Map<
     string,
     { field: ConfigFieldSchemaWire; section: ConfigSectionSchemaWire }
   >();
-  for (const section of data.schema) {
+  for (const section of sections) {
     for (const f of section.fields) fieldIndex.set(f.key, { field: f, section });
   }
-  const activeFieldKey = activeKey ?? data.schema[0]?.fields[0]?.key ?? null;
+  const activeFieldKey = activeKey ?? sections[0]?.fields[0]?.key ?? null;
   const active = activeFieldKey !== null ? (fieldIndex.get(activeFieldKey) ?? null) : null;
 
   return (
@@ -138,21 +182,29 @@ export function ConfigPage() {
 
       <div className="config-layout">
         <div className="config-main">
-          {data.schema.map((section) => (
-            <SectionEditor
-              key={section.id}
-              section={section}
-              data={data}
-              patch={patch}
-              onChange={setField}
-              activeKey={activeFieldKey}
-              onActivate={setActiveKey}
-            />
+          {categorized.map((group) => (
+            <div key={group.label}>
+              <p className="config-category">{group.label}</p>
+              {group.sections.map((section) => (
+                <SectionEditor
+                  key={section.id}
+                  section={section}
+                  data={data}
+                  patch={patch}
+                  onChange={setField}
+                  activeKey={activeFieldKey}
+                  onActivate={setActiveKey}
+                />
+              ))}
+            </div>
           ))}
 
           <p className="dim" style={{ fontSize: "0.85rem", marginTop: "var(--space-5)" }}>
-            Filtering rules (gitignore-style) live in{" "}
-            <code>~/.loctx/config_overrides/*.yaml</code> and aren't edited here.
+            Analyzers (lizard, semgrep, ast-grep, duplicate detection) — install, enable, tune, rule
+            dirs and reindex — are managed on the <Link to="/analyzers">Analyzers</Link> tab.
+            Embedding models are switched on <Link to="/models">Models</Link>. Filtering rules
+            (gitignore-style) live in <code>~/.loctx/config_overrides/*.yaml</code> and aren't
+            edited here.
           </p>
         </div>
 

@@ -1,51 +1,45 @@
 /**
- * Theme selection. Themes swap CSS custom-property token sets via
- * `data-theme` on <html>, persist to localStorage, and are applied before
- * first paint (see initAppearance in main.tsx) so there's no flash.
+ * Light/dark mode (TailAdmin spike). A single `.dark` class on <html>
+ * flips the token set; the choice persists to localStorage and is applied
+ * before first paint (see initAppearance in main.tsx) so there's no flash.
  *
- * Adding a theme = one entry here + one `[data-theme="id"]` block + one
- * `.swatch-id` in styles.css. Nothing else references the ids.
- *
- * (The layout is fixed: a left sidebar on desktop with a responsive top
- * strip on narrow screens — handled purely in CSS, no toggle.)
+ * (The previous multi-theme `data-theme` system was replaced by TailAdmin's
+ * two-mode convention for this spike.)
  */
 
-export interface AppearanceOption {
-  readonly id: string;
-  readonly label: string;
-  readonly hint: string;
+export type ColorMode = "light" | "dark";
+
+const MODE_KEY = "loctx.mode";
+
+export function getMode(): ColorMode {
+  try {
+    const v = localStorage.getItem(MODE_KEY);
+    if (v === "light" || v === "dark") return v;
+  } catch {
+    // storage disabled — fall through to system preference
+  }
+  if (typeof window !== "undefined" && window.matchMedia) {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return "light";
 }
 
-export const THEMES: ReadonlyArray<AppearanceOption> = [
-  { id: "aurora", label: "Aurora", hint: "Apple light · system blue, airy" },
-  { id: "paper", label: "Paper", hint: "Warm editorial · serif, terracotta" },
-  { id: "graphite", label: "Graphite", hint: "Apple dark" },
-  { id: "midnight", label: "Midnight", hint: "Deep slate · violet accent" },
-  { id: "terminal", label: "Terminal", hint: "Monospace · green on black" },
-];
-
-const THEME_KEY = "loctx.theme";
-const DEFAULT_THEME = "aurora";
-
-export function getTheme(): string {
+export function applyMode(mode: ColorMode): void {
+  document.documentElement.classList.toggle("dark", mode === "dark");
   try {
-    const v = localStorage.getItem(THEME_KEY);
-    return v !== null && THEMES.some((o) => o.id === v) ? v : DEFAULT_THEME;
+    localStorage.setItem(MODE_KEY, mode);
   } catch {
-    return DEFAULT_THEME;
+    // private mode / storage disabled — the class still applies for the session
   }
 }
 
-export function applyTheme(id: string): void {
-  document.documentElement.dataset["theme"] = id;
-  try {
-    localStorage.setItem(THEME_KEY, id);
-  } catch {
-    // private mode / storage disabled — the data attribute still applies for the session
-  }
+export function toggleMode(): ColorMode {
+  const next: ColorMode = getMode() === "dark" ? "light" : "dark";
+  applyMode(next);
+  return next;
 }
 
-/** Apply the persisted theme to <html> before React renders. */
+/** Apply the persisted mode to <html> before React renders. */
 export function initAppearance(): void {
-  document.documentElement.dataset["theme"] = getTheme();
+  document.documentElement.classList.toggle("dark", getMode() === "dark");
 }

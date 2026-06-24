@@ -45,6 +45,24 @@ Concrete heuristics:
   name. Don't import FontAwesome icons elsewhere.
 - Imperative state APIs (e.g. `confirm()`) stay rare. When the only
   user-side API is a callback, prefer a declarative component.
+- Styling: the web UI uses **Tailwind v4** (`@tailwindcss/vite`) with a
+  TailAdmin-flavoured token set defined in `client/styles.css`
+  (`@theme` — brand `#465fff`, gray scale, Outfit font). The legacy
+  `--*` CSS custom properties are **kept and remapped** onto that
+  palette, so the shared component classes (`.card`, `.btn`,
+  `.data-table`, …) and the inline `var(--…)` styles scattered through
+  the routes all re-skin from one place. Light/dark is a `.dark` class
+  on `<html>` (`lib/appearance.ts`), not multiple `data-theme`s. The
+  app shell (fixed sidebar + sticky header, content panel) lives in
+  `app.tsx`. Use Tailwind utilities for new layout; reuse the shared
+  component classes for chrome rather than re-styling from scratch.
+- Admin IA: workspace settings are split into concern tabs
+  (`Admin` ops, `Config`, `Analyzers`, `Models`, `Doctor`, `Logs`).
+  **All analyzer provisioning** — install/enable/disable, rule dirs,
+  reindex, duplicate detection, engine tuning — lives on the
+  `Analyzers` tab (`routes/analyzers.tsx`), not the Config page. Keep
+  a concern in one place; don't re-split enable/install/config across
+  screens.
 
 ### When in doubt, keep it local
 

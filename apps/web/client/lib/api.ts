@@ -23,6 +23,7 @@ import type {
   SearchPayload,
   SearchRequestBody,
   StatusPayload,
+  ToolsBackfillResponse,
   ToolsInstallResponse,
   ToolsStatusPayload,
   WatchersPayload,
@@ -67,6 +68,8 @@ export const api = {
     });
     return (await r.json()) as ToolsInstallResponse;
   },
+  toolsBackfill: (tool: string) =>
+    postJson<ToolsBackfillResponse>("/api/tools/backfill", { tool }),
   agentSetup: (path: string) =>
     getJson<AgentSetupPayload>(`/api/agent-setup?path=${encodeURIComponent(path)}`),
   agentSetupApply: (path: string, agents: ReadonlyArray<string>) =>
