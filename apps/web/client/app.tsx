@@ -293,10 +293,13 @@ function PageTitle() {
   const match = ROUTE_LABELS.find(
     (r) => pathname === r.prefix || pathname.startsWith(`${r.prefix}/`),
   );
+  // A breadcrumb-style label, deliberately NOT a heading — each route
+  // renders its own <h1>, so a second heading here would duplicate the
+  // document title (a11y) and break heading-based selectors.
   return (
-    <h1 className="truncate text-base font-semibold text-[var(--text)]">
+    <div className="truncate text-base font-semibold text-[var(--text)]" aria-hidden="true">
       {match?.label ?? "Dashboard"}
-    </h1>
+    </div>
   );
 }
 

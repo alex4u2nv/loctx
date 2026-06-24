@@ -41,7 +41,8 @@ test.describe("loctx admin UI", () => {
     await expect(page.getByRole("heading", { name: "Search" })).toBeVisible();
 
     await page.getByLabel("query").fill("authentication");
-    await page.getByRole("button", { name: "Search" }).click();
+    // Scope to the content area — the sidebar has a "Search" nav-group toggle.
+    await page.getByRole("main").getByRole("button", { name: "Search" }).click();
 
     await expect(page.getByText(/result/i).first()).toBeVisible();
     await expect(page.getByText("src/auth.ts").first()).toBeVisible();
@@ -49,7 +50,7 @@ test.describe("loctx admin UI", () => {
 
   test("scope label reflects project when search is scoped to a path", async ({ page }) => {
     await page.goto(`/search?q=rate+limit&path=${encodeURIComponent("/tmp/loctx-pw-fixture/demo")}`);
-    await page.getByRole("button", { name: "Search" }).click();
+    await page.getByRole("main").getByRole("button", { name: "Search" }).click();
     await expect(page.getByText(/scope:/i).first()).toBeVisible();
     await expect(page.getByText("demo").first()).toBeVisible();
   });
