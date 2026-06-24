@@ -141,10 +141,8 @@ function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () => void }
       }`}
       style={{ borderColor: "var(--border)" }}
     >
-      <div className="flex h-16 items-center gap-2 px-6">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-500 text-sm font-bold text-white">
-          lx
-        </span>
+      <div className="flex h-16 items-center gap-2.5 px-6">
+        <img src="/logo.png" alt="loctx" className="h-9 w-9 rounded-lg" />
         <span className="text-lg font-semibold tracking-tight text-[var(--text)]">loctx</span>
       </div>
       <nav className="flex-1 overflow-y-auto px-4 py-2">
