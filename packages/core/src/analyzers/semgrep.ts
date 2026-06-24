@@ -53,6 +53,11 @@ export async function detectSemgrep(command = "semgrep"): Promise<string | null>
 export interface RunSemgrepOptions {
   readonly command: string;
   readonly ruleDirs: ReadonlyArray<string>;
+  /**
+   * Registry fallback (e.g. `p/default`) used when `ruleDirs` is empty, so
+   * semgrep produces findings with zero local config. Blank = no fallback.
+   */
+  readonly registryConfig?: string;
   readonly maxFindingsPerFile: number;
   readonly timeoutMs?: number;
 }
@@ -62,7 +67,12 @@ export async function runSemgrep(
   opts: RunSemgrepOptions,
   signal?: AbortSignal,
 ): Promise<RulePackFileResult> {
-  if (opts.ruleDirs.length === 0) {
+  // Use explicit rule dirs when configured; otherwise fall back to the
+  // registry pack (curated community rules) so "installed, no rules" still
+  // produces findings. Only inert when both are empty.
+  const configs =
+    opts.ruleDirs.length > 0 ? opts.ruleDirs : opts.registryConfig ? [opts.registryConfig] : [];
+  if (configs.length === 0) {
     return Object.freeze({
       analyzer: "semgrep",
       toolVersion: "",
@@ -70,8 +80,8 @@ export async function runSemgrep(
     });
   }
   const args = ["--json", "--quiet", "--metrics=off"];
-  for (const dir of opts.ruleDirs) {
-    args.push("--config", dir);
+  for (const cfg of configs) {
+    args.push("--config", cfg);
   }
   args.push(filePath);
   // `signal` wires the queue's per-task abort through to the child

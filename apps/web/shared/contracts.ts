@@ -521,8 +521,9 @@ export interface ToolStatus {
   /** Where loctx would install it (its managed venv / bin path). */
   readonly managedPath: string;
   /**
-   * True for rule-pack tools (semgrep, ast-grep) with no rule dirs
-   * configured — installed, but won't run until rules are pointed at it.
+   * True for a rule-pack tool that has no rules AND no registry fallback —
+   * installed but inert. semgrep with a `registryConfig` is NOT needsRules
+   * (it runs the community pack); ast-grep with no rules always is.
    */
   readonly needsRules: boolean;
   /**
@@ -530,6 +531,11 @@ export interface ToolStatus {
    * editable inline on the Analyzers panel. `null` for lizard (no rules).
    */
   readonly ruleDirs: ReadonlyArray<string> | null;
+  /**
+   * Registry fallback ruleset used when `ruleDirs` is empty (semgrep, e.g.
+   * `p/default`). `null` for tools without a registry (lizard, ast-grep).
+   */
+  readonly registryConfig: string | null;
 }
 
 export interface ToolsStatusPayload {

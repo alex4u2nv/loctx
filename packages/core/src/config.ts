@@ -132,6 +132,14 @@ export interface RulePackAnalyzerConfig {
   readonly command: string;
   /** Rule directories or files passed to the runner. Empty disables. */
   readonly ruleDirs: ReadonlyArray<string>;
+  /**
+   * Fallback ruleset used when `ruleDirs` is empty — a semgrep registry
+   * reference like `p/default` (a curated community pack) so semgrep works
+   * with zero local config. Blank disables the fallback (the analyzer is
+   * then inert without `ruleDirs`). semgrep only; ast-grep has no registry
+   * and ignores this.
+   */
+  readonly registryConfig: string;
   /** Cap on findings persisted per file. Excess findings are dropped. */
   readonly maxFindingsPerFile: number;
 }
@@ -277,12 +285,17 @@ const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
     enabled: true,
     command: "semgrep",
     ruleDirs: Object.freeze<string[]>([]),
+    // Curated community pack — semgrep runs this when no local ruleDirs are
+    // set, so it produces findings out of the box (needs network to fetch).
+    registryConfig: "p/default",
     maxFindingsPerFile: 50,
   }),
   astGrep: Object.freeze({
     enabled: true,
     command: "ast-grep",
     ruleDirs: Object.freeze<string[]>([]),
+    // ast-grep has no rule registry — bring-your-own rules only.
+    registryConfig: "",
     maxFindingsPerFile: 50,
   }),
 });
@@ -680,6 +693,12 @@ function mergeAnalyzers(
           ...DEFAULT_ANALYZERS.semgrep.ruleDirs,
         ]),
       ),
+      registryConfig: semgrepPick(
+        "analyzers.semgrep.registryConfig",
+        "registry_config",
+        STR,
+        DEFAULT_ANALYZERS.semgrep.registryConfig,
+      ),
       maxFindingsPerFile: semgrepPick(
         "analyzers.semgrep.maxFindingsPerFile",
         "max_findings_per_file",
@@ -705,6 +724,8 @@ function mergeAnalyzers(
           ...DEFAULT_ANALYZERS.astGrep.ruleDirs,
         ]),
       ),
+      // ast-grep has no registry; always blank (kept for type parity).
+      registryConfig: DEFAULT_ANALYZERS.astGrep.registryConfig,
       maxFindingsPerFile: astGrepPick(
         "analyzers.astGrep.maxFindingsPerFile",
         "max_findings_per_file",
