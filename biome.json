@@ -4,6 +4,7 @@
     "includes": [
       "**/packages/**/*/src/**/*",
       "**/packages/**/*/tests/**/*",
+      "**/packages/**/*/test/**/*",
       "**/apps/cli/src/**/*",
       "**/apps/mcp/src/**/*",
       "**/apps/web/app/**/*",
