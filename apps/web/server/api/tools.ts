@@ -129,20 +129,26 @@ export function mountTools(
       return c.json({ ok: false, tool: "?", error: "invalid JSON body" } satisfies ToolsBackfillResponse, 400);
     }
     const requested = (body as { tool?: unknown } | null)?.tool;
-    const spec = SPECS.find((s) => s.name === requested);
-    if (spec === undefined) {
+    // Backfillable analyzers — the binary tools plus the pure-JS ones
+    // (duplicates, definitions) that have no install step.
+    const BACKFILLABLE = new Set([...TOOL_NAMES, "duplicates", "definitions"]);
+    if (typeof requested !== "string" || !BACKFILLABLE.has(requested)) {
       return c.json(
-        { ok: false, tool: String(requested), error: `unknown tool; expected one of ${TOOL_NAMES.join(", ")}` } satisfies ToolsBackfillResponse,
+        {
+          ok: false,
+          tool: String(requested),
+          error: `unknown analyzer; expected one of ${[...BACKFILLABLE].join(", ")}`,
+        } satisfies ToolsBackfillResponse,
         400,
       );
     }
     try {
       const rt = await getRuntime();
-      const { enqueued } = await rt.backfillAnalyzers([spec.name]);
-      return c.json({ ok: true, tool: spec.name, backfilled: enqueued } satisfies ToolsBackfillResponse);
+      const { enqueued } = await rt.backfillAnalyzers([requested]);
+      return c.json({ ok: true, tool: requested, backfilled: enqueued } satisfies ToolsBackfillResponse);
     } catch (err) {
       return c.json(
-        { ok: false, tool: spec.name, error: (err as Error).message } satisfies ToolsBackfillResponse,
+        { ok: false, tool: requested, error: (err as Error).message } satisfies ToolsBackfillResponse,
         503,
       );
     }
