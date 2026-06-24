@@ -6,6 +6,15 @@ export {
   runAstGrep,
 } from "./ast-grep.js";
 export {
+  DEFINITIONS_VERSION,
+  type DefinitionSchemaSpec,
+  extractFrontmatter,
+  OKF_V01_SCHEMA,
+  type RunDefinitionsOptions,
+  runDefinitions,
+  validateDefinition,
+} from "./definitions.js";
+export {
   computeDuplicateWindows,
   DUPLICATES_VERSION,
   type DuplicatesOptions,
