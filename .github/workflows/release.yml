@@ -25,8 +25,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macos-14 = arm64, macos-13 = x64, ubuntu-latest = x64.
-        os: [macos-14, macos-13, ubuntu-latest]
+        # macos-14 = arm64, ubuntu-latest = x64. macos-13 (Intel x64) is
+        # dropped: GitHub's hosted macOS-Intel runners are scarce/deprecating
+        # and those jobs queued for hours, stalling every release. Apple
+        # Silicon + Linux cover the supported set; Intel Mac is unsupported.
+        os: [macos-14, ubuntu-latest]
         # 22/24 LTS + 25/26 current. CI has a toolchain, so it builds native
         # deps for ABIs that lack prebuilds; users get a tarball per Node major.
         node: [22, 24, 25, 26]
