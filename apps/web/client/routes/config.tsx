@@ -38,6 +38,7 @@ const PANEL_OWNED_SECTIONS = new Set([
   "analyzers.duplicates",
   "analyzers.semgrep",
   "analyzers.astGrep",
+  "analyzers.definitions",
 ]);
 
 /**

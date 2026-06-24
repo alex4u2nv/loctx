@@ -42,12 +42,25 @@ export function AnalyzersPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [log, setLog] = useState<{ tool: string; ok: boolean; text: string } | null>(null);
   const [dirEdits, setDirEdits] = useState<Record<string, string>>({});
+  const [listEdits, setListEdits] = useState<Record<string, string>>({});
 
   const num = (key: string, dflt: number): number => {
     const v = cfg.data?.effective?.[key];
     return typeof v === "number" ? v : dflt;
   };
   const bool = (key: string): boolean => cfg.data?.effective?.[key] === true;
+  const strList = (key: string): string[] => {
+    const v = cfg.data?.effective?.[key];
+    return Array.isArray(v) ? (v as string[]) : [];
+  };
+  // Save a comma/newline-separated list field as a string[] config value.
+  const saveList = (key: string, note?: string): void => {
+    const items = (listEdits[key] ?? "")
+      .split(/[\n,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    void save(key, items, note);
+  };
 
   // Write one config field, then refresh. Used by every toggle / number.
   const save = async (key: string, value: unknown, note?: string): Promise<void> => {
@@ -270,6 +283,81 @@ export function AnalyzersPage() {
             />
           </SettingRow>
         </div>
+
+        {/* Definitions (agent / skill / knowledge schema validation) */}
+        <div className="card">
+          <p className="card-section-title">Definitions</p>
+          <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
+            Validates agent / skill / knowledge markdown frontmatter against a schema. Ships with{" "}
+            <strong>Open Knowledge Format (OKF) v0.1</strong> as the zero-config default; layer your
+            own schemas by path or GitHub URL. No binary to install.
+          </p>
+          <SettingRow label="Enabled" help="Validate matching .md files during analysis.">
+            <Switch
+              checked={bool("analyzers.definitions.enabled")}
+              disabled={busy !== null}
+              onChange={(v) =>
+                void save("analyzers.definitions.enabled", v, v ? "Definitions on." : "Definitions off.")
+              }
+            />
+          </SettingRow>
+          <SettingRow label="OKF v0.1 default" help="Apply the bundled Open Knowledge Format schema.">
+            <Switch
+              checked={bool("analyzers.definitions.okfDefault")}
+              disabled={busy !== null}
+              onChange={(v) => void save("analyzers.definitions.okfDefault", v)}
+            />
+          </SettingRow>
+          <SettingRow
+            label="Require frontmatter"
+            help="Flag matched files that have no frontmatter block at all."
+          >
+            <Switch
+              checked={bool("analyzers.definitions.requireFrontmatter")}
+              disabled={busy !== null}
+              onChange={(v) => void save("analyzers.definitions.requireFrontmatter", v)}
+            />
+          </SettingRow>
+          <ListField
+            label="File globs"
+            help="Project-relative globs selecting which .md files are definitions."
+            placeholder=".claude/skills/**/*.md, AGENTS.md, **/SKILL.md"
+            value={listEdits["analyzers.definitions.globs"] ?? strList("analyzers.definitions.globs").join(", ")}
+            disabled={busy !== null}
+            onChange={(v) => setListEdits((p) => ({ ...p, "analyzers.definitions.globs": v }))}
+            onSave={() => saveList("analyzers.definitions.globs", "Globs saved.")}
+          />
+          <ListField
+            label="Custom schemas"
+            help="Extra JSON Schemas, by local path or GitHub URL (layered on top of OKF). URLs are fetched server-side."
+            placeholder="./schemas/agent.json, https://raw.githubusercontent.com/org/repo/main/skill.schema.json"
+            value={
+              listEdits["analyzers.definitions.schemas"] ?? strList("analyzers.definitions.schemas").join(", ")
+            }
+            disabled={busy !== null}
+            onChange={(v) => setListEdits((p) => ({ ...p, "analyzers.definitions.schemas": v }))}
+            onSave={() => saveList("analyzers.definitions.schemas", "Schemas saved.")}
+          />
+          <SettingRow label="Max findings/file" help="Cap findings persisted per file.">
+            <NumField
+              value={num("analyzers.definitions.maxFindingsPerFile", 50)}
+              min={1}
+              max={10000}
+              disabled={busy !== null}
+              onSave={(v) => void save("analyzers.definitions.maxFindingsPerFile", v)}
+            />
+          </SettingRow>
+          <p style={{ marginTop: "var(--space-3)" }}>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy !== null}
+              onClick={() => void reindex("definitions")}
+            >
+              <Icon name="refresh" animate={busy === "definitions"} /> reindex definitions
+            </button>
+          </p>
+        </div>
       </div>
     </section>
   );
@@ -410,6 +498,53 @@ function ToolBlock({
 }
 
 // ---- small controls ----------------------------------------------------
+
+/** A comma/newline-separated list field (globs, schema sources) + save. */
+function ListField({
+  label,
+  help,
+  placeholder,
+  value,
+  disabled,
+  onChange,
+  onSave,
+}: {
+  label: string;
+  help: string;
+  placeholder: string;
+  value: string;
+  disabled: boolean;
+  onChange: (v: string) => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="setting-row" style={{ alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div>
+        <div className="setting-row-label">{label}</div>
+        <p className="setting-row-help">{help}</p>
+      </div>
+      <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flex: "1 1 22rem" }}>
+        <input
+          className="input"
+          placeholder={placeholder}
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          style={{ fontSize: "0.8125rem" }}
+        />
+        <button
+          type="button"
+          className="btn"
+          disabled={disabled}
+          onClick={onSave}
+          style={{ whiteSpace: "nowrap" }}
+        >
+          save
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function SettingRow({
   label,
