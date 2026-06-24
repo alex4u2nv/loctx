@@ -4,6 +4,7 @@ import {
   extractFrontmatter,
   extractMarkdownLinks,
   findBrokenLinks,
+  inferDefinitionSchema,
   matchesDefinitionGlobs,
   OKF_V01_SCHEMA,
   resolveDefinitionSchemas,
@@ -163,5 +164,39 @@ describe("cross-link integrity", () => {
   it("strips anchors from relative targets before resolving", () => {
     const exists = (p: string): boolean => p.endsWith("/doc.md");
     expect(findBrokenLinks("[x](./doc.md#section)", "/p", exists)).toHaveLength(0);
+  });
+});
+
+describe("inferDefinitionSchema", () => {
+  it("requires only fields present in every sample, types the rest", () => {
+    const schema = inferDefinitionSchema([
+      { type: "Skill", title: "a", tags: ["x"] },
+      { type: "Agent", title: "b" },
+    ]) as {
+      required: string[];
+      properties: Record<string, { type?: string }>;
+      additionalProperties: boolean;
+    };
+    expect(schema.required.sort()).toEqual(["title", "type"]);
+    expect(schema.properties.type).toEqual({ type: "string" });
+    expect(schema.properties.tags).toEqual({ type: "array" });
+    expect(schema.additionalProperties).toBe(true);
+  });
+
+  it("leaves a field unconstrained when its type conflicts across samples", () => {
+    const schema = inferDefinitionSchema([{ v: "str" }, { v: 5 }]) as {
+      properties: Record<string, { type?: string }>;
+    };
+    expect(schema.properties.v).toEqual({});
+  });
+
+  it("the generated schema is itself a compilable JSON Schema", () => {
+    const schema = inferDefinitionSchema([{ type: "Skill", title: "a" }]);
+    // Used as a validator immediately — must validate a conforming object.
+    const out = validateDefinition("---\ntype: Skill\ntitle: a\n---\n", {
+      schemas: [{ id: "gen", schema }],
+      maxFindingsPerFile: 50,
+    });
+    expect(out.findings).toHaveLength(0);
   });
 });

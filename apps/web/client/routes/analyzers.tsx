@@ -43,6 +43,7 @@ export function AnalyzersPage() {
   const [log, setLog] = useState<{ tool: string; ok: boolean; text: string } | null>(null);
   const [dirEdits, setDirEdits] = useState<Record<string, string>>({});
   const [listEdits, setListEdits] = useState<Record<string, string>>({});
+  const [schemaUrl, setSchemaUrl] = useState("");
 
   const num = (key: string, dflt: number): number => {
     const v = cfg.data?.effective?.[key];
@@ -105,6 +106,48 @@ export function AnalyzersPage() {
       setMsg(r.ok ? `${name} · reindex enqueued ${r.backfilled}` : `${name}: ${r.error}`);
     } catch (e) {
       setMsg(`${name}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Append a stored schema path to analyzers.definitions.schemas + save.
+  const addSchemaPath = (path: string): void => {
+    const current = strList("analyzers.definitions.schemas");
+    if (current.includes(path)) {
+      setMsg("Schema already added.");
+      return;
+    }
+    void save("analyzers.definitions.schemas", [...current, path], `Added schema: ${path}`);
+  };
+
+  const generateSchema = async (): Promise<void> => {
+    setBusy("definitions");
+    setMsg(null);
+    try {
+      const r = await api.definitionsGenerateSchema();
+      if (r.ok) {
+        setMsg(`Generated a schema from ${r.scanned ?? 0} definition file(s).`);
+        addSchemaPath(r.path);
+      } else {
+        setMsg(`Generate: ${r.error}`);
+      }
+    } catch (e) {
+      setMsg(`Generate: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const addSchemaFrom = async (body: { url?: string; content?: string; name?: string }): Promise<void> => {
+    setBusy("definitions");
+    setMsg(null);
+    try {
+      const r = await api.definitionsAddSchema(body);
+      if (r.ok) addSchemaPath(r.path);
+      else setMsg(`Schema: ${r.error}`);
+    } catch (e) {
+      setMsg(`Schema: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(null);
     }
@@ -348,6 +391,60 @@ export function AnalyzersPage() {
             onChange={(v) => setListEdits((p) => ({ ...p, "analyzers.definitions.schemas": v }))}
             onSave={() => saveList("analyzers.definitions.schemas", "Schemas saved.")}
           />
+          {/* Add a schema from URL / upload / generate — each stores a managed
+              file and appends its path to the list above. */}
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--space-2)",
+              flexWrap: "wrap",
+              alignItems: "center",
+              padding: "var(--space-2) 0",
+            }}
+          >
+            <input
+              className="input"
+              placeholder="https://…/schema.json"
+              value={schemaUrl}
+              disabled={busy !== null}
+              onChange={(e) => setSchemaUrl(e.target.value)}
+              style={{ fontSize: "0.8125rem", flex: "1 1 16rem" }}
+            />
+            <button
+              type="button"
+              className="btn"
+              disabled={busy !== null || schemaUrl.trim() === ""}
+              onClick={() => {
+                void addSchemaFrom({ url: schemaUrl.trim() });
+                setSchemaUrl("");
+              }}
+            >
+              add from URL
+            </button>
+            <label className="btn" style={{ cursor: "pointer" }}>
+              upload schema
+              <input
+                type="file"
+                accept=".json,.yaml,.yml"
+                hidden
+                disabled={busy !== null}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file)
+                    void file.text().then((content) => addSchemaFrom({ content, name: file.name }));
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy !== null}
+              onClick={() => void generateSchema()}
+            >
+              <Icon name="index" /> generate from my files
+            </button>
+          </div>
           <SettingRow label="Max findings/file" help="Cap findings persisted per file.">
             <NumField
               value={num("analyzers.definitions.maxFindingsPerFile", 50)}

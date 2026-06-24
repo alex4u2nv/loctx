@@ -9,6 +9,7 @@ import type { Hono } from "hono";
 import { createRebuildTracker } from "../lib/rebuild-tracker.js";
 import { mountAgentSetup } from "./agent-setup.js";
 import { mountConfig } from "./config.js";
+import { mountDefinitions } from "./definitions.js";
 import { mountDoctor } from "./doctor.js";
 import { mountEvents } from "./events.js";
 import { mountFindLiteral } from "./find-literal.js";
@@ -49,4 +50,5 @@ export function mountApi(
   mountMcpTools(app);
   mountLogs(app, config, getRuntime);
   mountAgentSetup(app, config, getRuntime);
+  mountDefinitions(app, config, getRuntime);
 }

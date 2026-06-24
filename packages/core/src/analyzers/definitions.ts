@@ -94,6 +94,17 @@ function validatorFor(spec: DefinitionSchemaSpec): ValidateFunction {
   return compiled;
 }
 
+/** Validate that an object is a compilable JSON Schema. Returns an error
+ *  message, or null when it compiles. Used before persisting uploads. */
+export function compileDefinitionSchema(schema: Record<string, unknown>): string | null {
+  try {
+    ajv.compile(schema);
+    return null;
+  } catch (err) {
+    return (err as Error).message;
+  }
+}
+
 /** Extract the YAML frontmatter block. `null` data = no frontmatter found. */
 export function extractFrontmatter(content: string): {
   readonly data: unknown;
@@ -262,6 +273,62 @@ export function resolveDefinitionSchemas(
       return false;
     }
   });
+}
+
+function jsonSchemaType(v: unknown): string | null {
+  if (Array.isArray(v)) return "array";
+  if (v === null) return "null";
+  switch (typeof v) {
+    case "string":
+      return "string";
+    case "boolean":
+      return "boolean";
+    case "number":
+      return Number.isInteger(v) ? "integer" : "number";
+    case "object":
+      return "object";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Infer a JSON Schema from a set of existing frontmatter objects: properties
+ * = union of keys (typed by first-seen, dropped on type conflict), required =
+ * keys present in every file. A starting point the user edits, not gospel.
+ */
+export function inferDefinitionSchema(
+  frontmatters: ReadonlyArray<Record<string, unknown>>,
+  id = "generated/v1",
+): Record<string, unknown> {
+  const properties: Record<string, { type?: string }> = {};
+  const counts: Record<string, number> = {};
+  const conflicted = new Set<string>();
+  for (const fm of frontmatters) {
+    for (const [key, value] of Object.entries(fm)) {
+      counts[key] = (counts[key] ?? 0) + 1;
+      const t = jsonSchemaType(value);
+      if (conflicted.has(key)) continue;
+      const existing = properties[key];
+      if (existing === undefined) properties[key] = t === null ? {} : { type: t };
+      else if (existing.type !== t) {
+        // Mixed types across files — leave it unconstrained.
+        properties[key] = {};
+        conflicted.add(key);
+      }
+    }
+  }
+  const total = frontmatters.length;
+  const required = Object.keys(counts)
+    .filter((k) => counts[k] === total)
+    .sort();
+  return {
+    $id: id,
+    type: "object",
+    ...(required.length > 0 ? { required } : {}),
+    properties,
+    additionalProperties: true,
+  };
 }
 
 const globMatchers = new Map<ReadonlyArray<string>, (p: string) => boolean>();
