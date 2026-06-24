@@ -12,17 +12,21 @@
  */
 
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import {
   AST_GREP_VERSION,
   computeDuplicateWindows,
+  DEFINITIONS_VERSION,
   DUPLICATES_VERSION,
   detectAstGrep,
   detectLizard,
   detectSemgrep,
   EnrichmentQueue,
   LIZARD_VERSION,
+  matchesDefinitionGlobs,
+  resolveDefinitionSchemas,
   runAstGrep,
+  runDefinitions,
   runLizard,
   runSemgrep,
   SEMGREP_VERSION,
@@ -229,6 +233,31 @@ function enqueueFileAnalyzers(
     );
     enqueued++;
   }
+  if (want("definitions") && config.analyzers.definitions.enabled) {
+    const def = config.analyzers.definitions;
+    const rel = relative(project.root, absPath);
+    if (matchesDefinitionGlobs(rel, def.globs)) {
+      const schemas = resolveDefinitionSchemas(def.okfDefault, def.schemas);
+      if (schemas.length > 0) {
+        enrichments.enqueue(
+          analyzerTaskMeta({
+            fileId,
+            project,
+            analyzer: "definitions",
+            analyzerVersion: DEFINITIONS_VERSION,
+            contentSha,
+            run: () =>
+              runDefinitions(absPath, {
+                schemas,
+                maxFindingsPerFile: def.maxFindingsPerFile,
+                requireFrontmatter: def.requireFrontmatter,
+              }),
+          }),
+        );
+        enqueued++;
+      }
+    }
+  }
   return enqueued;
 }
 
@@ -271,6 +300,15 @@ function backfillSpecs(config: Config): ReadonlyArray<BackfillSpec> {
       active: a.astGrep.enabled && a.astGrep.ruleDirs.length > 0,
       command: a.astGrep.command,
       external: true,
+    },
+    {
+      name: "definitions",
+      version: DEFINITIONS_VERSION,
+      // Active when on with at least one schema source (OKF default or custom).
+      active:
+        a.definitions.enabled && (a.definitions.okfDefault || a.definitions.schemas.length > 0),
+      command: undefined,
+      external: false,
     },
   ];
 }

@@ -17,9 +17,12 @@
  * a separate pass, not schema validation.
  */
 
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { sep } from "node:path";
 import { Ajv, type ErrorObject, type ValidateFunction } from "ajv";
 import addFormatsModule from "ajv-formats";
+import picomatch from "picomatch";
 import { parse as parseYaml } from "yaml";
 import { capFindings, type RulePackFileResult, type RulePackFinding } from "./rule-pack.js";
 
@@ -203,6 +206,74 @@ function result(findings: RulePackFinding[], cap: number): RulePackFileResult {
     toolVersion: `okf-v0.1+ajv`,
     findings: Object.freeze(capFindings(findings, cap)),
   });
+}
+
+// ---- schema resolution + file selection (pipeline helpers) -------------
+
+const fileSchemaCache = new Map<string, DefinitionSchemaSpec | null>();
+
+/** Load a JSON-Schema file (JSON or YAML) as a DefinitionSchemaSpec. */
+export function loadSchemaFile(path: string): DefinitionSchemaSpec | null {
+  const cached = fileSchemaCache.get(path);
+  if (cached !== undefined) return cached;
+  let spec: DefinitionSchemaSpec | null = null;
+  try {
+    const raw = readFileSync(path, "utf8");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = parseYaml(raw);
+    }
+    if (parsed !== null && typeof parsed === "object") {
+      spec = { id: path, schema: parsed as Record<string, unknown> };
+    }
+  } catch {
+    spec = null;
+  }
+  fileSchemaCache.set(path, spec);
+  return spec;
+}
+
+/**
+ * Resolve the active schema set: the bundled OKF default (optional) plus any
+ * local schema files. URL sources are skipped here — the web layer fetches +
+ * caches those to a local path first. Schemas that don't compile are dropped
+ * so one bad file can't break the analyzer.
+ */
+export function resolveDefinitionSchemas(
+  okfDefault: boolean,
+  sources: ReadonlyArray<string>,
+): DefinitionSchemaSpec[] {
+  const specs: DefinitionSchemaSpec[] = [];
+  if (okfDefault) specs.push(OKF_V01_SCHEMA);
+  for (const src of sources) {
+    if (/^https?:\/\//i.test(src)) continue;
+    const spec = loadSchemaFile(src);
+    if (spec !== null) specs.push(spec);
+  }
+  return specs.filter((s) => {
+    try {
+      validatorFor(s);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+const globMatchers = new Map<ReadonlyArray<string>, (p: string) => boolean>();
+
+/** True when a project-relative path matches any of the definition globs. */
+export function matchesDefinitionGlobs(relPath: string, globs: ReadonlyArray<string>): boolean {
+  if (globs.length === 0) return false;
+  let match = globMatchers.get(globs);
+  if (match === undefined) {
+    match = picomatch([...globs], { dot: true });
+    globMatchers.set(globs, match);
+  }
+  // Normalize Windows separators so globs (always "/") match.
+  return match(relPath.split(sep).join("/"));
 }
 
 /** Read a definition file and validate it. Mirrors the other analyzers. */

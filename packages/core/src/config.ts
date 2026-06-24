@@ -102,6 +102,28 @@ export interface AnalyzerConfig {
   readonly semgrep: RulePackAnalyzerConfig;
   /** ast-grep rule-pack analyzer (#64). External binary, opt-in. */
   readonly astGrep: RulePackAnalyzerConfig;
+  /** Definition validator (#okf) — schema-checks agent/skill/knowledge .md. */
+  readonly definitions: DefinitionsAnalyzerConfig;
+}
+
+/**
+ * Validates the YAML frontmatter of markdown "definition" files (agents,
+ * skills, OKF concept docs) against JSON Schemas. No external binary — pure
+ * ajv. The bundled OKF v0.1 default needs no setup.
+ */
+export interface DefinitionsAnalyzerConfig {
+  /** Opt-in like the others; gated by `background_enabled`. */
+  readonly enabled: boolean;
+  /** Apply the bundled OKF v0.1 schema in addition to any custom schemas. */
+  readonly okfDefault: boolean;
+  /** Project-relative globs selecting which .md files are "definitions". */
+  readonly globs: ReadonlyArray<string>;
+  /** Extra JSON Schema sources (local paths; URLs handled by the UI layer). */
+  readonly schemas: ReadonlyArray<string>;
+  /** When true, a matched file with no frontmatter at all is an error. */
+  readonly requireFrontmatter: boolean;
+  /** Cap on findings persisted per file. */
+  readonly maxFindingsPerFile: number;
 }
 
 export interface LizardAnalyzerConfig {
@@ -296,6 +318,22 @@ const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
     ruleDirs: Object.freeze<string[]>([]),
     // ast-grep has no rule registry — bring-your-own rules only.
     registryConfig: "",
+    maxFindingsPerFile: 50,
+  }),
+  definitions: Object.freeze({
+    enabled: true,
+    okfDefault: true,
+    // Conventional agent/skill/knowledge definition files — not generic docs.
+    globs: Object.freeze<string[]>([
+      ".claude/skills/**/*.md",
+      ".claude/agents/**/*.md",
+      ".cursor/rules/**/*.md",
+      "**/SKILL.md",
+      "AGENTS.md",
+      "**/*.okf.md",
+    ]),
+    schemas: Object.freeze<string[]>([]),
+    requireFrontmatter: false,
     maxFindingsPerFile: 50,
   }),
 });
@@ -618,6 +656,7 @@ function mergeAnalyzers(
   const lizardPick = makePicker(sectionRecord(gloA, "lizard", "<global>"), sources);
   const dupPick = makePicker(sectionRecord(gloA, "duplicates", "<global>"), sources);
   const semgrepPick = makePicker(sectionRecord(gloA, "semgrep", "<global>"), sources);
+  const defPick = makePicker(sectionRecord(gloA, "definitions", "<global>"), sources);
   const astGrepPick = makePicker(
     sectionRecord(gloA, "astGrep", "<global>") ?? sectionRecord(gloA, "ast_grep", "<global>"),
     sources,
@@ -731,6 +770,42 @@ function mergeAnalyzers(
         "max_findings_per_file",
         INT_NON_NEG,
         DEFAULT_ANALYZERS.astGrep.maxFindingsPerFile,
+      ),
+    }),
+    definitions: Object.freeze({
+      enabled: defPick(
+        "analyzers.definitions.enabled",
+        "enabled",
+        BOOL,
+        DEFAULT_ANALYZERS.definitions.enabled,
+      ),
+      okfDefault: defPick(
+        "analyzers.definitions.okfDefault",
+        "okf_default",
+        BOOL,
+        DEFAULT_ANALYZERS.definitions.okfDefault,
+      ),
+      globs: Object.freeze(
+        defPick("analyzers.definitions.globs", "globs", STR_ARRAY, [
+          ...DEFAULT_ANALYZERS.definitions.globs,
+        ]),
+      ),
+      schemas: Object.freeze(
+        defPick("analyzers.definitions.schemas", "schemas", STR_ARRAY, [
+          ...DEFAULT_ANALYZERS.definitions.schemas,
+        ]),
+      ),
+      requireFrontmatter: defPick(
+        "analyzers.definitions.requireFrontmatter",
+        "require_frontmatter",
+        BOOL,
+        DEFAULT_ANALYZERS.definitions.requireFrontmatter,
+      ),
+      maxFindingsPerFile: defPick(
+        "analyzers.definitions.maxFindingsPerFile",
+        "max_findings_per_file",
+        INT_NON_NEG,
+        DEFAULT_ANALYZERS.definitions.maxFindingsPerFile,
       ),
     }),
   });

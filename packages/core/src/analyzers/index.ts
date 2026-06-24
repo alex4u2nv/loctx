@@ -9,8 +9,11 @@ export {
   DEFINITIONS_VERSION,
   type DefinitionSchemaSpec,
   extractFrontmatter,
+  loadSchemaFile,
+  matchesDefinitionGlobs,
   OKF_V01_SCHEMA,
   type RunDefinitionsOptions,
+  resolveDefinitionSchemas,
   runDefinitions,
   validateDefinition,
 } from "./definitions.js";
