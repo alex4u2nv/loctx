@@ -318,6 +318,16 @@ export function AnalyzersPage() {
               onChange={(v) => void save("analyzers.definitions.requireFrontmatter", v)}
             />
           </SettingRow>
+          <SettingRow
+            label="Check cross-links"
+            help="Flag relative markdown links that don't resolve to a file."
+          >
+            <Switch
+              checked={bool("analyzers.definitions.checkLinks")}
+              disabled={busy !== null}
+              onChange={(v) => void save("analyzers.definitions.checkLinks", v)}
+            />
+          </SettingRow>
           <ListField
             label="File globs"
             help="Project-relative globs selecting which .md files are definitions."

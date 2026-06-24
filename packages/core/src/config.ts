@@ -122,6 +122,8 @@ export interface DefinitionsAnalyzerConfig {
   readonly schemas: ReadonlyArray<string>;
   /** When true, a matched file with no frontmatter at all is an error. */
   readonly requireFrontmatter: boolean;
+  /** When true, flag relative markdown links that don't resolve to a file. */
+  readonly checkLinks: boolean;
   /** Cap on findings persisted per file. */
   readonly maxFindingsPerFile: number;
 }
@@ -334,6 +336,7 @@ const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
     ]),
     schemas: Object.freeze<string[]>([]),
     requireFrontmatter: false,
+    checkLinks: true,
     maxFindingsPerFile: 50,
   }),
 });
@@ -800,6 +803,12 @@ function mergeAnalyzers(
         "require_frontmatter",
         BOOL,
         DEFAULT_ANALYZERS.definitions.requireFrontmatter,
+      ),
+      checkLinks: defPick(
+        "analyzers.definitions.checkLinks",
+        "check_links",
+        BOOL,
+        DEFAULT_ANALYZERS.definitions.checkLinks,
       ),
       maxFindingsPerFile: defPick(
         "analyzers.definitions.maxFindingsPerFile",

@@ -499,6 +499,14 @@ export const CONFIG_SCHEMA: ReadonlyArray<SectionSchema> = Object.freeze([
         default: false,
       },
       {
+        key: "analyzers.definitions.checkLinks",
+        yamlPath: ["analyzers", "definitions", "check_links"],
+        label: "check_links",
+        help: "Flag relative markdown links in definition files that don't resolve to an existing file.",
+        type: "bool",
+        default: true,
+      },
+      {
         key: "analyzers.definitions.maxFindingsPerFile",
         yamlPath: ["analyzers", "definitions", "max_findings_per_file"],
         label: "max_findings_per_file",

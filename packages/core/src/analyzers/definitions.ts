@@ -17,9 +17,9 @@
  * a separate pass, not schema validation.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { sep } from "node:path";
+import { dirname, resolve, sep } from "node:path";
 import { Ajv, type ErrorObject, type ValidateFunction } from "ajv";
 import addFormatsModule from "ajv-formats";
 import picomatch from "picomatch";
@@ -56,6 +56,8 @@ export interface RunDefinitionsOptions {
   readonly maxFindingsPerFile: number;
   /** When true, a file with no frontmatter at all is an `error`. */
   readonly requireFrontmatter?: boolean;
+  /** When true, flag relative markdown links that don't resolve to a file. */
+  readonly checkLinks?: boolean;
 }
 
 /** Bundled OKF v0.1 — the zero-config default schema. */
@@ -276,7 +278,60 @@ export function matchesDefinitionGlobs(relPath: string, globs: ReadonlyArray<str
   return match(relPath.split(sep).join("/"));
 }
 
-/** Read a definition file and validate it. Mirrors the other analyzers. */
+// ---- cross-link integrity ----------------------------------------------
+
+/** Extract inline markdown links `[text](target)` with 1-indexed line. */
+export function extractMarkdownLinks(content: string): Array<{ target: string; line: number }> {
+  const re = /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+  const out: Array<{ target: string; line: number }> = [];
+  let m: RegExpExecArray | null = re.exec(content);
+  while (m !== null) {
+    const target = m[1];
+    if (target !== undefined) {
+      const line = content.slice(0, m.index).split(/\r?\n/).length;
+      out.push({ target, line });
+    }
+    m = re.exec(content);
+  }
+  return out;
+}
+
+function isExternalOrAnchor(target: string): boolean {
+  return /^(https?:|mailto:|tel:|\/\/|#)/i.test(target);
+}
+
+/**
+ * Find relative markdown links that don't resolve to an existing file. OKF's
+ * cross-reference convention is relative paths; a dangling one is a warning.
+ * `exists` is injected so this stays pure + testable.
+ */
+export function findBrokenLinks(
+  content: string,
+  baseDir: string,
+  exists: (path: string) => boolean,
+): RulePackFinding[] {
+  const out: RulePackFinding[] = [];
+  for (const { target, line } of extractMarkdownLinks(content)) {
+    if (isExternalOrAnchor(target)) continue;
+    const path = target.split("#")[0];
+    if (path === undefined || path === "") continue;
+    if (!exists(resolve(baseDir, path))) {
+      out.push(
+        Object.freeze({
+          ruleId: "definitions/broken-link",
+          severity: "warning",
+          message: `broken relative link: ${target}`,
+          category: "definitions",
+          lineFrom: line,
+          lineTo: line,
+        }),
+      );
+    }
+  }
+  return out;
+}
+
+/** Read a definition file, validate it, and (optionally) check its links. */
 export async function runDefinitions(
   filePath: string,
   opts: RunDefinitionsOptions,
@@ -287,5 +342,9 @@ export async function runDefinitions(
   } catch {
     return result([], opts.maxFindingsPerFile);
   }
-  return validateDefinition(content, opts);
+  const schemaFindings = validateDefinition(content, opts).findings;
+  const linkFindings = opts.checkLinks
+    ? findBrokenLinks(content, dirname(filePath), existsSync)
+    : [];
+  return result([...schemaFindings, ...linkFindings], opts.maxFindingsPerFile);
 }
