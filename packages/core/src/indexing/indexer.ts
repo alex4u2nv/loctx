@@ -4,7 +4,8 @@
 
 import { createHash } from "node:crypto";
 import { type Dirent, opendirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import { resolvedMarkdownLinks } from "../analyzers/index.js";
 import { type CodeChunk, chunkFile, detectLanguage } from "../chunking/index.js";
 import { chunkIdFor, fileIdFor } from "../discovery.js";
 import type { EmbeddingProvider } from "../embeddings/index.js";
@@ -390,6 +391,13 @@ export class ProjectIndexer {
     // to reconciliation. See #188, #193.
     await this.fileWriteMutex.runExclusive(fileId, async () => {
       this.state.replaceChunks(fileId, chunkInserts);
+      // Record the file's outbound markdown links (doc cross-link graph, #427)
+      // so authority ranking can count inbound references. Markdown only; links
+      // live in the chunk bodies. Replaced wholesale on every re-index.
+      if (/\.(md|markdown)$/i.test(relPath)) {
+        const body = chunks.map((c) => c.content).join("\n");
+        this.state.replaceFileLinks(fileId, resolvedMarkdownLinks(body, dirname(absPath)));
+      }
       await this.vectors.deleteFileChunks(project.id, relPath);
       await this.vectors.upsertChunks(embedded);
       // Stamp the file row last — this is the "commit" marker that a

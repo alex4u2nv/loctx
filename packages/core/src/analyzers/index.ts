@@ -18,6 +18,7 @@ export {
   OKF_V01_SCHEMA,
   type RunDefinitionsOptions,
   resolveDefinitionSchemas,
+  resolvedMarkdownLinks,
   runDefinitions,
   validateDefinition,
 } from "./definitions.js";

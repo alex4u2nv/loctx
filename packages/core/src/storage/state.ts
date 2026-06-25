@@ -22,7 +22,7 @@ import {
 } from "../models.js";
 import { loadQueries } from "../sql/loader.js";
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 /**
  * Raised when the on-disk schema version is newer than this build's
@@ -374,6 +374,14 @@ export class StateStore {
       this.db.exec(schemaV8);
     }
 
+    if (current < 9) {
+      const schemaV9 = QUERIES["schema_v9"];
+      if (schemaV9 === undefined) throw new Error("Missing schema_v9 in state.sql");
+      // schema_v9 adds the file_links table + indices (doc cross-link graph).
+      // All IF NOT EXISTS, safe to re-run.
+      this.db.exec(schemaV9);
+    }
+
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
@@ -523,6 +531,7 @@ export class StateStore {
       this.write("delete_chunks_fts_for_project", [id]);
       this.write("delete_chunks_for_project", [id]);
       this.write("delete_symbol_refs_for_project", [id]);
+      this.write("delete_file_links_for_project", [id]);
       this.write("delete_files_for_project", [id]);
       this.write("delete_project", [id]);
     });
@@ -543,9 +552,34 @@ export class StateStore {
       this.write("delete_chunks_fts_for_project", [id]);
       this.write("delete_chunks_for_project", [id]);
       this.write("delete_symbol_refs_for_project", [id]);
+      this.write("delete_file_links_for_project", [id]);
       this.write("delete_files_for_project", [id]);
     });
     tx();
+  }
+
+  // ---- doc cross-link graph (#427) ------------------------------------
+
+  /**
+   * Replace the outbound markdown links recorded for a file. Called on each
+   * (re-)index of a markdown file; one transaction so a file is never left
+   * with a partial link set. Targets are absolute resolved paths.
+   */
+  replaceFileLinks(
+    fileId: string,
+    links: ReadonlyArray<{ readonly toPath: string; readonly text: string }>,
+  ): void {
+    const tx = this.db.transaction(() => {
+      this.write("delete_file_links_for_file", [fileId]);
+      for (const l of links) this.write("insert_file_link", [fileId, l.toPath, l.text]);
+    });
+    tx();
+  }
+
+  /** Inbound-link count for an absolute path — distinct files that link to it. */
+  inboundCount(absPath: string): number {
+    const row = this.readOne<{ n: number }>("inbound_count_for_path", [absPath]);
+    return row?.n ?? 0;
   }
 
   // ---- files ----------------------------------------------------------

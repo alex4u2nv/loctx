@@ -368,6 +368,30 @@ function isExternalOrAnchor(target: string): boolean {
 }
 
 /**
+ * Resolve a markdown file's internal links to absolute target paths, with the
+ * link text (e.g. "Full process"). External/anchor links are skipped. Used to
+ * build the doc cross-link graph that powers authority ranking (#427).
+ */
+export function resolvedMarkdownLinks(
+  content: string,
+  baseDir: string,
+): Array<{ toPath: string; text: string }> {
+  const re = /\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+  const out: Array<{ toPath: string; text: string }> = [];
+  let m: RegExpExecArray | null = re.exec(content);
+  while (m !== null) {
+    const text = m[1] ?? "";
+    const target = m[2];
+    if (target !== undefined && !isExternalOrAnchor(target)) {
+      const path = target.split("#")[0];
+      if (path !== undefined && path !== "") out.push({ toPath: resolve(baseDir, path), text });
+    }
+    m = re.exec(content);
+  }
+  return out;
+}
+
+/**
  * Find relative markdown links that don't resolve to an existing file. OKF's
  * cross-reference convention is relative paths; a dangling one is a warning.
  * `exists` is injected so this stays pure + testable.
