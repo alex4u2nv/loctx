@@ -83,6 +83,7 @@ export function mountSearch(app: Hono, config: Config, getRuntime: () => Promise
           symbols: [...r.symbols],
           sources: [...r.sources],
           matchReasons: [...r.matchReasons],
+          referencedBy: r.referencedBy,
           coverageReason: r.coverageReason,
           enrichments: {
             lizard:

@@ -74,6 +74,9 @@ function fakeState(
     // unit suite isn't testing analyzer ranking; return empty so the
     // existing assertions stay focused on RRF + scope behavior.
     getAnalyzersByChunkIds: () => new Map(),
+    // Authority ranking (#427) queries the cross-link graph; no links in
+    // these unit fixtures, so every file has 0 inbound references.
+    inboundCount: () => 0,
     // Enrichment surfacing (lizard, etc.) reads file_enrichments via
     // getFile + getFileEnrichment. Stub them to nothing so the suite
     // doesn't have to opt in to those tables for every test.
@@ -177,6 +180,60 @@ describe("WorkspaceSearcher result enrichment", () => {
       "/tmp/alpha/src/a.ts",
       "/tmp/beta/lib/b.ts",
     ]);
+  });
+});
+
+describe("authority ranking (#427)", () => {
+  it("lifts a heavily-referenced canonical doc above a higher-scored derivative", async () => {
+    const proj = fakeProject("p1", "docs", "/tmp/docs");
+    const state = {
+      searchLexical: () => [],
+      getAnalyzersByChunkIds: () => new Map(),
+      // governance.md is linked by 10 other docs; the slide deck by none.
+      inboundCount: (p: string) => (p.endsWith("governance.md") ? 10 : 0),
+      getFile: () => null,
+      getFileEnrichment: () => null,
+      listProjects: () => [
+        {
+          id: projectId("p1"),
+          name: "docs",
+          root: "/tmp/docs",
+          lastIndexedAt: "2026-01-01T00:00:00.000Z",
+          lastReconciledAt: null,
+          active: true,
+        },
+      ],
+    } as unknown as StateStore;
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([
+        // The derivative slide ranks higher by raw similarity…
+        {
+          chunkId: "deck",
+          score: 0.9,
+          document: "approval gate slide",
+          metadata: { ...baseMeta, project_id: "p1", rel_path: "presentations/deck.md" },
+        },
+        // …the canonical process doc lower.
+        {
+          chunkId: "gov",
+          score: 0.5,
+          document: "approval gate process",
+          metadata: { ...baseMeta, project_id: "p1", rel_path: "governance.md" },
+        },
+      ]),
+      fakeEmbeddings(),
+      fakeDiscovery([proj]),
+      state,
+    );
+
+    const response = await searcher.search({ query: "approval gate" });
+    // Authority boost (10 inbound) + derivative penalty flips the order.
+    expect(response.results[0]?.relPath).toBe("governance.md");
+    expect(response.results[0]?.referencedBy).toBe(10);
+    expect(response.results[0]?.matchReasons).toContain("authoritative");
+    const deck = response.results.find((r) => r.relPath === "presentations/deck.md");
+    expect(deck?.matchReasons).toContain("derivative");
+    expect(deck?.referencedBy).toBe(0);
   });
 });
 
@@ -416,6 +473,7 @@ describe("WorkspaceSearcher hybrid retrieval (RRF)", () => {
         throw new Error("FTS5 syntax error");
       }),
       getAnalyzersByChunkIds: () => new Map(),
+      inboundCount: () => 0,
       getFile: () => null,
       getFileEnrichment: () => null,
     } as unknown as StateStore;
@@ -469,6 +527,7 @@ describe("WorkspaceSearcher analyzer-driven match reasons (#60)", () => {
         for (const id of ids) m.set(id, byChunk[id] ?? null);
         return m;
       },
+      inboundCount: () => 0,
       getFile: () => null,
       getFileEnrichment: () => null,
     } as unknown as StateStore;
@@ -616,6 +675,7 @@ describe("WorkspaceSearcher coverage expansion (#72)", () => {
       findSymbol: opts.findSymbolBy
         ? (id: string, sym: string) => opts.findSymbolBy?.(id, sym) ?? { defs: [], refs: [] }
         : () => ({ defs: [], refs: [] }),
+      inboundCount: () => 0,
       getFile: () => null,
       getFileEnrichment: () => null,
     } as unknown as StateStore;

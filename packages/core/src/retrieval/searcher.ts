@@ -77,6 +77,12 @@ export type RetrievalSource = "vector" | "lexical";
  *   - complexity_signal   query asks about complexity/depth/nesting and chunk scores high
  *   - async_match         query mentions async and chunk uses async
  *   - exported            chunk exports the matched symbol (slight rank bump on its own)
+ *   - authoritative       the doc is referenced by many other docs (#427) — a
+ *                         source-of-truth signal from the cross-link graph
+ *   - definition          the chunk's heading/title matches the query concept,
+ *                         i.e. it *defines* the thing rather than mentioning it
+ *   - derivative          a down-weighted derivative format (presentation /
+ *                         slide deck / catalog index), not a primary source
  */
 export type MatchReason =
   | "symbol_match"
@@ -85,7 +91,10 @@ export type MatchReason =
   | "risky_call_category"
   | "complexity_signal"
   | "async_match"
-  | "exported";
+  | "exported"
+  | "authoritative"
+  | "definition"
+  | "derivative";
 
 export interface SearchResult {
   readonly projectId: string;
@@ -125,6 +134,13 @@ export interface SearchResult {
    * for what each signal means.
    */
   readonly matchReasons: ReadonlyArray<MatchReason>;
+  /**
+   * How many other indexed docs link to this file — the inbound-link count
+   * from the cross-link graph (#427). An authority/source-of-truth signal:
+   * the canonical doc is the one everything references. 0 for code/unlinked
+   * files. Callers can re-rank on this even if they disagree with default order.
+   */
+  readonly referencedBy: number;
   /**
    * Coverage mode (#72) only. When the result was added by the
    * coverage expansion pass, this string explains why — e.g.
@@ -246,17 +262,55 @@ export class WorkspaceSearcher {
     const analyzers = this.state.getAnalyzersByChunkIds(candidateIds);
     const queryTerms = analyzerQueryTerms(request.query);
 
+    const vectorById = new Map(matches.map((m) => [m.chunkId, m]));
+    const lexicalById = new Map(lexicalMatches.map((m) => [m.chunkId, m]));
+
     const fused = rrfFuse(matches, lexicalMatches, this.retrieval.rrfK);
+    // Apply boosts over the full candidate set BEFORE slicing so a buried-
+    // but-authoritative doc can climb into the top-N (#427). Three signals
+    // beyond the analyzer reasons: inbound-link authority, heading-defines-
+    // concept, and a down-weight for derivative formats.
+    const authorityCache = new Map<string, number>();
     for (const entry of fused) {
-      const reasons = computeMatchReasons(analyzers.get(entry.chunkId) ?? null, queryTerms);
-      entry.matchReasons = reasons;
-      entry.score += reasons.length * BOOST_PER_REASON;
+      const reasons = [...computeMatchReasons(analyzers.get(entry.chunkId) ?? null, queryTerms)];
+      let boost = reasons.length * BOOST_PER_REASON;
+
+      const v = vectorById.get(entry.chunkId);
+      const l = lexicalById.get(entry.chunkId);
+      const relPath = l?.relPath ?? String(v?.metadata["rel_path"] ?? "");
+      const projectId = l?.projectId ?? String(v?.metadata["project_id"] ?? "");
+      const kind = l?.kind ?? String(v?.metadata["kind"] ?? "");
+      const symbols = l?.symbols ?? parseSymbols(v?.metadata["symbols"]);
+
+      // Authority: how many other docs link to this file (source-of-truth).
+      const proj = projectsById.get(projectId);
+      if (proj !== undefined && relPath !== "") {
+        const abs = join(proj.root, relPath);
+        const refBy = authorityCache.get(abs) ?? this.state.inboundCount(abs);
+        authorityCache.set(abs, refBy);
+        entry.referencedBy = refBy;
+        if (refBy > 0) {
+          boost += AUTHORITY_WEIGHT * Math.log1p(refBy);
+          if (refBy >= AUTHORITY_REASON_MIN) reasons.push("authoritative");
+        }
+      }
+      // Definition vs mention: a heading/title that names the query concept.
+      if (isDefinitionMatch(kind, symbols, queryTerms.tokens)) {
+        boost += DEFINITION_BOOST;
+        reasons.push("definition");
+      }
+      // Source-type prior: derivative formats (slides, catalog index) rank below
+      // the process/spec docs they restate.
+      if (isDerivativeSource(relPath)) {
+        boost += DERIVATIVE_PENALTY;
+        reasons.push("derivative");
+      }
+
+      entry.matchReasons = Object.freeze(reasons);
+      entry.score += boost;
     }
     fused.sort((a, b) => b.score - a.score);
     const top = fused.slice(0, limit);
-
-    const vectorById = new Map(matches.map((m) => [m.chunkId, m]));
-    const lexicalById = new Map(lexicalMatches.map((m) => [m.chunkId, m]));
 
     const results: SearchResult[] = top.map((entry) => {
       const v = vectorById.get(entry.chunkId);
@@ -375,6 +429,7 @@ export class WorkspaceSearcher {
               sources: Object.freeze<RetrievalSource[]>([]),
               analyzer: null,
               matchReasons: Object.freeze<MatchReason[]>([]),
+              referencedBy: 0,
               coverageReason: reason,
               enrichments: emptyEnrichments(),
             }),
@@ -595,6 +650,8 @@ interface FusedEntry {
   score: number;
   readonly sources: ReadonlyArray<RetrievalSource>;
   matchReasons: ReadonlyArray<MatchReason>;
+  /** Inbound-link count from the cross-link graph (#427). */
+  referencedBy: number;
 }
 
 /**
@@ -606,6 +663,43 @@ interface FusedEntry {
  * #97's expanded eval set provides numbers to tune against.
  */
 const BOOST_PER_REASON = 0.004;
+
+/**
+ * Authority ranking weights (#427), calibrated against the RRF base
+ * (`1/(k+rank)` ≈ 0.016 at rank 1) + BOOST_PER_REASON (0.004). Heuristic;
+ * revisit against the eval set.
+ *   - AUTHORITY_WEIGHT × log1p(inbound): ~0.024 at 10 inbound links — enough
+ *     to lift a heavily-referenced canonical doc several rank slots.
+ *   - DEFINITION_BOOST: a heading that names the concept (defines vs mentions).
+ *   - DERIVATIVE_PENALTY: negative — slides/catalog rank below primary sources.
+ */
+const AUTHORITY_WEIGHT = 0.01;
+const AUTHORITY_REASON_MIN = 2;
+const DEFINITION_BOOST = 0.006;
+const DERIVATIVE_PENALTY = -0.008;
+
+/** Heading/title that names the query concept → the chunk *defines* it. */
+function isDefinitionMatch(
+  kind: string,
+  symbols: ReadonlyArray<string>,
+  queryTokens: ReadonlySet<string>,
+): boolean {
+  if (!kind.startsWith("section") || symbols.length === 0) return false;
+  for (const sym of symbols) {
+    const heading = sym.toLowerCase();
+    for (const tok of queryTokens) {
+      if (tok.length >= 3 && heading.includes(tok)) return true;
+    }
+  }
+  return false;
+}
+
+/** Derivative formats (presentations, slide decks, catalog index files). */
+function isDerivativeSource(relPath: string): boolean {
+  return /(^|\/)(presentations?|slides?|decks?)\/|\.(slides?|deck)\.md$|(^|\/)index\.md$/i.test(
+    relPath,
+  );
+}
 
 /**
  * Reciprocal rank fusion. Each branch contributes `1 / (k + rank)` to the
@@ -637,6 +731,7 @@ function rrfFuse(
       score: e.score,
       sources: Object.freeze([...e.sources].sort()),
       matchReasons: Object.freeze<MatchReason[]>([]),
+      referencedBy: 0,
     }))
     .sort((a, b) => b.score - a.score);
 }
@@ -820,6 +915,7 @@ function assembleResult(
     sources: fused.sources,
     analyzer,
     matchReasons: fused.matchReasons,
+    referencedBy: fused.referencedBy,
     coverageReason: null,
     // Enrichments populated in a second pass after assembleResult
     // returns; this keeps the per-result builder pure and lets the
