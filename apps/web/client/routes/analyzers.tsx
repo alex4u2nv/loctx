@@ -542,7 +542,15 @@ function ToolBlock({
 }) {
   const badge = statusBadge(tool);
   return (
-    <div style={{ borderTop: "1px solid var(--border)", padding: "var(--space-3) 0" }}>
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-inner)",
+        background: "var(--surface-2)",
+        padding: "var(--space-3)",
+        marginTop: "var(--space-3)",
+      }}
+    >
       <div className="tool-row" style={{ borderTop: "none", padding: 0 }}>
         <span className="metric-value" style={{ minWidth: "6rem", display: "inline-block" }}>
           {tool.name}
@@ -573,42 +581,31 @@ function ToolBlock({
       </div>
       {tool.ruleDirs !== null ? (
         <>
-          <p
-            style={{
-              margin: "var(--space-3) 0 var(--space-1)",
-              fontSize: "0.65rem",
-              fontWeight: 600,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              color: "var(--subtle)",
-            }}
-          >
-            {tool.name} rule configuration
-          </p>
           <div
             style={{
               display: "flex",
               gap: "var(--space-2)",
               alignItems: "center",
               flexWrap: "wrap",
+              marginTop: "var(--space-3)",
             }}
           >
             <input
               className="input"
               placeholder={`${tool.name} rule dirs (comma-separated absolute paths)`}
-            value={dirValue}
-            onChange={(e) => onDirChange(e.target.value)}
-            style={{ fontSize: "0.8125rem", flex: "1 1 18rem" }}
-          />
-          <button
-            type="button"
-            className="btn"
-            disabled={busy}
-            onClick={onSaveDirs}
-            style={{ whiteSpace: "nowrap" }}
-          >
-            save &amp; reindex
-          </button>
+              value={dirValue}
+              onChange={(e) => onDirChange(e.target.value)}
+              style={{ fontSize: "0.8125rem", flex: "1 1 18rem" }}
+            />
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={onSaveDirs}
+              style={{ whiteSpace: "nowrap" }}
+            >
+              save &amp; reindex
+            </button>
             {maxFindings !== null ? (
               <label
                 className="dim"
