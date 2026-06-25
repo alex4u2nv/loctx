@@ -391,18 +391,19 @@ export class ProjectIndexer {
     // to reconciliation. See #188, #193.
     await this.fileWriteMutex.runExclusive(fileId, async () => {
       this.state.replaceChunks(fileId, chunkInserts);
-      // Record the file's outbound markdown links (doc cross-link graph, #427)
-      // so authority ranking can count inbound references. Markdown only; links
-      // live in the chunk bodies. Replaced wholesale on every re-index.
-      if (/\.(md|markdown)$/i.test(relPath)) {
-        const body = chunks.map((c) => c.content).join("\n");
-        this.state.replaceFileLinks(fileId, resolvedMarkdownLinks(body, dirname(absPath)));
-      }
       await this.vectors.deleteFileChunks(project.id, relPath);
       await this.vectors.upsertChunks(embedded);
       // Stamp the file row last — this is the "commit" marker that a
       // future reconciler uses to decide the file is up-to-date.
       this.state.upsertFile(fileState);
+      // Record the file's outbound markdown links (doc cross-link graph, #427)
+      // so authority ranking can count inbound references. Markdown only; links
+      // live in the chunk bodies. MUST run after upsertFile: file_links has a
+      // FK to files(file_id), so the file row has to exist first (#eval).
+      if (/\.(md|markdown)$/i.test(relPath)) {
+        const body = chunks.map((c) => c.content).join("\n");
+        this.state.replaceFileLinks(fileId, resolvedMarkdownLinks(body, dirname(absPath)));
+      }
     });
 
     // Background analyzer enrichment hook (#61, #62, #64, #65). Synchronous

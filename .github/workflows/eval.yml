@@ -80,7 +80,9 @@ jobs:
 
       - name: Render report
         # Latest *.json in the runs dir gets a `*.report.md` sibling.
-        run: pnpm eval report packages/eval/runs
+        # `pnpm eval` runs with cwd = packages/eval, so the path is
+        # package-relative (`runs`, not `packages/eval/runs`).
+        run: pnpm eval report runs
 
       - name: Upload run artifacts
         uses: actions/upload-artifact@v4

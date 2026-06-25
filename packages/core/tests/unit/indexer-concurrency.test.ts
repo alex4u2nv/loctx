@@ -87,6 +87,30 @@ describe("ProjectIndexer concurrent persist (#188, #193)", () => {
     expect(vectorCount).toBe(stateChunks.length);
   });
 
+  it("indexes a markdown file + records doc links without a FK error (#eval)", async () => {
+    const p = project();
+    // governance.md is the canonical target; guide.md links to it. Both are
+    // first-time indexed — file_links has a FK to files(file_id), so the file
+    // row must be written before its links (regression: replaceFileLinks ran
+    // before upsertFile and threw "FOREIGN KEY constraint failed").
+    writeFileSync(
+      join(projectRoot, "governance.md"),
+      "---\ntype: Doc\n---\n# Governance\n\nThe full process lives here.\n",
+    );
+    writeFileSync(
+      join(projectRoot, "guide.md"),
+      "---\ntype: Doc\n---\n# Guide\n\nSee [full process](./governance.md) for details.\n",
+    );
+
+    // Must not throw on first-time markdown indexing.
+    const guide = await indexer.indexFile(p, join(projectRoot, "guide.md"));
+    await indexer.indexFile(p, join(projectRoot, "governance.md"));
+    expect(guide.kind).toBe("indexed");
+
+    // The cross-link graph records guide.md → governance.md.
+    expect(state.inboundCount(join(projectRoot, "governance.md"))).toBe(1);
+  });
+
   it("file-row content_sha is only stamped after both stores are written", async () => {
     // The `upsertFile` call is the persist sequence's commit marker.
     // After indexFile resolves, the file row's sha must reflect the
