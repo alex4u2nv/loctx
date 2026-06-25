@@ -1,5 +1,6 @@
 export {
   AST_GREP_VERSION,
+  bundledAstGrepRulesDir,
   detectAstGrep,
   parseAstGrepJson,
   type RunAstGrepOptions,

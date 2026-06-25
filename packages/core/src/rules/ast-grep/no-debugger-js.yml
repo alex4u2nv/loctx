@@ -1,0 +1,7 @@
+# loctx starter rule. Edit or replace via your own ast-grep rule dirs.
+id: loctx-no-debugger-js
+language: JavaScript
+severity: warning
+message: Leftover `debugger` statement — remove before committing.
+rule:
+  pattern: debugger

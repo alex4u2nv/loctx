@@ -21,6 +21,7 @@
  */
 
 import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
   capFindings,
@@ -32,6 +33,16 @@ import {
 export const AST_GREP_VERSION = 1;
 
 const exec = promisify(execFile);
+
+/**
+ * Absolute path to loctx's bundled ast-grep starter rules (shipped to
+ * dist/rules/ast-grep by copy-assets). Used as the default rule source when
+ * the user hasn't configured their own — ast-grep has no community registry,
+ * so loctx ships a small high-signal starter set (editable / overridable).
+ */
+export function bundledAstGrepRulesDir(): string {
+  return fileURLToPath(new URL("../rules/ast-grep", import.meta.url));
+}
 
 export async function detectAstGrep(command = "ast-grep"): Promise<string | null> {
   try {

@@ -436,9 +436,17 @@ export const CONFIG_SCHEMA: ReadonlyArray<SectionSchema> = Object.freeze([
         key: "analyzers.astGrep.ruleDirs",
         yamlPath: ["analyzers", "astGrep", "rule_dirs"],
         label: "rule_dirs",
-        help: "Directories of ast-grep rules to load.",
+        help: "Directories of ast-grep rules to load. Empty falls back to bundled_rules.",
         type: "string-array",
         default: [],
+      },
+      {
+        key: "analyzers.astGrep.bundledRules",
+        yamlPath: ["analyzers", "astGrep", "bundled_rules"],
+        label: "bundled_rules",
+        help: "Run loctx's bundled starter ast-grep rules when no rule_dirs are set (ast-grep has no community registry).",
+        type: "bool",
+        default: true,
       },
       {
         key: "analyzers.astGrep.maxFindingsPerFile",
