@@ -240,6 +240,8 @@ export interface SearchHit {
   readonly symbols: ReadonlyArray<string>;
   readonly sources: ReadonlyArray<string>;
   readonly matchReasons: ReadonlyArray<string>;
+  /** Inbound-link count — authority signal from the doc cross-link graph (#427). */
+  readonly referencedBy: number;
   readonly coverageReason: string | null;
   readonly enrichments: {
     readonly lizard: {
