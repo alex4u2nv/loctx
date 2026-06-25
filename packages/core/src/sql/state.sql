@@ -169,6 +169,28 @@ CREATE TABLE IF NOT EXISTS mcp_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_requests_at ON mcp_requests(requested_at);
 
+-- :name schema_v9
+-- Document cross-link graph (#427). One row per internal markdown link a
+-- file contains, resolved to the absolute target path. Powers authority
+-- ranking: a file's inbound-link count (how many other docs reference it)
+-- is a primacy signal — the canonical doc is the one everything links to.
+--
+--   from_file_id  — the file containing the link (FK to files; cascades).
+--   to_path       — resolved absolute path of the link target.
+--   link_text     — the link's display text (e.g. "Full process"), kept so
+--                   ranking can weight canonical phrasings higher.
+--
+-- Rows for a file are replaced wholesale on re-index. IF NOT EXISTS so the
+-- block is safe to re-run on a sandbox that walks user_version backwards.
+CREATE TABLE IF NOT EXISTS file_links (
+    from_file_id TEXT NOT NULL,
+    to_path TEXT NOT NULL,
+    link_text TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY (from_file_id) REFERENCES files(file_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_file_links_from ON file_links(from_file_id);
+CREATE INDEX IF NOT EXISTS idx_file_links_to ON file_links(to_path);
+
 -- :name pragma_enable_foreign_keys
 PRAGMA foreign_keys = ON;
 
@@ -556,3 +578,17 @@ SELECT COUNT(*) AS n FROM mcp_requests;
 
 -- :name delete_all_mcp_requests
 DELETE FROM mcp_requests;
+
+-- :name delete_file_links_for_file
+DELETE FROM file_links WHERE from_file_id = ?;
+
+-- :name insert_file_link
+INSERT INTO file_links (from_file_id, to_path, link_text) VALUES (?, ?, ?);
+
+-- :name inbound_count_for_path
+-- Distinct files that link to this absolute path — the inbound-link count.
+SELECT COUNT(DISTINCT from_file_id) AS n FROM file_links WHERE to_path = ?;
+
+-- :name delete_file_links_for_project
+DELETE FROM file_links
+WHERE from_file_id IN (SELECT file_id FROM files WHERE project_id = ?);

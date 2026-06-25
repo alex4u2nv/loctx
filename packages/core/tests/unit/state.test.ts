@@ -59,6 +59,43 @@ describe("StateStore", () => {
     store.close();
   });
 
+  it("file_links: inbound count reflects how many files link to a path (#427)", () => {
+    const project = makeProject();
+    const store = new StateStore(join(tmp, "state.db"));
+    store.upsertProject(project);
+    const mk = (rel: string): FileState => ({
+      fileId: toFileId(`f-${rel}`) as FileId,
+      projectId: project.id,
+      relPath: rel,
+      size: 1,
+      mtime: 1,
+      contentSha: rel,
+      indexedAt: "2024-01-01T00:00:00.000Z",
+      embeddingIdentity: "x",
+      error: null,
+    });
+    const canonical = join(tmp, "repo", "governance.md");
+    for (const rel of ["a.md", "b.md", "c.md"]) store.upsertFile(mk(rel));
+    // a + b both link to governance.md; c links elsewhere.
+    store.replaceFileLinks(toFileId("f-a.md") as FileId, [
+      { toPath: canonical, text: "Full process" },
+    ]);
+    store.replaceFileLinks(toFileId("f-b.md") as FileId, [{ toPath: canonical, text: "see" }]);
+    store.replaceFileLinks(toFileId("f-c.md") as FileId, [
+      { toPath: join(tmp, "repo", "other.md"), text: "x" },
+    ]);
+    expect(store.inboundCount(canonical)).toBe(2);
+    expect(store.inboundCount(join(tmp, "repo", "other.md"))).toBe(1);
+    expect(store.inboundCount(join(tmp, "repo", "nope.md"))).toBe(0);
+
+    // Re-indexing a file replaces its links wholesale (no double-count).
+    store.replaceFileLinks(toFileId("f-a.md") as FileId, [
+      { toPath: canonical, text: "Full process" },
+    ]);
+    expect(store.inboundCount(canonical)).toBe(2);
+    store.close();
+  });
+
   it("listFilesMissingEnrichment returns only files lacking an up-to-date enrichment (#backfill)", () => {
     const project = makeProject();
     const store = new StateStore(join(tmp, "state.db"));
