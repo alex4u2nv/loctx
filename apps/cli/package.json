@@ -1,6 +1,6 @@
 {
   "name": "@loctx/cli",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Commander CLI for loctx — index, search, and run the integrated daemon.",
   "type": "module",
   "bin": {
