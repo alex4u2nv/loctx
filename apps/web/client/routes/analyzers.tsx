@@ -476,7 +476,10 @@ function statusBadge(t: ToolStatus): { cls: string; warn: boolean; label: string
   if (!t.installed) return { cls: "", warn: false, label: "available" };
   if (t.needsRules) return { cls: "", warn: true, label: "installed · needs rules" };
   const usingRegistry = t.enabled && (t.ruleDirs?.length ?? 0) === 0 && t.registryConfig;
-  if (usingRegistry) return { cls: "ok", warn: false, label: "installed · enabled · community rules" };
+  if (usingRegistry) {
+    const which = t.name === "ast-grep" ? "starter rules" : "community rules";
+    return { cls: "ok", warn: false, label: `installed · enabled · ${which}` };
+  }
   if (t.enabled) return { cls: "ok", warn: false, label: "installed · enabled" };
   return { cls: "", warn: false, label: "installed · disabled" };
 }
@@ -486,7 +489,18 @@ function RulesHint({ tool }: { tool: ToolStatus }) {
   const hasDirs = (tool.ruleDirs?.length ?? 0) > 0;
   if (!tool.installed || hasDirs) return null;
   if (tool.registryConfig) {
-    return (
+    return tool.name === "ast-grep" ? (
+      <p className="setting-row-help" style={{ marginTop: "var(--space-1)" }}>
+        ast-grep has no community registry, so loctx runs a small{" "}
+        <strong>bundled starter ruleset</strong> (no setup needed) — e.g. leftover{" "}
+        <code>debugger</code> / <code>breakpoint()</code> and focused <code>.only</code> tests. Point
+        it at your own rule dirs above to replace them; see{" "}
+        <a href="https://ast-grep.github.io/guide/rule-config.html" target="_blank" rel="noreferrer">
+          ast-grep rule config
+        </a>
+        .
+      </p>
+    ) : (
       <p className="setting-row-help" style={{ marginTop: "var(--space-1)" }}>
         Running semgrep's community pack <code>{tool.registryConfig}</code> (no setup needed). Add
         rule dirs above to use your own instead.
@@ -496,12 +510,7 @@ function RulesHint({ tool }: { tool: ToolStatus }) {
   if (tool.needsRules) {
     return (
       <p className="setting-row-help" style={{ marginTop: "var(--space-1)", color: "var(--warn)" }}>
-        ast-grep has no community ruleset — point it at your own structural rules (a dir or YAML).
-        See{" "}
-        <a href="https://ast-grep.github.io/guide/rule-config.html" target="_blank" rel="noreferrer">
-          ast-grep rule config
-        </a>
-        . loctx auto-detects a <code>.ast-grep</code> dir in your projects on install.
+        No rules configured — point this analyzer at your own rule directories above.
       </p>
     );
   }

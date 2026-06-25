@@ -71,7 +71,8 @@ const SPECS: ReadonlyArray<ToolSpec> = [
     command: (c) => c.analyzers.astGrep.command,
     enabled: (c) => c.analyzers.astGrep.enabled,
     ruleDirs: (c) => c.analyzers.astGrep.ruleDirs,
-    registryConfig: () => null,
+    // ast-grep has no registry; loctx's bundled starter rules play that role.
+    registryConfig: (c) => (c.analyzers.astGrep.bundledRules ? "bundled starter rules" : null),
     autoDetectDir: ".ast-grep",
     commandKey: "analyzers.astGrep.command",
     enabledKey: "analyzers.astGrep.enabled",

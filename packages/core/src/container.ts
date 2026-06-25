@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
   AST_GREP_VERSION,
+  bundledAstGrepRulesDir,
   computeDuplicateWindows,
   DEFINITIONS_VERSION,
   DUPLICATES_VERSION,
@@ -208,10 +209,13 @@ function enqueueFileAnalyzers(
   if (
     want("ast-grep") &&
     config.analyzers.astGrep.enabled &&
-    config.analyzers.astGrep.ruleDirs.length > 0 &&
+    (config.analyzers.astGrep.ruleDirs.length > 0 || config.analyzers.astGrep.bundledRules) &&
     toolReady("ast-grep", config.analyzers.astGrep.command)
   ) {
     const ag = config.analyzers.astGrep;
+    // User rule dirs win; otherwise fall back to loctx's bundled starter set.
+    const ruleDirs =
+      ag.ruleDirs.length > 0 ? ag.ruleDirs : ag.bundledRules ? [bundledAstGrepRulesDir()] : [];
     enrichments.enqueue(
       analyzerTaskMeta({
         fileId,
@@ -224,7 +228,7 @@ function enqueueFileAnalyzers(
             absPath,
             {
               command: ag.command,
-              ruleDirs: ag.ruleDirs,
+              ruleDirs,
               maxFindingsPerFile: ag.maxFindingsPerFile,
             },
             signal,
@@ -298,7 +302,7 @@ function backfillSpecs(config: Config): ReadonlyArray<BackfillSpec> {
     {
       name: "ast-grep",
       version: AST_GREP_VERSION,
-      active: a.astGrep.enabled && a.astGrep.ruleDirs.length > 0,
+      active: a.astGrep.enabled && (a.astGrep.ruleDirs.length > 0 || a.astGrep.bundledRules),
       command: a.astGrep.command,
       external: true,
     },

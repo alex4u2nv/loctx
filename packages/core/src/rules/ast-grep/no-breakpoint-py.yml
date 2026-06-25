@@ -1,0 +1,7 @@
+# loctx starter rule: leftover Python debugger entrypoint. Edit/replace.
+id: loctx-no-breakpoint-py
+language: Python
+severity: warning
+message: Leftover `breakpoint()` call — remove before committing.
+rule:
+  pattern: breakpoint()

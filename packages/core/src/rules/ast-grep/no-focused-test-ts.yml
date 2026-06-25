@@ -1,0 +1,8 @@
+# loctx starter rule: flags focused tests (.only) that would silently skip
+# the rest of the suite if committed. Edit/replace with your own rules.
+id: loctx-no-focused-test-ts
+language: TypeScript
+severity: error
+message: Focused test (`.only`) left in — it disables the rest of the suite.
+rule:
+  pattern: $SUITE.only($$$ARGS)

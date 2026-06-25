@@ -1,0 +1,8 @@
+# loctx starter rule. Edit or replace by pointing ast-grep at your own
+# rule dirs in the Analyzers tab. See https://ast-grep.github.io/guide/rule-config.html
+id: loctx-no-debugger-ts
+language: TypeScript
+severity: warning
+message: Leftover `debugger` statement — remove before committing.
+rule:
+  pattern: debugger

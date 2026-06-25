@@ -164,6 +164,13 @@ export interface RulePackAnalyzerConfig {
    * and ignores this.
    */
   readonly registryConfig: string;
+  /**
+   * Use loctx's bundled starter rules when `ruleDirs` is empty. ast-grep has
+   * no community registry, so this ships a small high-signal default set so
+   * the analyzer isn't a dead-end out of the box. ast-grep only; semgrep
+   * (which has a registry) ignores it.
+   */
+  readonly bundledRules: boolean;
   /** Cap on findings persisted per file. Excess findings are dropped. */
   readonly maxFindingsPerFile: number;
 }
@@ -312,14 +319,16 @@ const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
     // Curated community pack — semgrep runs this when no local ruleDirs are
     // set, so it produces findings out of the box (needs network to fetch).
     registryConfig: "p/default",
+    bundledRules: false,
     maxFindingsPerFile: 50,
   }),
   astGrep: Object.freeze({
     enabled: true,
     command: "ast-grep",
     ruleDirs: Object.freeze<string[]>([]),
-    // ast-grep has no rule registry — bring-your-own rules only.
+    // ast-grep has no rule registry; loctx ships a starter set instead.
     registryConfig: "",
+    bundledRules: true,
     maxFindingsPerFile: 50,
   }),
   definitions: Object.freeze({
@@ -741,6 +750,7 @@ function mergeAnalyzers(
         STR,
         DEFAULT_ANALYZERS.semgrep.registryConfig,
       ),
+      bundledRules: DEFAULT_ANALYZERS.semgrep.bundledRules,
       maxFindingsPerFile: semgrepPick(
         "analyzers.semgrep.maxFindingsPerFile",
         "max_findings_per_file",
@@ -768,6 +778,12 @@ function mergeAnalyzers(
       ),
       // ast-grep has no registry; always blank (kept for type parity).
       registryConfig: DEFAULT_ANALYZERS.astGrep.registryConfig,
+      bundledRules: astGrepPick(
+        "analyzers.astGrep.bundledRules",
+        "bundled_rules",
+        BOOL,
+        DEFAULT_ANALYZERS.astGrep.bundledRules,
+      ),
       maxFindingsPerFile: astGrepPick(
         "analyzers.astGrep.maxFindingsPerFile",
         "max_findings_per_file",
