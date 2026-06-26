@@ -67,6 +67,17 @@ export function AdminPage() {
     if (!ok) return;
     return ops.run("reset index", () => api.resetIndex());
   };
+  const [compactMsg, setCompactMsg] = useState<string | null>(null);
+  const compact = (): Promise<unknown> =>
+    ops.run("compact", async () => {
+      setCompactMsg(null);
+      const r = await api.compact();
+      const gb = (n: number): string => (n / 1e9).toFixed(2);
+      setCompactMsg(
+        `Reclaimed ${gb(r.freedBytes)} GB — vectors ${gb(r.beforeBytes)} → ${gb(r.afterBytes)} GB.`,
+      );
+      return r;
+    });
   const restart = async (): Promise<unknown> => {
     const ok = await confirm({
       title: "Restart daemon?",
@@ -134,8 +145,22 @@ export function AdminPage() {
               title={resetTooltip}
             >
               <Icon name="reset" /> reset index (delete all data)
+            </button>{" "}
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void compact()}
+              disabled={indexBlocked}
+              title={reconcileTooltip ?? "Merge vector fragments + prune old version history to reclaim disk"}
+            >
+              <Icon name="purge" /> compact (reclaim disk)
             </button>
           </p>
+          {compactMsg !== null ? (
+            <p className="dim" style={{ marginBottom: 0 }}>
+              {compactMsg}
+            </p>
+          ) : null}
         </div>
 
         <div className="card">
