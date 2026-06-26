@@ -132,6 +132,23 @@ export function mountOps(
     });
   });
 
+  // Reclaim disk: compact the vector store (merge Lance fragments + prune the
+  // version history that's never freed otherwise — #index-size). Refuse during
+  // a reconcile so we don't fight the indexer for the writer lock.
+  app.post("/api/compact", async (c) => {
+    const rt = await getRuntime();
+    if (rt.reconciler.status().running) {
+      return c.json({ error: "a reconcile is in flight; try again after it finishes" }, 409);
+    }
+    const { beforeBytes, afterBytes } = await rt.compactVectors();
+    return c.json({
+      ok: true,
+      beforeBytes,
+      afterBytes,
+      freedBytes: Math.max(0, beforeBytes - afterBytes),
+    });
+  });
+
   app.post("/api/reset/index", (c) => {
     if (readActiveDaemon(config.paths.dataDir) !== null) {
       return c.json({ error: "daemon is running; stop it first" }, 409);

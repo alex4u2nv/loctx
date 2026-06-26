@@ -67,6 +67,7 @@ interface LanceTable {
   countRows(filter?: string): Promise<number>;
   createIndex(column: string, options?: { replace?: boolean }): Promise<void>;
   listIndices(): Promise<Array<{ name?: string; columns?: ReadonlyArray<string> }>>;
+  optimize(options?: { cleanupOlderThan?: Date; deleteUnverified?: boolean }): Promise<unknown>;
   mergeInsert(on: string | string[]): {
     whenMatchedUpdateAll(): {
       whenNotMatchedInsertAll(): {
@@ -116,6 +117,16 @@ export interface VectorStore {
   readonly ensureVectorIndex: (
     minRowsForIndex?: number,
   ) => Promise<{ built: boolean; rows: number }>;
+  /**
+   * Compact the Lance dataset: merge the per-upsert fragments and prune old
+   * version manifests (#index-size). LanceDB is append-only — every
+   * upsert/delete writes a new fragment + version, and nothing is reclaimed
+   * until this runs. On a long-lived daemon the `_versions` history dwarfs
+   * the live data (observed 5.9 GB of history over 179 MB of data). Runs
+   * through the writer mutex so it's serialized with upserts/deletes; the
+   * daemon is the sole writer, so `deleteUnverified` is safe here.
+   */
+  readonly compact: () => Promise<void>;
 }
 
 export function createVectorStore(
@@ -220,6 +231,17 @@ export function createVectorStore(
         console.error(`[vectors] createIndex skipped: ${(err as Error).message}`);
         return { built: false, rows };
       }
+    },
+
+    compact: async () => {
+      const t = await ready();
+      await writeMutex.runExclusive(() =>
+        // cleanupOlderThan: now → prune every version except the current one.
+        // deleteUnverified: true → also remove files < 7 days old (the whole
+        // point — that's where the bloat is). Safe because we hold the writer
+        // mutex and the daemon is the only process writing this dataset.
+        t.optimize({ cleanupOlderThan: new Date(), deleteUnverified: true }),
+      );
     },
   };
   return api;

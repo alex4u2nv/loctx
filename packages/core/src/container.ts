@@ -11,7 +11,7 @@
  * deterministic from a `Config` snapshot.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
   AST_GREP_VERSION,
@@ -66,6 +66,13 @@ export interface Runtime {
    * never recomputed. Returns how many tasks were enqueued.
    */
   readonly backfillAnalyzers: (targets?: ReadonlyArray<string>) => Promise<{ enqueued: number }>;
+  /**
+   * Compact the vector store — merge Lance fragments + prune old version
+   * history that's never reclaimed otherwise (#index-size). Returns the
+   * on-disk vector-dir size before/after so the caller can report what was
+   * freed.
+   */
+  readonly compactVectors: () => Promise<{ beforeBytes: number; afterBytes: number }>;
   /**
    * Release every resource the runtime owns. Awaitable so callers can
    * sequence shutdown (watcher → web → runtime). The embedding provider's
@@ -442,11 +449,37 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
       }
       return { enqueued };
     },
+    compactVectors: async () => {
+      const beforeBytes = dirSizeBytes(config.paths.vectorDir);
+      await vectors.compact();
+      const afterBytes = dirSizeBytes(config.paths.vectorDir);
+      return { beforeBytes, afterBytes };
+    },
     close: async () => {
       await embeddings.dispose?.();
       state.close();
     },
   });
+}
+
+/** Recursive on-disk size of a directory in bytes (best-effort). */
+function dirSizeBytes(dir: string): number {
+  let total = 0;
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, entry.name);
+      if (entry.isDirectory()) total += dirSizeBytes(p);
+      else
+        try {
+          total += statSync(p).size;
+        } catch {
+          // unreadable file — skip
+        }
+    }
+  } catch {
+    // missing dir — 0
+  }
+  return total;
 }
 
 /**

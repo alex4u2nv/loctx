@@ -80,6 +80,11 @@ export const api = {
   agentSetupApply: (path: string, agents: ReadonlyArray<string>) =>
     postJson<AgentSetupApplyResponse>("/api/agent-setup", { path, agents }),
   agentSetupRefresh: () => postJson<AgentRefreshResponse>("/api/agent-setup/refresh", {}),
+  compact: () =>
+    postJson<{ ok: true; beforeBytes: number; afterBytes: number; freedBytes: number }>(
+      "/api/compact",
+      {},
+    ),
   configWrite: async (body: ConfigWriteRequest): Promise<ConfigWriteResponse> => {
     // Server returns 400 + ConfigWriteError on validation failure; surface
     // the parsed errors as a thrown Error so the form can show them.
