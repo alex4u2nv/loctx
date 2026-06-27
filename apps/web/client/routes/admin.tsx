@@ -26,6 +26,10 @@ export function AdminPage() {
   useLiveRefreshEvent(onRefresh);
   const reconcile = statusReq.data?.reconciliation;
   const reconcileBlocked = reconcile?.running ?? false;
+  // Compaction (manual or the daemon's auto pass) holds the LanceDB writer
+  // lock; another compact would just queue behind it. Disable + explain.
+  const compacting = statusReq.data?.maintenance.running ?? false;
+  const compactIntervalHours = statusReq.data?.runtime.compactIntervalHours ?? 0;
   const indexBlocked = ops.busy !== null || reconcileBlocked;
   const reconcileTooltip = reconcileBlocked
     ? `Reconciler is running on ${reconcile?.currentProjectName ?? "—"} — would 409. Wait for the pass to finish.`
@@ -150,11 +154,23 @@ export function AdminPage() {
               type="button"
               className="btn"
               onClick={() => void compact()}
-              disabled={indexBlocked}
-              title={reconcileTooltip ?? "Merge vector fragments + prune old version history to reclaim disk"}
+              disabled={indexBlocked || compacting}
+              title={
+                reconcileTooltip ??
+                (compacting
+                  ? "Compaction is already running."
+                  : "Merge vector fragments + prune old version history to reclaim disk")
+              }
             >
-              <Icon name="purge" /> compact (reclaim disk)
+              <Icon name="purge" /> {compacting ? "compacting…" : "compact (reclaim disk)"}
             </button>
+          </p>
+          <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem", marginBottom: 0 }}>
+            {compacting
+              ? "Compaction running now — brief CPU/IO load; search stays available."
+              : compactIntervalHours > 0
+                ? `Auto-compaction runs every ${compactIntervalHours}h (configure under Config → Maintenance).`
+                : "Auto-compaction is off — run it manually or set maintenance.compact_interval_hours."}
           </p>
           {compactMsg !== null ? (
             <p className="dim" style={{ marginBottom: 0 }}>

@@ -72,11 +72,18 @@ export function mountStatus(
       failures: 0,
       lastRunAt: null as string | null,
     };
+    let maintenance = {
+      running: false,
+      startedAt: null as string | null,
+      lastRunAt: null as string | null,
+      lastFreedBytes: null as number | null,
+    };
     try {
       const rt = await getRuntime();
       embeddingReady = true;
       reconciliation = rt.reconciler.status();
       analyzers = rt.enrichments.status();
+      maintenance = rt.maintenanceStatus();
     } catch {
       // Leave defaults; daemon is still booting or build failed.
     }
@@ -105,9 +112,11 @@ export function mountStatus(
         watcherDebounceMs: config.watcher.debounceMs,
         reconciliationIntervalSeconds: config.reconciliation.intervalSeconds,
         reconciliationRunOnStart: config.reconciliation.runOnStart,
+        compactIntervalHours: config.maintenance.compactIntervalHours,
       },
       reconciliation,
       analyzers,
+      maintenance,
       projects: projects.map((p) => ({ id: p.id, name: p.name, root: p.root })),
     };
     return c.json(payload);

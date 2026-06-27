@@ -50,7 +50,7 @@ const PANEL_OWNED_SECTIONS = new Set([
 const CONFIG_CATEGORIES: ReadonlyArray<{ readonly label: string; readonly ids: ReadonlyArray<string> }> = [
   {
     label: "Indexing & search",
-    ids: ["workspace", "discovery", "embedding", "retrieval", "watcher", "reconciliation"],
+    ids: ["workspace", "discovery", "embedding", "retrieval", "watcher", "reconciliation", "maintenance"],
   },
   { label: "Server & network", ids: ["daemon", "mcp", "network"] },
 ];

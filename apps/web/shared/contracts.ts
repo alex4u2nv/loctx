@@ -37,6 +37,8 @@ export interface StatusPayload {
     readonly watcherDebounceMs: number;
     readonly reconciliationIntervalSeconds: number;
     readonly reconciliationRunOnStart: boolean;
+    /** Auto-compaction cadence in hours; 0 means auto-compaction is off. */
+    readonly compactIntervalHours: number;
   };
   /**
    * Live reconciliation state — non-null only while a pass is in
@@ -68,6 +70,17 @@ export interface StatusPayload {
     readonly completed: number;
     readonly failures: number;
     readonly lastRunAt: string | null;
+  };
+  /**
+   * Background index maintenance (vector-store compaction). `running` is
+   * true while a pass is in flight — the UI shows a banner because
+   * compaction is CPU/IO-heavy and an operator should know it's loctx.
+   */
+  readonly maintenance: {
+    readonly running: boolean;
+    readonly startedAt: string | null;
+    readonly lastRunAt: string | null;
+    readonly lastFreedBytes: number | null;
   };
   readonly projects: ReadonlyArray<{
     readonly id: string;

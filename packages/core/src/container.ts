@@ -47,6 +47,21 @@ import { applyNetworkSettings } from "./network.js";
 import { WorkspaceSearcher } from "./retrieval/index.js";
 import { createVectorStore, StateStore, type VectorStore } from "./storage/index.js";
 
+/**
+ * Live state of the background maintenance (compaction) pass. Surfaced via
+ * `/api/status` so the admin UI can show a banner — compaction is CPU- and
+ * IO-heavy, and an operator watching `top` should be able to tell it's loctx.
+ */
+export interface MaintenanceStatus {
+  readonly running: boolean;
+  /** ISO timestamp the current pass started; null when idle. */
+  readonly startedAt: string | null;
+  /** ISO timestamp the last pass finished; null until one completes. */
+  readonly lastRunAt: string | null;
+  /** Bytes reclaimed by the last completed pass; null until one completes. */
+  readonly lastFreedBytes: number | null;
+}
+
 export interface Runtime {
   readonly config: Config;
   readonly state: StateStore;
@@ -73,6 +88,8 @@ export interface Runtime {
    * freed.
    */
   readonly compactVectors: () => Promise<{ beforeBytes: number; afterBytes: number }>;
+  /** Snapshot of the background compaction pass — running flag + last result. */
+  readonly maintenanceStatus: () => MaintenanceStatus;
   /**
    * Release every resource the runtime owns. Awaitable so callers can
    * sequence shutdown (watcher → web → runtime). The embedding provider's
@@ -396,6 +413,16 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
   const reconciler = new Reconciler(state, indexer);
   const searcher = new WorkspaceSearcher(vectors, embeddings, discovery, state, config.retrieval);
 
+  // Live compaction state — mutated by compactVectors() so /api/status can
+  // show a "compacting" banner regardless of whether the pass was triggered
+  // manually (admin button) or by the daemon's auto-compaction timer.
+  const maintenance = {
+    running: false,
+    startedAt: null as string | null,
+    lastRunAt: null as string | null,
+    lastFreedBytes: null as number | null,
+  };
+
   return Object.freeze({
     config,
     state,
@@ -450,11 +477,20 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
       return { enqueued };
     },
     compactVectors: async () => {
-      const beforeBytes = dirSizeBytes(config.paths.vectorDir);
-      await vectors.compact();
-      const afterBytes = dirSizeBytes(config.paths.vectorDir);
-      return { beforeBytes, afterBytes };
+      maintenance.running = true;
+      maintenance.startedAt = new Date().toISOString();
+      try {
+        const beforeBytes = dirSizeBytes(config.paths.vectorDir);
+        await vectors.compact();
+        const afterBytes = dirSizeBytes(config.paths.vectorDir);
+        maintenance.lastRunAt = new Date().toISOString();
+        maintenance.lastFreedBytes = Math.max(0, beforeBytes - afterBytes);
+        return { beforeBytes, afterBytes };
+      } finally {
+        maintenance.running = false;
+      }
     },
+    maintenanceStatus: () => ({ ...maintenance }),
     close: async () => {
       await embeddings.dispose?.();
       state.close();

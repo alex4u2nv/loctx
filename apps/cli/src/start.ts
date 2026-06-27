@@ -161,6 +161,7 @@ export async function start(bootConfig: Config, options: StartOptions): Promise<
         /* no-op */
       };
   const reconciliationStop = startReconciliation(runtime, activeProjects, config);
+  const maintenanceStop = startMaintenance(runtime, config);
 
   // Catch-up backfill for analyzers that were enabled while the index was
   // already built (e.g. config edited then daemon restarted, or upgraded
@@ -208,6 +209,11 @@ export async function start(bootConfig: Config, options: StartOptions): Promise<
       reconciliationStop();
     } catch (err) {
       console.error(`[loctx start] reconciliation stop threw: ${(err as Error).message}`);
+    }
+    try {
+      maintenanceStop();
+    } catch (err) {
+      console.error(`[loctx start] maintenance stop threw: ${(err as Error).message}`);
     }
 
     // 2. Tear watcher subscriptions down so no new index events fire
@@ -366,6 +372,87 @@ function startReconciliation(
   } else if (intervalSeconds > 0) {
     scheduleNext();
   }
+
+  return () => {
+    stopped = true;
+    if (timer !== null) clearTimeout(timer);
+  };
+}
+
+// ---- maintenance (auto-compaction) -------------------------------------
+
+/**
+ * Periodically compact the vector store so a long-lived daemon doesn't
+ * accumulate gigabytes of dead Lance version history (#index-size). The
+ * store is append-only — every upsert/delete leaves an old fragment +
+ * manifest behind that's never reclaimed otherwise.
+ *
+ * Mirrors the reconcile loop: a setTimeout chain (not setInterval) so a
+ * hot-reloaded interval applies on the next reschedule, and the timer is
+ * unref'd so it never keeps the process alive on its own.
+ *
+ *   - Disabled when `maintenance.compact_interval_hours` is 0.
+ *   - First pass runs a few minutes after boot (capped to the interval) so
+ *     an *upgraded* instance reclaims its existing bloat shortly after the
+ *     restart, without a hot reindex fighting it.
+ *   - Skipped (and retried shortly) while a reconcile is in flight — both
+ *     contend for the LanceDB writer lock, and compaction during an active
+ *     index pass would just be undone by the next write.
+ */
+function startMaintenance(runtime: Runtime, config: Config): () => void {
+  const intervalMs = (): number => config.maintenance.compactIntervalHours * 60 * 60 * 1000;
+  if (intervalMs() <= 0) return () => undefined;
+
+  // Lead with a short delay after boot so upgrades auto-reclaim, but never
+  // wait longer than the configured interval (relevant only for very short
+  // test intervals).
+  const INITIAL_DELAY_MS = Math.min(5 * 60 * 1000, intervalMs());
+  // When a reconcile is in flight at compaction time, back off this long
+  // and re-check rather than skipping a whole interval.
+  const BUSY_RETRY_MS = 5 * 60 * 1000;
+
+  let timer: NodeJS.Timeout | null = null;
+  let stopped = false;
+
+  const schedule = (delay: number): void => {
+    if (stopped) return;
+    timer = setTimeout(() => void run(), delay);
+    timer.unref();
+  };
+
+  const run = async (): Promise<void> => {
+    if (stopped) return;
+    if (runtime.reconciler.status().running) {
+      console.error(
+        `[loctx compact] reconcile in flight; deferring compaction ~${Math.round(BUSY_RETRY_MS / 60_000)}m`,
+      );
+      schedule(BUSY_RETRY_MS);
+      return;
+    }
+    const startedAt = Date.now();
+    console.error("[loctx compact] starting (merge fragments + prune version history)");
+    try {
+      const { beforeBytes, afterBytes } = await runtime.compactVectors();
+      const mb = (n: number): string => (n / 1e6).toFixed(0);
+      const elapsed = Math.round((Date.now() - startedAt) / 100) / 10;
+      console.error(
+        `[loctx compact] complete (${mb(beforeBytes)}MB → ${mb(afterBytes)}MB, ` +
+          `freed ${mb(Math.max(0, beforeBytes - afterBytes))}MB, elapsed ${elapsed}s)`,
+      );
+    } catch (err) {
+      console.error(`[loctx compact] failed: ${(err as Error).message}`);
+    } finally {
+      // Reschedule on the live interval so a hot-reloaded value takes
+      // effect; bail if it was turned off (0) while we ran.
+      if (!stopped && intervalMs() > 0) schedule(intervalMs());
+    }
+  };
+
+  console.error(
+    `[loctx compact] auto-compaction every ${config.maintenance.compactIntervalHours}h ` +
+      `(first pass in ~${Math.round(INITIAL_DELAY_MS / 60_000)}m)`,
+  );
+  schedule(INITIAL_DELAY_MS);
 
   return () => {
     stopped = true;
