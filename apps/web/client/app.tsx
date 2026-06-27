@@ -124,22 +124,7 @@ export function App() {
             style={{ borderColor: "var(--border)" }}
           >
             <main>
-            <Suspense fallback={ROUTE_FALLBACK}>
-              <Routes>
-                <Route path="/" element={<StatusPage />} />
-                <Route path="/projects" element={<ProjectsPage />} />
-                <Route path="/projects/:id" element={<ProjectDetailPage />} />
-                <Route path="/search" element={<SearchPage />} />
-                <Route path="/find-usages" element={<FindUsagesPage />} />
-                <Route path="/find-literal" element={<FindLiteralPage />} />
-                <Route path="/doctor" element={<DoctorPage />} />
-                <Route path="/models" element={<ModelsPage />} />
-                <Route path="/config" element={<ConfigPage />} />
-                <Route path="/analyzers" element={<AnalyzersPage />} />
-                <Route path="/logs" element={<LogsPage />} />
-                <Route path="/admin" element={<AdminPage />} />
-              </Routes>
-            </Suspense>
+              <AnimatedRoutes />
             </main>
           </div>
         </div>
@@ -147,6 +132,37 @@ export function App() {
       <ConfirmHost />
       {mcpHelpOpen ? <McpHelpModal onClose={() => setMcpHelpOpen(false)} /> : null}
     </BrowserRouter>
+  );
+}
+
+/**
+ * Routes wrapped in a per-pathname keyed container so the `.page-transition`
+ * animation replays on every navigation (the div remounts when the key
+ * changes). `location` is threaded into <Routes> so it resolves against the
+ * same pathname the key is derived from. Lives inside <BrowserRouter> so
+ * `useLocation` has router context.
+ */
+function AnimatedRoutes() {
+  const location = useLocation();
+  return (
+    <div key={location.pathname} className="page-transition">
+      <Suspense fallback={ROUTE_FALLBACK}>
+        <Routes location={location}>
+          <Route path="/" element={<StatusPage />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:id" element={<ProjectDetailPage />} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/find-usages" element={<FindUsagesPage />} />
+          <Route path="/find-literal" element={<FindLiteralPage />} />
+          <Route path="/doctor" element={<DoctorPage />} />
+          <Route path="/models" element={<ModelsPage />} />
+          <Route path="/config" element={<ConfigPage />} />
+          <Route path="/analyzers" element={<AnalyzersPage />} />
+          <Route path="/logs" element={<LogsPage />} />
+          <Route path="/admin" element={<AdminPage />} />
+        </Routes>
+      </Suspense>
+    </div>
   );
 }
 

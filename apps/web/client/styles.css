@@ -2383,6 +2383,40 @@ h3 {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* Route transition: each page's content fades + rises + sharpens into
+   place when it mounts (keyed on pathname in app.tsx, so it replays on
+   every navigation). The blur-to-sharp settle + easeOutQuint curve give
+   the "high-end" load feel without pulling in a transition library —
+   consistent with the hand-rolled modal-rise above. */
+.page-transition {
+  /* No fill-mode: once the 360ms run ends, the element keeps NO transform
+     or filter, so it never becomes a containing block for the in-page
+     `position: fixed` section-nav. The end keyframe equals the natural
+     resting state anyway, so dropping `both` is lossless. */
+  animation: page-enter 360ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: top center;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.992);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+/* Respect users who opt out of motion — render instantly, no animation. */
+@media (prefers-reduced-motion: reduce) {
+  .page-transition {
+    animation: none;
+  }
+}
+
 /* Actionable notification link (e.g. "Install tools →") */
 .notification-action {
   display: inline-block;
