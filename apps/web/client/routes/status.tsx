@@ -311,9 +311,9 @@ function DetailsTile({ status }: { status: StatusPayload }) {
     r.reconciliationIntervalSeconds === 0
       ? "off"
       : `${r.reconciliationIntervalSeconds}s${r.reconciliationRunOnStart ? " + boot" : ""}`;
-  const compaction = status.maintenance.running
+  const compaction = status.maintenance?.running
     ? "running…"
-    : r.compactIntervalHours === 0
+    : !r.compactIntervalHours
       ? "off"
       : `every ${r.compactIntervalHours}h`;
   return (

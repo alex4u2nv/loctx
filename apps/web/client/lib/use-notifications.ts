@@ -114,7 +114,7 @@ function deriveNotifications(
   // In-flight compaction (warn): the background maintenance pass is CPU/IO
   // heavy. Surface it so an operator who notices the daemon spike knows
   // it's loctx reclaiming index disk, not a stuck process.
-  if (status !== null && status.maintenance.running) {
+  if (status !== null && status.maintenance?.running) {
     out.push({
       id: `compact:${status.maintenance.startedAt ?? "unknown"}`,
       kind: "warn",

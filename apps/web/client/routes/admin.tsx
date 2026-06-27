@@ -28,7 +28,7 @@ export function AdminPage() {
   const reconcileBlocked = reconcile?.running ?? false;
   // Compaction (manual or the daemon's auto pass) holds the LanceDB writer
   // lock; another compact would just queue behind it. Disable + explain.
-  const compacting = statusReq.data?.maintenance.running ?? false;
+  const compacting = statusReq.data?.maintenance?.running ?? false;
   const compactIntervalHours = statusReq.data?.runtime.compactIntervalHours ?? 0;
   const indexBlocked = ops.busy !== null || reconcileBlocked;
   const reconcileTooltip = reconcileBlocked
