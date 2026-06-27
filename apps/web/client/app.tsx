@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { ConfirmHost } from "./components/confirm";
 import { Icon, type IconName } from "./components/icon";
@@ -7,6 +7,7 @@ import { McpHelpModal } from "./components/mcp-help";
 import { NotificationsBell } from "./components/notifications-bell";
 import { api } from "./lib/api";
 import { type ColorMode, getMode, toggleMode } from "./lib/appearance";
+import { initScrollReveal } from "./lib/scroll-reveal";
 import { useFetch } from "./lib/use-fetch";
 
 // Route-level code splitting (#218). Each page chunk loads on first
@@ -100,6 +101,13 @@ const ROUTE_LABELS: ReadonlyArray<{ readonly prefix: string; readonly label: str
 export function App() {
   const [mcpHelpOpen, setMcpHelpOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  // Apple-style scroll reveal for section cards across every route. Set up
+  // once against the content <main>; the controller's MutationObserver picks
+  // up lazily-mounted route content on its own (see lib/scroll-reveal).
+  useEffect(() => {
+    const main = document.querySelector("main");
+    return main === null ? undefined : initScrollReveal(main);
+  }, []);
   return (
     <BrowserRouter>
       <div className="min-h-screen">
