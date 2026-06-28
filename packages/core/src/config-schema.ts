@@ -248,6 +248,14 @@ export const CONFIG_SCHEMA: ReadonlyArray<SectionSchema> = Object.freeze([
         min: 0,
         max: 100_000,
       },
+      {
+        key: "mcp.adminEnabled",
+        yamlPath: ["mcp", "admin_enabled"],
+        label: "admin_enabled",
+        help: "Expose the admin_workspace MCP tool so a connected LLM can run maintenance (compact, analyzer backfill) and read/write this config. Privileged — leave off unless you trust whatever's on the MCP channel.",
+        type: "bool",
+        default: false,
+      },
     ],
   },
   {

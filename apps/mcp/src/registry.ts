@@ -12,7 +12,9 @@
  *   - {@link registerTools}      — wires `tools/list` + `tools/call` onto an MCP Server.
  */
 
+import { join } from "node:path";
 import {
+  CONFIG_SCHEMA,
   type DuplicateGroup,
   inventoryProjects,
   type ProjectId,
@@ -21,6 +23,7 @@ import {
   type SearchResponse,
   type SymbolRefHit,
   Validator,
+  writeConfigPatch,
 } from "@loctx/core";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -224,6 +227,64 @@ export interface FindLiteralOutput {
 
 export interface RefreshOutputWithHealth extends RefreshOutput {
   readonly indexHealth: IndexHealth;
+}
+
+// ---- admin_workspace (privileged, gated by mcp.admin_enabled) ----------
+
+export type AdminAction = "get_config" | "set_config" | "compact" | "backfill_analyzers";
+
+export interface AdminInput {
+  readonly action: AdminAction;
+  /** set_config: dot-path key → value patch, validated against the config schema. */
+  readonly patch?: Record<string, unknown>;
+  /** backfill_analyzers: optional analyzer names to scope to (default: all enabled). */
+  readonly targets?: ReadonlyArray<string>;
+}
+
+/** One config field's effective (merged) value, for `get_config`. */
+export interface AdminConfigSetting {
+  readonly key: string;
+  readonly label: string;
+  readonly type: string;
+  readonly value: unknown;
+  readonly default: unknown;
+}
+
+export type AdminOutput =
+  | {
+      readonly action: "get_config";
+      readonly configPath: string | null;
+      readonly settings: ReadonlyArray<AdminConfigSetting>;
+    }
+  | {
+      readonly action: "set_config";
+      readonly ok: true;
+      readonly path: string;
+      readonly bytesWritten: number;
+      /** True when the daemon hot-reloaded the change; false ⇒ restart to apply. */
+      readonly reloaded: boolean;
+      readonly applied: Record<string, unknown>;
+    }
+  | {
+      readonly action: "compact";
+      readonly beforeBytes: number;
+      readonly afterBytes: number;
+      readonly freedBytes: number;
+    }
+  | {
+      readonly action: "backfill_analyzers";
+      readonly enqueued: number;
+    };
+
+/** Side-effect hooks the host wires into privileged admin handlers. */
+export interface AdminOptions {
+  /**
+   * Re-read the YAML into the daemon's live config after `set_config`. Present
+   * only for the in-daemon HTTP transport (where a reload affects the serving
+   * process); absent for the stdio binary, where the write lands on disk and
+   * applies on the next daemon restart.
+   */
+  readonly reloadConfig?: () => void | Promise<void>;
 }
 
 export class ToolError extends Error {}
@@ -514,7 +575,128 @@ export const tools = {
       indexHealth: currentIndexHealth(runtime),
     });
   },
+
+  async admin(runtime: Runtime, input: unknown, options: AdminOptions = {}): Promise<AdminOutput> {
+    const v = new Validator(ToolError, "admin_workspace");
+    const data = v.requireRecord(input ?? {}, "arguments");
+    const action = v.getStr(data, "action") as AdminAction | undefined;
+    if (action === undefined) {
+      throw new ToolError(
+        "action is required (one of: get_config, set_config, compact, backfill_analyzers)",
+      );
+    }
+
+    switch (action) {
+      case "get_config": {
+        // Effective (merged) value of every schema field, plucked off the
+        // live config tree — matches what the admin Config editor shows.
+        const settings: AdminConfigSetting[] = [];
+        for (const section of CONFIG_SCHEMA) {
+          for (const f of section.fields) {
+            settings.push({
+              key: f.key,
+              label: f.label,
+              type: f.type,
+              value: pluckConfigKey(runtime, f.key),
+              default: f.default,
+            });
+          }
+        }
+        return Object.freeze({
+          action,
+          configPath: runtime.config.source ?? null,
+          settings: Object.freeze(settings),
+        });
+      }
+
+      case "set_config": {
+        const patch = data["patch"];
+        if (patch === null || typeof patch !== "object" || Array.isArray(patch)) {
+          throw new ToolError(
+            'set_config requires a `patch` object of dot-path keys → values (e.g. {"maintenance.compactIntervalHours": 12}). Call action=get_config to see valid keys.',
+          );
+        }
+        if (Object.keys(patch).length === 0) {
+          throw new ToolError("patch is empty — nothing to write");
+        }
+        // `source` is null only when the global YAML doesn't exist yet;
+        // writeConfigPatch creates it at the canonical config-dir path.
+        const path = runtime.config.source ?? join(runtime.config.paths.configDir, "config.yaml");
+        const result = writeConfigPatch(path, patch as Record<string, unknown>);
+        if (!result.ok) {
+          throw new ToolError(
+            `invalid config patch: ${result.errors.map((e) => `${e.key}: ${e.message}`).join("; ")}`,
+          );
+        }
+        // Hot-reload when the host wired it (in-daemon HTTP transport). The
+        // stdio binary has no reload hook — the write still lands on disk and
+        // applies on the next restart, reported via reloaded=false.
+        let reloaded = false;
+        if (options.reloadConfig !== undefined) {
+          try {
+            await options.reloadConfig();
+            reloaded = true;
+          } catch {
+            // Reload failure mustn't fail the write — the YAML is on disk.
+            reloaded = false;
+          }
+        }
+        return Object.freeze({
+          action,
+          ok: true as const,
+          path: result.path,
+          bytesWritten: result.bytesWritten,
+          reloaded,
+          applied: patch as Record<string, unknown>,
+        });
+      }
+
+      case "compact": {
+        // Mirror /api/compact: refuse during a reconcile so we don't fight
+        // the indexer for the LanceDB writer lock.
+        if (runtime.reconciler.status().running) {
+          throw new ToolError("a reconcile is in flight; try compact again after it finishes");
+        }
+        const { beforeBytes, afterBytes } = await runtime.compactVectors();
+        return Object.freeze({
+          action,
+          beforeBytes,
+          afterBytes,
+          freedBytes: Math.max(0, beforeBytes - afterBytes),
+        });
+      }
+
+      case "backfill_analyzers": {
+        const rawTargets = data["targets"];
+        let targets: ReadonlyArray<string> | undefined;
+        if (rawTargets !== undefined) {
+          if (!Array.isArray(rawTargets) || rawTargets.some((t) => typeof t !== "string")) {
+            throw new ToolError("targets must be an array of analyzer names (strings)");
+          }
+          targets = rawTargets as ReadonlyArray<string>;
+        }
+        const { enqueued } = await runtime.backfillAnalyzers(targets);
+        return Object.freeze({ action, enqueued });
+      }
+
+      default: {
+        // Exhaustiveness guard — a new AdminAction must add a case above.
+        const _never: never = action;
+        throw new ToolError(`unknown admin action: ${String(_never)}`);
+      }
+    }
+  },
 } as const;
+
+/** Pluck a dot-path schema key (e.g. "mcp.adminEnabled") off the live config. */
+function pluckConfigKey(runtime: Runtime, key: string): unknown {
+  let cur: unknown = runtime.config as unknown as Record<string, unknown>;
+  for (const seg of key.split(".")) {
+    if (cur === null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[seg];
+  }
+  return cur;
+}
 
 // ---- tool catalog ------------------------------------------------------
 
@@ -636,6 +818,45 @@ export const TOOL_DEFINITIONS = [
   },
 ] as const;
 
+/**
+ * Privileged admin tool. Only listed + dispatchable when `mcp.admin_enabled`
+ * is true in config — kept out of the default catalog so an ordinary MCP
+ * client never even sees it. Lets a trusted LLM read/write the daemon config
+ * and run maintenance, the same operations the admin web UI exposes.
+ */
+export const ADMIN_TOOL_DEFINITION = {
+  name: "admin_workspace",
+  description:
+    "**Privileged daemon administration — manage loctx itself via your LLM.** Disabled by default; appears only when `mcp.admin_enabled` is set. Dispatches on `action`:\n" +
+    "- `get_config`: return every config setting's effective (merged) value, its default, and the config-file path. Call this first to discover valid keys before `set_config`.\n" +
+    '- `set_config`: write a `patch` of dot-path keys → values (e.g. `{"maintenance.compactIntervalHours": 12, "analyzers.duplicates.enabled": true}`), validated against the config schema. On the daemon\'s HTTP endpoint the change hot-reloads live (`reloaded: true`); over stdio it lands on disk and applies on the next restart (`reloaded: false`). Some fields (embedding model, daemon port, retrieval mode, watcher) only take effect after a restart even when reloaded.\n' +
+    "- `compact`: merge vector-store fragments + prune old version history to reclaim disk; returns before/after/freed bytes. Refused while a reconcile is in flight.\n" +
+    "- `backfill_analyzers`: enqueue analyzer enrichment for already-indexed files missing it (optionally scoped to `targets`); returns how many tasks were enqueued.\n" +
+    "This is the management counterpart to the read/search tools — use it to tune settings or run upkeep, not to query content.",
+  inputSchema: {
+    type: "object",
+    required: ["action"],
+    properties: {
+      action: {
+        type: "string",
+        enum: ["get_config", "set_config", "compact", "backfill_analyzers"],
+        description: "Which administrative operation to run.",
+      },
+      patch: {
+        type: "object",
+        description:
+          'For action=set_config: a map of dot-path config keys to new values (e.g. {"maintenance.compactIntervalHours": 12}). Use get_config to list valid keys + current values.',
+      },
+      targets: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          'For action=backfill_analyzers: analyzer names to scope the backfill to (e.g. ["duplicates"]). Omit for all enabled analyzers.',
+      },
+    },
+  },
+} as const;
+
 // ---- MCP Server adapter ------------------------------------------------
 
 /**
@@ -661,20 +882,50 @@ function isToolName(name: string): name is ToolName {
  * Wire ``tools/list`` and ``tools/call`` onto an MCP {@link Server} so it
  * dispatches into the pure handlers above. Used by both the stdio binary
  * and the SSE route — they share this single registry.
+ *
+ * `options.reloadConfig`, when supplied, lets the privileged
+ * `admin_workspace` tool hot-reload config after a `set_config` write (the
+ * in-daemon HTTP transport passes it; the stdio binary doesn't). The admin
+ * tool itself is only exposed when `runtime.config.mcp.adminEnabled` is true.
  */
-export function registerTools(server: Server, runtime: Runtime): void {
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: TOOL_DEFINITIONS.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-    })),
-  }));
+export function registerTools(server: Server, runtime: Runtime, options: AdminOptions = {}): void {
+  const adminEnabled = runtime.config.mcp?.adminEnabled === true;
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const defs: ReadonlyArray<{ name: string; description: string; inputSchema: unknown }> =
+      adminEnabled ? [...TOOL_DEFINITIONS, ADMIN_TOOL_DEFINITION] : TOOL_DEFINITIONS;
+    return {
+      tools: defs.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      })),
+    };
+  });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     const startedAt = Date.now();
     try {
+      // admin_workspace is dispatched separately so it stays unreachable
+      // (404-equivalent) unless explicitly enabled, even if a client guesses
+      // the name without it appearing in tools/list.
+      if (name === "admin_workspace") {
+        if (!adminEnabled) {
+          throw new ToolError(
+            "admin_workspace is disabled — set mcp.admin_enabled: true in config to allow LLM-driven administration",
+          );
+        }
+        const adminResult = await tools.admin(runtime, args, options);
+        const adminText = JSON.stringify(adminResult, null, 2);
+        recordMcpRequest(runtime, name, args, {
+          responseJson: adminText,
+          error: null,
+          ok: true,
+          elapsedMs: Date.now() - startedAt,
+        });
+        return { content: [{ type: "text" as const, text: adminText }] };
+      }
       if (!isToolName(name)) throw new ToolError(`Unknown tool: ${name}`);
       const result = await TOOL_HANDLERS[name](runtime, args);
       const text = JSON.stringify(result, null, 2);

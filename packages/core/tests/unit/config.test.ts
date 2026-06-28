@@ -159,6 +159,14 @@ describe("loadConfig precedence chain", () => {
     expect(config.maintenance.compactIntervalHours).toBe(0);
     expect(config.sources["maintenance.compactIntervalHours"]).toBe("global");
   });
+
+  it("MCP admin tool is off by default and opt-in via mcp.admin_enabled", () => {
+    expect(loadConfig({ configPath }).mcp.adminEnabled).toBe(false);
+    writeFileSync(configPath, "mcp:\n  admin_enabled: true\n", "utf-8");
+    const config = loadConfig({ configPath });
+    expect(config.mcp.adminEnabled).toBe(true);
+    expect(config.sources["mcp.adminEnabled"]).toBe("global");
+  });
 });
 
 describe("summarizeLegacyProjectConfig", () => {

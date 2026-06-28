@@ -87,7 +87,7 @@ export function createWebApp(opts: CreateWebAppOptions): Hono {
   };
 
   mountApi(app, opts.config, getRuntime, opts.watcherRegistry, opts.onConfigWrite);
-  mountMcp(app, getRuntime);
+  mountMcp(app, getRuntime, opts.onConfigWrite);
 
   // OAuth discovery probes — Claude Code's MCP HTTP client (and others
   // following the MCP spec) GET these well-known paths to detect

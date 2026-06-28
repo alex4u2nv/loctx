@@ -22,7 +22,13 @@ export type {
   StatusInput,
   StatusOutput,
 } from "./registry.js";
-export { registerTools, TOOL_DEFINITIONS, ToolError, tools } from "./registry.js";
+export {
+  ADMIN_TOOL_DEFINITION,
+  registerTools,
+  TOOL_DEFINITIONS,
+  ToolError,
+  tools,
+} from "./registry.js";
 
 const SERVER_INFO = { name: "loctx", version: "0.1.0" };
 

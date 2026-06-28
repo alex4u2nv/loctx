@@ -94,9 +94,12 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
   } as unknown as Runtime;
 }
 
-async function connectedPair(runtime: Runtime): Promise<{ client: Client; server: Server }> {
+async function connectedPair(
+  runtime: Runtime,
+  options?: { reloadConfig?: () => void | Promise<void> },
+): Promise<{ client: Client; server: Server }> {
   const server = new Server({ name: "loctx", version: "test" }, { capabilities: { tools: {} } });
-  registerTools(server, runtime);
+  registerTools(server, runtime, options ?? {});
   const client = new Client({ name: "loctx-test", version: "test" }, { capabilities: {} });
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -157,6 +160,46 @@ describe("MCP Server + registry over in-memory transport", () => {
   it("tools/call returns isError for an unknown tool", async () => {
     const { client } = await connectedPair(stubRuntime());
     const result = await client.callTool({ name: "totally_made_up", arguments: {} });
+    expect(result.isError).toBe(true);
+  });
+
+  // ---- admin_workspace gating (mcp.admin_enabled) ------------------
+
+  function adminRuntime(adminEnabled: boolean): Runtime {
+    const base = stubRuntime();
+    return stubRuntime({
+      config: {
+        ...(base.config as Runtime["config"]),
+        mcp: { logMaxRows: 200, adminEnabled },
+      } as unknown as Runtime["config"],
+      compactVectors: async () => ({ beforeBytes: 100, afterBytes: 40 }),
+      backfillAnalyzers: async () => ({ enqueued: 0 }),
+    } as Partial<Runtime>);
+  }
+
+  it("hides admin_workspace from tools/list when admin is disabled", async () => {
+    const { client } = await connectedPair(adminRuntime(false));
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    expect(names).not.toContain("admin_workspace");
+  });
+
+  it("lists + dispatches admin_workspace when admin is enabled", async () => {
+    const { client } = await connectedPair(adminRuntime(true));
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    expect(names).toContain("admin_workspace");
+
+    const result = await client.callTool({ name: "admin_workspace", arguments: { action: "compact" } });
+    expect(result.isError).toBeFalsy();
+    const payload = JSON.parse(
+      (result.content as Array<{ type: string; text: string }>)[0]?.text ?? "{}",
+    );
+    expect(payload.action).toBe("compact");
+    expect(payload.freedBytes).toBe(60);
+  });
+
+  it("refuses an admin_workspace call when admin is disabled even if the name is guessed", async () => {
+    const { client } = await connectedPair(adminRuntime(false));
+    const result = await client.callTool({ name: "admin_workspace", arguments: { action: "compact" } });
     expect(result.isError).toBe(true);
   });
 });
