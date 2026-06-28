@@ -5,6 +5,11 @@
  */
 
 export {
+  ADMIN_TOOL_DEFINITION,
+  type AdminAction,
+  type AdminInput,
+  type AdminOptions,
+  type AdminOutput,
   type RefreshInput,
   type RefreshOutput,
   registerTools,

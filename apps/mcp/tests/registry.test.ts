@@ -1,6 +1,9 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Runtime, SearchResponse } from "@loctx/core";
-import { describe, expect, it } from "vitest";
-import { TOOL_DEFINITIONS, ToolError, tools } from "../src/registry.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { ADMIN_TOOL_DEFINITION, TOOL_DEFINITIONS, ToolError, tools } from "../src/registry.js";
 
 // ---- minimal stubs --------------------------------------------------
 
@@ -126,6 +129,20 @@ describe("TOOL_DEFINITIONS", () => {
     for (const tool of TOOL_DEFINITIONS) {
       expect(tool.inputSchema.type).toBe("object");
     }
+  });
+
+  it("admin_workspace is NOT in the default catalog (gated separately)", () => {
+    expect(TOOL_DEFINITIONS.map((t) => t.name)).not.toContain("admin_workspace");
+  });
+
+  it("ADMIN_TOOL_DEFINITION declares the four admin actions", () => {
+    expect(ADMIN_TOOL_DEFINITION.name).toBe("admin_workspace");
+    expect(ADMIN_TOOL_DEFINITION.inputSchema.properties.action.enum).toEqual([
+      "get_config",
+      "set_config",
+      "compact",
+      "backfill_analyzers",
+    ]);
   });
 
   // The descriptions are the user-facing API for agent tool selection.
@@ -710,5 +727,142 @@ describe("inner-project scope fallback (#276)", () => {
     expect(out.projects.map((p) => p.projectId)).toEqual(["proj-a"]);
     expect(out.projects[0]?.defs[0]?.relPath).toBe("packages/core/src/state.ts");
     expect(out.warnings.some((w) => /unindexed inner project/.test(w))).toBe(true);
+  });
+});
+
+// ---- admin_workspace (privileged, gated) ---------------------------
+
+describe("tools.admin", () => {
+  let tmp: string | null = null;
+  afterEach(() => {
+    if (tmp !== null) rmSync(tmp, { recursive: true, force: true });
+    tmp = null;
+  });
+
+  function adminRuntime(overrides: Partial<Runtime> = {}): Runtime {
+    const base = stubRuntime();
+    return stubRuntime({
+      config: {
+        ...(base.config as Runtime["config"]),
+        source: null,
+        mcp: { logMaxRows: 200, adminEnabled: true },
+      } as unknown as Runtime["config"],
+      compactVectors: async () => ({ beforeBytes: 1000, afterBytes: 200 }),
+      backfillAnalyzers: async () => ({ enqueued: 0 }),
+      ...overrides,
+    });
+  }
+
+  it("requires an action", async () => {
+    await expect(tools.admin(adminRuntime(), {})).rejects.toBeInstanceOf(ToolError);
+  });
+
+  it("rejects an unknown action", async () => {
+    await expect(tools.admin(adminRuntime(), { action: "nuke" })).rejects.toBeInstanceOf(ToolError);
+  });
+
+  it("get_config returns the effective value + default of every schema field", async () => {
+    const out = await tools.admin(adminRuntime(), { action: "get_config" });
+    if (out.action !== "get_config") throw new Error("wrong action");
+    const admin = out.settings.find((s) => s.key === "mcp.adminEnabled");
+    expect(admin?.value).toBe(true);
+    expect(admin?.default).toBe(false);
+    const logRows = out.settings.find((s) => s.key === "mcp.logMaxRows");
+    expect(logRows?.value).toBe(200);
+  });
+
+  it("compact returns before/after/freed bytes", async () => {
+    const out = await tools.admin(adminRuntime(), { action: "compact" });
+    if (out.action !== "compact") throw new Error("wrong action");
+    expect(out.beforeBytes).toBe(1000);
+    expect(out.afterBytes).toBe(200);
+    expect(out.freedBytes).toBe(800);
+  });
+
+  it("compact refuses while a reconcile is in flight", async () => {
+    const runtime = adminRuntime({
+      reconciler: {
+        status: () => ({
+          running: true,
+          startedAt: "2026-06-28T00:00:00.000Z",
+          currentProjectName: "x",
+          completed: 0,
+          total: 1,
+        }),
+      } as Runtime["reconciler"],
+    });
+    await expect(tools.admin(runtime, { action: "compact" })).rejects.toBeInstanceOf(ToolError);
+  });
+
+  it("backfill_analyzers forwards targets and returns the enqueued count", async () => {
+    let captured: ReadonlyArray<string> | undefined;
+    const runtime = adminRuntime({
+      backfillAnalyzers: async (targets?: ReadonlyArray<string>) => {
+        captured = targets;
+        return { enqueued: 7 };
+      },
+    });
+    const out = await tools.admin(runtime, {
+      action: "backfill_analyzers",
+      targets: ["duplicates"],
+    });
+    if (out.action !== "backfill_analyzers") throw new Error("wrong action");
+    expect(out.enqueued).toBe(7);
+    expect(captured).toEqual(["duplicates"]);
+  });
+
+  it("set_config rejects an invalid patch without writing", async () => {
+    await expect(
+      tools.admin(adminRuntime(), { action: "set_config", patch: { "bogus.key": 1 } }),
+    ).rejects.toBeInstanceOf(ToolError);
+  });
+
+  it("set_config rejects an empty patch", async () => {
+    await expect(
+      tools.admin(adminRuntime(), { action: "set_config", patch: {} }),
+    ).rejects.toBeInstanceOf(ToolError);
+  });
+
+  it("set_config writes a validated patch to disk and hot-reloads when wired", async () => {
+    tmp = mkdtempSync(join(tmpdir(), "loctx-admin-"));
+    const configPath = join(tmp, "config.yaml");
+    const runtime = adminRuntime({
+      config: {
+        ...(adminRuntime().config as Runtime["config"]),
+        source: configPath,
+      } as unknown as Runtime["config"],
+    });
+    let reloaded = false;
+    const out = await tools.admin(
+      runtime,
+      { action: "set_config", patch: { "mcp.logMaxRows": 50 } },
+      {
+        reloadConfig: () => {
+          reloaded = true;
+        },
+      },
+    );
+    if (out.action !== "set_config") throw new Error("wrong action");
+    expect(out.ok).toBe(true);
+    expect(out.reloaded).toBe(true);
+    expect(reloaded).toBe(true);
+    expect(readFileSync(configPath, "utf-8")).toMatch(/log_max_rows:\s*50/);
+  });
+
+  it("set_config reports reloaded=false when no reload hook is wired (stdio)", async () => {
+    tmp = mkdtempSync(join(tmpdir(), "loctx-admin-"));
+    const configPath = join(tmp, "config.yaml");
+    const runtime = adminRuntime({
+      config: {
+        ...(adminRuntime().config as Runtime["config"]),
+        source: configPath,
+      } as unknown as Runtime["config"],
+    });
+    const out = await tools.admin(runtime, {
+      action: "set_config",
+      patch: { "mcp.logMaxRows": 75 },
+    });
+    if (out.action !== "set_config") throw new Error("wrong action");
+    expect(out.reloaded).toBe(false);
   });
 });

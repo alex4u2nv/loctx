@@ -47,7 +47,7 @@ export function mountApi(
   mountFindLiteral(app, config, getRuntime);
   mountOps(app, config, getRuntime, rebuildTracker);
   mountWatchers(app, watcherRegistry);
-  mountMcpTools(app);
+  mountMcpTools(app, config);
   mountLogs(app, config, getRuntime);
   mountAgentSetup(app, config, getRuntime);
   mountDefinitions(app, config, getRuntime);

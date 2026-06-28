@@ -218,15 +218,21 @@ export interface DiscoveryConfig {
 }
 
 /**
- * MCP server behaviour. Currently just the request-log retention bound.
+ * MCP server behaviour.
  *
- *   - `logMaxRows`  rolling row cap on the `mcp_requests` table. Each
- *                   `tools/call` is appended and the oldest rows are
- *                   trimmed back to this many. Default 200. Set to `0`
- *                   to disable request logging entirely.
+ *   - `logMaxRows`     rolling row cap on the `mcp_requests` table. Each
+ *                      `tools/call` is appended and the oldest rows are
+ *                      trimmed back to this many. Default 200. Set to `0`
+ *                      to disable request logging entirely.
+ *   - `adminEnabled`   expose the `admin_workspace` MCP tool, which lets a
+ *                      connected LLM run maintenance (compact, analyzer
+ *                      backfill) and read/write the daemon config. OFF by
+ *                      default — it's a privileged surface; opt in only if
+ *                      you trust whatever's on the MCP channel.
  */
 export interface McpConfig {
   readonly logMaxRows: number;
+  readonly adminEnabled: boolean;
 }
 
 /**
@@ -307,6 +313,7 @@ const DEFAULT_MAINTENANCE: MaintenanceConfig = Object.freeze({
 const DEFAULT_MCP_LOG_MAX_ROWS = 200;
 const DEFAULT_MCP: McpConfig = Object.freeze({
   logMaxRows: DEFAULT_MCP_LOG_MAX_ROWS,
+  adminEnabled: false,
 });
 
 const DEFAULT_NETWORK: NetworkConfig = Object.freeze({
@@ -570,6 +577,7 @@ function mergeMcp(
   const pick = makePicker(sectionRecord(global, "mcp", "<global>"), sources);
   return Object.freeze({
     logMaxRows: pick("mcp.logMaxRows", "log_max_rows", INT_NON_NEG, DEFAULT_MCP.logMaxRows),
+    adminEnabled: pick("mcp.adminEnabled", "admin_enabled", BOOL, DEFAULT_MCP.adminEnabled),
   });
 }
 
@@ -989,6 +997,10 @@ mcp:
   # Rolling row cap on the MCP request log (the admin "logs" page).
   # Oldest rows are trimmed past this count. Set to 0 to disable logging.
   log_max_rows: 200
+  # Expose the admin_workspace MCP tool so a connected LLM can run
+  # maintenance (compact, analyzer backfill) and read/write this config.
+  # Privileged — leave false unless you trust whatever's on the MCP channel.
+  admin_enabled: false
 
 # Outbound network — set these only behind a TLS-intercepting proxy or
 # corporate firewall (e.g. Socket Firewall). They apply to the embedding
