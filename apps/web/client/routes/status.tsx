@@ -311,6 +311,11 @@ function DetailsTile({ status }: { status: StatusPayload }) {
     r.reconciliationIntervalSeconds === 0
       ? "off"
       : `${r.reconciliationIntervalSeconds}s${r.reconciliationRunOnStart ? " + boot" : ""}`;
+  const compaction = status.maintenance?.running
+    ? "running…"
+    : !r.compactIntervalHours
+      ? "off"
+      : `every ${r.compactIntervalHours}h`;
   return (
     <article id="dash-details" className="card">
       <p className="card-section-title">Details</p>
@@ -319,6 +324,7 @@ function DetailsTile({ status }: { status: StatusPayload }) {
         <Metric label="Embedding" value={r.embeddingModel} />
         <Metric label="Watcher" value={`${r.watcherDebounceMs}ms`} />
         <Metric label="Reconcile" value={reconciliation} />
+        <Metric label="Compaction" value={compaction} />
       </div>
     </article>
   );

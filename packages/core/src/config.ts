@@ -188,6 +188,21 @@ export interface ReconciliationConfig {
 }
 
 /**
+ * Background index maintenance (#index-size). The vector store is
+ * append-only — every upsert/delete writes a new Lance fragment + version
+ * manifest, and the old history is never reclaimed on its own. A periodic
+ * compaction merges fragments and prunes that history so a long-lived
+ * daemon doesn't accumulate gigabytes of dead version data.
+ *
+ *   - `compactIntervalHours`  cadence of the auto-compaction pass. 0
+ *                             disables it (the manual admin button still
+ *                             works). Default 24 (once a day).
+ */
+export interface MaintenanceConfig {
+  readonly compactIntervalHours: number;
+}
+
+/**
  * Project discovery (#81). Walks `workspace_roots` looking for marker
  * files/directories that identify a project root.
  *
@@ -242,6 +257,7 @@ export interface Config {
   readonly daemon: DaemonConfig;
   readonly retrieval: RetrievalConfig;
   readonly reconciliation: ReconciliationConfig;
+  readonly maintenance: MaintenanceConfig;
   readonly discovery: DiscoveryConfig;
   readonly analyzers: AnalyzerConfig;
   readonly mcp: McpConfig;
@@ -282,6 +298,10 @@ const DEFAULT_DISCOVERY: DiscoveryConfig = Object.freeze({
 const DEFAULT_RECONCILIATION: ReconciliationConfig = Object.freeze({
   runOnStart: true,
   intervalSeconds: 600,
+});
+
+const DEFAULT_MAINTENANCE: MaintenanceConfig = Object.freeze({
+  compactIntervalHours: 24,
 });
 
 const DEFAULT_MCP_LOG_MAX_ROWS = 200;
@@ -400,6 +420,7 @@ export function loadConfig(options?: string | LoadConfigOptions): Config {
     daemon: merged.daemon,
     retrieval: merged.retrieval,
     reconciliation: merged.reconciliation,
+    maintenance: merged.maintenance,
     discovery: merged.discovery,
     analyzers: merged.analyzers,
     mcp: merged.mcp,
@@ -514,6 +535,7 @@ interface MergedFields {
   readonly daemon: DaemonConfig;
   readonly retrieval: RetrievalConfig;
   readonly reconciliation: ReconciliationConfig;
+  readonly maintenance: MaintenanceConfig;
   readonly discovery: DiscoveryConfig;
   readonly analyzers: AnalyzerConfig;
   readonly mcp: McpConfig;
@@ -533,6 +555,7 @@ function mergeFields(
     daemon: mergeDaemon(global, sources),
     retrieval: mergeRetrieval(global, sources),
     reconciliation: mergeReconciliation(global, sources),
+    maintenance: mergeMaintenance(global, sources),
     discovery: mergeDiscovery(global, sources),
     analyzers: mergeAnalyzers(global, sources),
     mcp: mergeMcp(global, sources),
@@ -640,6 +663,21 @@ function mergeReconciliation(
       "interval_seconds",
       INT_NON_NEG,
       DEFAULT_RECONCILIATION.intervalSeconds,
+    ),
+  });
+}
+
+function mergeMaintenance(
+  global: Record<string, unknown> | null,
+  sources: Record<string, ConfigSource>,
+): MaintenanceConfig {
+  const pick = makePicker(sectionRecord(global, "maintenance", "<global>"), sources);
+  return Object.freeze({
+    compactIntervalHours: pick(
+      "maintenance.compactIntervalHours",
+      "compact_interval_hours",
+      INT_NON_NEG,
+      DEFAULT_MAINTENANCE.compactIntervalHours,
     ),
   });
 }
@@ -918,6 +956,13 @@ retrieval:
   mode: hybrid
   # Reciprocal rank fusion constant; 60 is the literature default.
   rrf_k: 60
+
+# Background index maintenance. The vector store is append-only, so a
+# long-lived daemon accumulates dead version history; loctx compacts it
+# automatically on this cadence (and you can trigger it from the admin
+# "Index → compact" button anytime). Set to 0 to disable auto-compaction.
+maintenance:
+  compact_interval_hours: 24
 
 # Background code-analysis queue (runs out of band from indexing/search).
 # All analyzers are ON by default. duplicates is pure-JS and works as-is.

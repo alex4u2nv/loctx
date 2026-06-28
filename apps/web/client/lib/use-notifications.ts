@@ -111,6 +111,19 @@ function deriveNotifications(
     }
   }
 
+  // In-flight compaction (warn): the background maintenance pass is CPU/IO
+  // heavy. Surface it so an operator who notices the daemon spike knows
+  // it's loctx reclaiming index disk, not a stuck process.
+  if (status !== null && status.maintenance?.running) {
+    out.push({
+      id: `compact:${status.maintenance.startedAt ?? "unknown"}`,
+      kind: "warn",
+      title: "Compacting the index",
+      message:
+        "Merging vector fragments and pruning old version history to reclaim disk. Expect brief CPU/IO load; search stays available throughout.",
+    });
+  }
+
   if (projects === null) return out;
 
   // In-flight rebuilds (warn): one entry per project actively rebuilding.

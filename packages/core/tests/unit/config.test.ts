@@ -146,6 +146,19 @@ describe("loadConfig precedence chain", () => {
     writeFileSync(configPath, "retrieval:\n  mode: bogus\n", "utf-8");
     expect(() => loadConfig({ configPath })).toThrow(ConfigError);
   });
+
+  it("auto-compaction defaults to every 24h", () => {
+    const config = loadConfig({ configPath });
+    expect(config.maintenance.compactIntervalHours).toBe(24);
+    expect(config.sources["maintenance.compactIntervalHours"]).toBe("default");
+  });
+
+  it("parses maintenance.compact_interval_hours from the global file (0 disables)", () => {
+    writeFileSync(configPath, "maintenance:\n  compact_interval_hours: 0\n", "utf-8");
+    const config = loadConfig({ configPath });
+    expect(config.maintenance.compactIntervalHours).toBe(0);
+    expect(config.sources["maintenance.compactIntervalHours"]).toBe("global");
+  });
 });
 
 describe("summarizeLegacyProjectConfig", () => {

@@ -189,6 +189,24 @@ export const CONFIG_SCHEMA: ReadonlyArray<SectionSchema> = Object.freeze([
     ],
   },
   {
+    id: "maintenance",
+    label: "Maintenance",
+    help: "Background index upkeep — auto-compaction of the append-only vector store.",
+    yamlSection: "maintenance",
+    fields: [
+      {
+        key: "maintenance.compactIntervalHours",
+        yamlPath: ["maintenance", "compact_interval_hours"],
+        label: "compact_interval_hours",
+        help: "Auto-compact the vector store on this cadence to reclaim dead version history (0 to disable; the manual compact button still works).",
+        type: "int",
+        default: 24,
+        min: 0,
+        max: 8_760,
+      },
+    ],
+  },
+  {
     id: "discovery",
     label: "Discovery",
     help: "How loctx finds projects under a workspace root.",
