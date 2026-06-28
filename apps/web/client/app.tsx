@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { ConfirmHost } from "./components/confirm";
 import { Icon, type IconName } from "./components/icon";
@@ -7,6 +7,7 @@ import { McpHelpModal } from "./components/mcp-help";
 import { NotificationsBell } from "./components/notifications-bell";
 import { api } from "./lib/api";
 import { type ColorMode, getMode, toggleMode } from "./lib/appearance";
+import { initScrollReveal } from "./lib/scroll-reveal";
 import { useFetch } from "./lib/use-fetch";
 
 // Route-level code splitting (#218). Each page chunk loads on first
@@ -100,6 +101,13 @@ const ROUTE_LABELS: ReadonlyArray<{ readonly prefix: string; readonly label: str
 export function App() {
   const [mcpHelpOpen, setMcpHelpOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  // Apple-style scroll reveal for section cards across every route. Set up
+  // once against the content <main>; the controller's MutationObserver picks
+  // up lazily-mounted route content on its own (see lib/scroll-reveal).
+  useEffect(() => {
+    const main = document.querySelector("main");
+    return main === null ? undefined : initScrollReveal(main);
+  }, []);
   return (
     <BrowserRouter>
       <div className="min-h-screen">
@@ -124,22 +132,7 @@ export function App() {
             style={{ borderColor: "var(--border)" }}
           >
             <main>
-            <Suspense fallback={ROUTE_FALLBACK}>
-              <Routes>
-                <Route path="/" element={<StatusPage />} />
-                <Route path="/projects" element={<ProjectsPage />} />
-                <Route path="/projects/:id" element={<ProjectDetailPage />} />
-                <Route path="/search" element={<SearchPage />} />
-                <Route path="/find-usages" element={<FindUsagesPage />} />
-                <Route path="/find-literal" element={<FindLiteralPage />} />
-                <Route path="/doctor" element={<DoctorPage />} />
-                <Route path="/models" element={<ModelsPage />} />
-                <Route path="/config" element={<ConfigPage />} />
-                <Route path="/analyzers" element={<AnalyzersPage />} />
-                <Route path="/logs" element={<LogsPage />} />
-                <Route path="/admin" element={<AdminPage />} />
-              </Routes>
-            </Suspense>
+              <AnimatedRoutes />
             </main>
           </div>
         </div>
@@ -147,6 +140,37 @@ export function App() {
       <ConfirmHost />
       {mcpHelpOpen ? <McpHelpModal onClose={() => setMcpHelpOpen(false)} /> : null}
     </BrowserRouter>
+  );
+}
+
+/**
+ * Routes wrapped in a per-pathname keyed container so the `.page-transition`
+ * animation replays on every navigation (the div remounts when the key
+ * changes). `location` is threaded into <Routes> so it resolves against the
+ * same pathname the key is derived from. Lives inside <BrowserRouter> so
+ * `useLocation` has router context.
+ */
+function AnimatedRoutes() {
+  const location = useLocation();
+  return (
+    <div key={location.pathname} className="page-transition">
+      <Suspense fallback={ROUTE_FALLBACK}>
+        <Routes location={location}>
+          <Route path="/" element={<StatusPage />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:id" element={<ProjectDetailPage />} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/find-usages" element={<FindUsagesPage />} />
+          <Route path="/find-literal" element={<FindLiteralPage />} />
+          <Route path="/doctor" element={<DoctorPage />} />
+          <Route path="/models" element={<ModelsPage />} />
+          <Route path="/config" element={<ConfigPage />} />
+          <Route path="/analyzers" element={<AnalyzersPage />} />
+          <Route path="/logs" element={<LogsPage />} />
+          <Route path="/admin" element={<AdminPage />} />
+        </Routes>
+      </Suspense>
+    </div>
   );
 }
 
