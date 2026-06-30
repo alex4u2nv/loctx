@@ -33,17 +33,21 @@ export function initScrollReveal(root: HTMLElement): () => void {
       entries
         .filter((e) => e.isIntersecting)
         .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
-        .forEach((e, i) => {
-          const el = e.target as HTMLElement;
-          el.style.setProperty("--reveal-delay", `${Math.min(i, STAGGER_CAP) * STAGGER_MS}ms`);
-          el.classList.add("reveal-visible");
-          io.unobserve(el);
-        });
+        .forEach((e, i) => reveal(e.target as HTMLElement, i));
     },
     // Trigger a touch before the element is fully in view so it's settled by
     // the time it reaches reading position.
     { rootMargin: "0px 0px -8% 0px", threshold: 0.06 },
   );
+
+  // Idempotent — both the observer and the failsafe sweep call this, and a
+  // revealed element must never be re-hidden or double-staggered.
+  function reveal(el: HTMLElement, index = 0): void {
+    if (el.classList.contains("reveal-visible")) return;
+    el.style.setProperty("--reveal-delay", `${Math.min(index, STAGGER_CAP) * STAGGER_MS}ms`);
+    el.classList.add("reveal-visible");
+    io.unobserve(el);
+  }
 
   const tag = (el: HTMLElement): void => {
     if (el.dataset["reveal"] !== undefined) return;
@@ -54,12 +58,43 @@ export function initScrollReveal(root: HTMLElement): () => void {
     for (const el of node.querySelectorAll<HTMLElement>(REVEAL_SELECTOR)) tag(el);
   };
 
-  // Tag whatever's already mounted (the eager dashboard route).
-  scan(root);
+  // Failsafe (fixes #438 blank-page-on-navigate): IntersectionObserver's
+  // first callback reports `isIntersecting:false` for an element measured at
+  // zero size — common while a lazily code-split route is still mounting. On
+  // a page that fits the viewport there's then no scroll to re-trigger the
+  // observer, so the card would stay `opacity:0` forever (a blank page until
+  // reload). After the browser has laid the new nodes out, force-reveal
+  // anything already in the viewport that the observer hasn't caught;
+  // below-the-fold elements stay hidden for the scroll cascade.
+  let raf1 = 0;
+  let raf2 = 0;
+  const flushVisible = (): void => {
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    let shown = 0;
+    for (const el of root.querySelectorAll<HTMLElement>("[data-reveal]:not(.reveal-visible)")) {
+      const r = el.getBoundingClientRect();
+      // Not laid out yet (zero-area): leave it for IO / a later sweep.
+      if (r.width === 0 && r.height === 0) continue;
+      if (r.top < vh && r.bottom > 0) reveal(el, shown++);
+    }
+  };
+  const scheduleFlush = (): void => {
+    // Double rAF so getBoundingClientRect reflects real geometry (post-layout,
+    // post-paint) rather than the zero rect a freshly-mounted node reports.
+    cancelAnimationFrame(raf1);
+    cancelAnimationFrame(raf2);
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(flushVisible);
+    });
+  };
 
-  // Pick up lazily-mounted route content + any dynamically-added cards.
-  // MutationObserver callbacks run as microtasks before the next paint, so
-  // the hidden state lands before the node is first painted — no flash.
+  // Tag whatever's already mounted (the eager dashboard route), then sweep.
+  scan(root);
+  scheduleFlush();
+
+  // Pick up lazily-mounted route content + any dynamically-added cards, and
+  // re-run the failsafe sweep after each batch so every navigation's
+  // above-the-fold content is guaranteed to appear.
   const mo = new MutationObserver((mutations) => {
     for (const m of mutations) {
       for (const node of m.addedNodes) {
@@ -68,10 +103,13 @@ export function initScrollReveal(root: HTMLElement): () => void {
         scan(node);
       }
     }
+    scheduleFlush();
   });
   mo.observe(root, { childList: true, subtree: true });
 
   return () => {
+    cancelAnimationFrame(raf1);
+    cancelAnimationFrame(raf2);
     mo.disconnect();
     io.disconnect();
   };
