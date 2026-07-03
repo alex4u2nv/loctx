@@ -10,6 +10,8 @@
  * Logging goes to stderr — stdout is reserved for the JSON-RPC stream.
  */
 
+import { realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { buildRuntime, loadConfig, type Runtime } from "@loctx/core";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -31,6 +33,23 @@ export {
 } from "./registry.js";
 
 const SERVER_INFO = { name: "loctx", version: "0.1.0" };
+
+/**
+ * True when this module is the process entry point (launched directly),
+ * false when it's imported (e.g. the web server pulls in `registerTools`).
+ *
+ * `import.meta.url` is the module's *realpath*, but `argv1` is whatever path
+ * invoked the process — and package managers install this binary as a
+ * symlink (Homebrew: /opt/homebrew/bin/loctx-mcp -> …/@loctx/mcp/dist/
+ * server.js). Comparing against the raw symlink path mismatches, so `main()`
+ * never runs and the MCP client sees the server "fail" with no output.
+ * Resolve `argv1` through realpath (and `pathToFileURL`, which also handles
+ * spaces / URL-encoding) so the two URLs agree regardless of symlinks.
+ */
+export function isProcessEntry(importMetaUrl: string, argv1: string | undefined): boolean {
+  if (argv1 === undefined) return false;
+  return importMetaUrl === pathToFileURL(realpathSync(argv1)).href;
+}
 
 async function main(): Promise<void> {
   // A long-lived stdio server must outlive transient failures. The MCP
@@ -76,6 +95,6 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isProcessEntry(import.meta.url, process.argv[1])) {
   await main();
 }
