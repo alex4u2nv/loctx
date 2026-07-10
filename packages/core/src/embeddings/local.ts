@@ -10,6 +10,7 @@ import type { EmbeddingIdentity } from "../models.js";
 import { requireOutboundAllowed } from "../network.js";
 import { isModelTrusted } from "../trusted-models.js";
 import type { EmbeddingProvider } from "./base.js";
+import { type EmbeddingPooling, findModel } from "./registry.js";
 
 export const DEFAULT_LOCAL_MODEL = "Xenova/all-MiniLM-L6-v2";
 
@@ -65,6 +66,10 @@ export interface LocalProviderOptions {
 export class LocalEmbeddingProvider implements EmbeddingProvider {
   public readonly modelName: string;
   public readonly normalize: boolean;
+  public readonly pooling: EmbeddingPooling;
+  public readonly dtype: string;
+  private readonly queryPrefix: string;
+  private readonly documentPrefix: string;
 
   private pipelineP: Promise<FeatureExtractionPipeline> | null = null;
   private cachedIdentity: EmbeddingIdentity | null = null;
@@ -74,7 +79,18 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
   constructor(options: LocalProviderOptions = {}) {
     this.modelName = options.modelName ?? DEFAULT_LOCAL_MODEL;
     this.normalize = options.normalize ?? true;
-    this.onProgress = options.onProgress ?? defaultProgressLogger();
+    // Model-specific runtime knobs come from the curated registry: CLS-
+    // pooled models (GTE family) are wrong under mean pooling, quantized
+    // variants (q8) are the honest size/speed choice for some entries, and
+    // asymmetric models (EmbeddingGemma) require task prefixes to hit
+    // their published retrieval quality. Off-catalog model names fall back
+    // to the historical defaults (mean / fp32 / no prefixes).
+    const info = findModel(this.modelName);
+    this.pooling = info?.pooling ?? "mean";
+    this.dtype = info?.dtype ?? "fp32";
+    this.queryPrefix = info?.queryPrefix ?? "";
+    this.documentPrefix = info?.documentPrefix ?? "";
+    this.onProgress = options.onProgress ?? defaultProgressLogger(info?.sizeMB ?? null);
     this.dataDir = options.dataDir ?? null;
   }
 
@@ -103,7 +119,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     if (!trusted) requireOutboundAllowed("model-download", this.modelName);
     const pipe = await this.getPipeline();
     const probe = await pipe("loctx-init-probe", {
-      pooling: "mean",
+      pooling: this.pooling,
       normalize: this.normalize,
     });
     const dim = probe.dims.at(-1) ?? probe.data.length;
@@ -117,6 +133,21 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
   }
 
   async embedDocuments(texts: ReadonlyArray<string>): Promise<number[][]> {
+    return this.embedBatch(texts.map((t) => this.documentPrefix + t));
+  }
+
+  async embedQuery(text: string): Promise<number[]> {
+    // Queries get their own prefix (asymmetric-retrieval models embed the
+    // two sides differently) — never the document prefix, which is why
+    // this no longer delegates to embedDocuments().
+    const [embedding] = await this.embedBatch([this.queryPrefix + text]);
+    if (embedding === undefined) {
+      throw new Error("Empty embedding result");
+    }
+    return embedding;
+  }
+
+  private async embedBatch(texts: ReadonlyArray<string>): Promise<number[][]> {
     if (texts.length === 0) return [];
     await this.ensureReady();
     const pipe = await this.getPipeline();
@@ -140,21 +171,13 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     for (let i = 0; i < texts.length; i += EMBED_BATCH_SIZE) {
       const slice = texts.slice(i, i + EMBED_BATCH_SIZE);
       const result = await pipe([...slice], {
-        pooling: "mean",
+        pooling: this.pooling,
         normalize: this.normalize,
         truncation: true,
       });
       out.push(...result.tolist());
     }
     return out;
-  }
-
-  async embedQuery(text: string): Promise<number[]> {
-    const [embedding] = await this.embedDocuments([text]);
-    if (embedding === undefined) {
-      throw new Error("Empty embedding result");
-    }
-    return embedding;
   }
 
   private async getPipeline(): Promise<FeatureExtractionPipeline> {
@@ -173,9 +196,10 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
         ) => Promise<FeatureExtractionPipeline>;
       };
       return pipeline("feature-extraction", this.modelName, {
-        // Explicit dtype suppresses HF's "default dtype (fp32) for cpu" notice
-        // and makes the choice visible in the loctx config.
-        dtype: "fp32",
+        // Explicit dtype suppresses HF's "default dtype (fp32) for cpu"
+        // notice and makes the choice visible. Registry entries may pin a
+        // quantized variant (q8) where fp32 would be a 600MB+ download.
+        dtype: this.dtype,
         progress_callback: this.onProgress,
       });
     })();
@@ -230,16 +254,17 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
  * load completes. Quiet on cache-hit runs (HF emits status="ready"
  * directly without download events).
  */
-function defaultProgressLogger(): (event: ProgressEvent) => void {
+function defaultProgressLogger(sizeMB: number | null): (event: ProgressEvent) => void {
   // Stderr only. The stdio MCP transport (`loctx-mcp`) treats stdout as
   // the JSONRPC channel — any console.log here would corrupt the
   // protocol and the agent would drop the connection mid-search. CLI
   // and daemon both prefer stderr for operational logs anyway.
   let announced = false;
+  const size = sizeMB === null ? "" : ` (~${sizeMB}MB to your HF cache)`;
   return (event) => {
     if (!announced && event.status === "download") {
       announced = true;
-      console.error("[loctx embeddings] downloading model on first run (~90MB to your HF cache)");
+      console.error(`[loctx embeddings] downloading model on first run${size}`);
     }
     if (event.status === "ready") {
       console.error("[loctx embeddings] ready");
