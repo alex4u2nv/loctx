@@ -218,10 +218,15 @@ export class TreeSitterCodeChunker implements Chunker {
     }
 
     const chunkable = CHUNKABLE_NODES[language] as ReadonlySet<string>;
+    // Split ONCE per file. This used to happen inside chunkFromNode —
+    // once per top-level node — making indexing cost scale with
+    // fileLength × definitionCount (#444). The same array is threaded
+    // through gap-fill below.
+    const lines = document.content.split(/\r?\n/);
     const chunks: CodeChunk[] = [];
     for (const node of tree.rootNode.namedChildren) {
       if (!chunkable.has(node.type)) continue;
-      chunks.push(chunkFromNode(node, document.content, language));
+      chunks.push(chunkFromNode(node, lines, language));
     }
     if (chunks.length === 0) return this.fallback.chunk(document);
 
@@ -250,7 +255,7 @@ export class TreeSitterCodeChunker implements Chunker {
     // > GAP_THRESHOLD_LINES with the line-window fallback so every
     // line of source ends up in some chunk. The threshold keeps
     // 1-3-line comment-only gaps from polluting the index.
-    const filled = fillCoverageGaps(chunks, document, this.fallback, language);
+    const filled = fillCoverageGaps(chunks, document, lines, language);
     return capChunkSizes(filled);
   }
 }
@@ -287,12 +292,11 @@ const GAP_FILL_CHUNKER = new LineWindowChunker({ windowLines: 120, overlapLines:
 function fillCoverageGaps(
   treeChunks: CodeChunk[],
   document: SourceDocument,
-  _fallback: Chunker,
+  lines: ReadonlyArray<string>,
   language: string,
 ): CodeChunk[] {
   if (treeChunks.length === 0) return treeChunks;
   const sorted = [...treeChunks].sort((a, b) => a.startLine - b.startLine);
-  const lines = document.content.split(/\r?\n/);
   const trailingBlank = lines.at(-1) === "" && lines.length > 1;
   const totalLines = trailingBlank ? lines.length - 1 : lines.length;
   if (totalLines <= 0) return treeChunks;
@@ -301,13 +305,15 @@ function fillCoverageGaps(
   let cursor = 1;
   for (const c of sorted) {
     if (c.startLine - 1 >= cursor + GAP_THRESHOLD_LINES - 1) {
-      out.push(...chunkLineRange(document, GAP_FILL_CHUNKER, cursor, c.startLine - 1, language));
+      out.push(
+        ...chunkLineRange(document, lines, GAP_FILL_CHUNKER, cursor, c.startLine - 1, language),
+      );
     }
     out.push(c);
     cursor = Math.max(cursor, c.endLine + 1);
   }
   if (totalLines - cursor + 1 >= GAP_THRESHOLD_LINES) {
-    out.push(...chunkLineRange(document, GAP_FILL_CHUNKER, cursor, totalLines, language));
+    out.push(...chunkLineRange(document, lines, GAP_FILL_CHUNKER, cursor, totalLines, language));
   }
   return out.sort((a, b) => a.startLine - b.startLine);
 }
@@ -325,12 +331,12 @@ function fillCoverageGaps(
  */
 function chunkLineRange(
   document: SourceDocument,
+  lines: ReadonlyArray<string>,
   chunker: Chunker,
   startLine: number,
   endLine: number,
   language: string,
 ): CodeChunk[] {
-  const lines = document.content.split(/\r?\n/);
   const slice = lines.slice(startLine - 1, endLine).join("\n");
   if (slice.trim() === "") return [];
   const sliceDoc: SourceDocument = {
@@ -444,10 +450,13 @@ function capChunkSizes(chunks: ReadonlyArray<CodeChunk>): CodeChunk[] {
   return out;
 }
 
-function chunkFromNode(node: TreeSitterNode, source: string, language: string): CodeChunk {
+function chunkFromNode(
+  node: TreeSitterNode,
+  lines: ReadonlyArray<string>,
+  language: string,
+): CodeChunk {
   const startLine = node.startPosition.row + 1;
   const endLine = node.endPosition.row + 1;
-  const lines = source.split(/\r?\n/);
   const body = lines.slice(startLine - 1, endLine).join("\n");
   const analyzer = extractAnalyzer(node, language);
   const symbolRefs = extractSymbolRefs(node, language);
