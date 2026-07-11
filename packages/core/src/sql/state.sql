@@ -480,6 +480,9 @@ LIMIT ?;
 -- :name get_collection_identity
 SELECT identity FROM collections WHERE name = ?;
 
+-- :name list_collections
+SELECT name FROM collections ORDER BY name;
+
 -- :name insert_collection
 INSERT INTO collections (name, identity, created_at) VALUES (?, ?, ?);
 

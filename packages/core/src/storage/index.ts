@@ -18,6 +18,7 @@ export {
   collectionNameFor,
   createVectorStore,
   type EmbeddedChunk,
+  purgeProjectVectors,
   type VectorMatch,
   type VectorQuery,
   type VectorStore,

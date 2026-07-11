@@ -1061,6 +1061,16 @@ export class StateStore {
     const row = this.readOne<{ identity: string }>("get_collection_identity", [name]);
     return row === undefined ? null : row.identity;
   }
+
+  /**
+   * Every Lance collection this state DB has ever registered. Lets
+   * maintenance paths (`purge` without a daemon) reach vector rows in
+   * ALL tables — including ones written under a previous embedding
+   * model — without loading a model to derive the current identity.
+   */
+  listCollections(): string[] {
+    return this.readAll<{ name: string }>("list_collections").map((r) => r.name);
+  }
 }
 
 // ---- row mappings -------------------------------------------------------

@@ -13,6 +13,7 @@ import {
   type AgentId,
   applyAgentSetup,
   buildRuntime,
+  buildStateRuntime,
   type Config,
   ConfigError,
   DaemonHttpError,
@@ -29,6 +30,7 @@ import {
   type Project,
   pendingAgents,
   planAgentSetup,
+  purgeProjectVectors,
   readActiveDaemon,
   refreshAgentSetup,
   resolveMcpStdioSpec,
@@ -748,9 +750,9 @@ program
     // share the loaded SQLite handle (and the reconciler's authoritative
     // status). The API also prepends the reconcile warning when a pass
     // is in flight (per #294), so the output is consistent across CLI
-    // and admin UI paths. Falls back to a local runtime when the daemon
-    // is stopped — symbol_refs is a pure SQLite read so we DON'T need
-    // to spin up the embedding model just for find-usages.
+    // and admin UI paths. Falls back to a state-only runtime when the
+    // daemon is stopped — symbol_refs is a pure SQLite read, so the
+    // fallback skips the embedding model entirely (#448).
     const lock = readActiveDaemon(config.paths.dataDir);
     if (lock !== null) {
       const client = daemonClient(config.paths.dataDir);
@@ -820,8 +822,9 @@ program
       }
     }
 
-    // No daemon (or daemon path failed): build a minimal runtime.
-    const runtime = await buildRuntime(config);
+    // No daemon (or daemon path failed): state-only runtime — SQLite +
+    // discovery, no embedding warmup.
+    const runtime = buildStateRuntime(config);
     try {
       let projects = runtime.discovery.discoverProjects();
       if (scopePath !== undefined) {
@@ -857,7 +860,7 @@ program
         process.exit(0);
       }
     } finally {
-      await runtime.close();
+      runtime.close();
     }
   });
 
@@ -1361,13 +1364,21 @@ program
       return;
     }
     // No-daemon fallback: drop the project's vectors + state in-process.
-    const runtime = await buildRuntime(config);
+    // State-only runtime + registry-driven vector delete — no embedding
+    // model load (#448). Deleting via the collection registry also
+    // reaches rows written under a previous embedding model, which the
+    // old identity-derived path missed.
+    const runtime = buildStateRuntime(config);
     try {
-      await runtime.vectors.deleteProjectChunks(project.id);
+      await purgeProjectVectors(
+        config.paths.vectorDir,
+        runtime.state.listCollections(),
+        project.id,
+      );
       runtime.state.deleteProject(project.id);
       console.error(`[loctx purge] cleared ${project.name} (${project.root}).`);
     } finally {
-      await runtime.close();
+      runtime.close();
     }
   });
 
