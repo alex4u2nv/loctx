@@ -5,7 +5,7 @@ import type {
   ProjectsRow,
   StatusPayload,
 } from "@shared/contracts";
-import { useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { confirm } from "../components/confirm";
 import { ConnectEditorModal } from "../components/connect-editor-modal";
 import { Icon, type IconName } from "../components/icon";
@@ -37,9 +37,16 @@ export function ProjectsPage() {
   useLiveRefreshEvent(onRefresh);
   // Poll status while the analyzer queue is draining so the count ticks
   // down live; a slow baseline poll otherwise so the banner appears when
-  // a backfill starts without a live-refresh event.
+  // a backfill starts without a live-refresh event. Skipped when the tab
+  // is hidden so background tabs don't hammer the daemon (#457) — same
+  // guard as the logs page.
   useEffect(() => {
-    const id = setInterval(() => statusReq.reload(), analyzersActive ? 3000 : 8000);
+    const id = setInterval(
+      () => {
+        if (!document.hidden) statusReq.reload();
+      },
+      analyzersActive ? 3000 : 8000,
+    );
     return () => clearInterval(id);
   }, [analyzersActive, statusReq.reload]);
   // Per-row in-flight tracker for purge. The server response takes a
@@ -55,25 +62,6 @@ export function ProjectsPage() {
   // row action and auto-opened right after a project is activated (#agent-setup).
   const [connectTarget, setConnectTarget] = useState<{ root: string; name: string } | null>(null);
 
-  if (fetched.loading && fetched.data === null) return <p className="pullquote">Loading…</p>;
-  if (fetched.error !== null)
-    return (
-      <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-        {fetched.error}
-      </p>
-    );
-  if (fetched.data === null) return <p className="pullquote">No data.</p>;
-
-  const data = fetched.data;
-  const totals = data.active.reduce(
-    (acc, row) => ({
-      files: acc.files + row.files,
-      chunks: acc.chunks + row.chunks,
-      errors: acc.errors + row.errors,
-    }),
-    { files: 0, chunks: 0, errors: 0 },
-  );
-
   // Every handler is fire-and-forget against the daemon. Earlier these
   // went through `ops.run` which set a page-wide `busy` flag and greyed
   // out every action on every row until the request finished. That made
@@ -84,80 +72,121 @@ export function ProjectsPage() {
   // error into the same banner ops.run used to write — without claiming
   // the global busy slot. Per-row state (e.g. `rebuilding`) handles
   // single-row disable when appropriate.
-  const fireAndForget = async (
-    label: string,
-    fn: () => Promise<unknown>,
-  ): Promise<void> => {
-    try {
-      await fn();
-      fetched.reload();
-    } catch (err) {
-      ops.surfaceError(label, err);
-    }
-  };
-  const handlers = {
-    pause: (id: string, name: string): Promise<void> =>
-      fireAndForget(`pause ${name}`, () => api.watchPause(id)),
-    resume: (id: string, name: string): Promise<void> =>
-      fireAndForget(`resume ${name}`, () => api.watchResume(id)),
-    rebuild: async (root: string, name: string): Promise<void> => {
-      const ok = await confirm({
-        title: `Rebuild ${name}?`,
-        message:
-          "Clears the project's index and re-indexes from scratch. " +
-          "Re-runs all enabled analyzers (lizard, duplicates, semgrep, ast-grep). " +
-          "Source files are untouched. Runs in the background — embeddings can take a few minutes.",
-        confirmLabel: "Rebuild",
-        danger: true,
-      });
-      if (!ok) return;
-      await fireAndForget(`rebuild ${name}`, () => api.rebuild(root));
-    },
-    purge: async (root: string, name: string): Promise<void> => {
-      const ok = await confirm({
-        title: `Purge ${name}?`,
-        message: "Removes index data for this project. Source files are untouched.",
-        confirmLabel: "Purge",
-        danger: true,
-      });
-      if (!ok) return;
-      // Mark this row as purging so RowActionButtons can render
-      // "purging…" and disable just this row's button. Clear in the
-      // finally so a failed request returns the button to its normal
-      // state (along with the error banner from surfaceError).
-      setPurgingRoots((s) => {
-        const next = new Set(s);
-        next.add(root);
-        return next;
-      });
+  //
+  // Memoized (#457): every status-poll tick re-renders this page, and a
+  // fresh handlers object would defeat the React.memo on the tables
+  // below. reload/surfaceError are useCallback-stable.
+  const reload = fetched.reload;
+  const surfaceError = ops.surfaceError;
+  const handlers = useMemo(() => {
+    const fireAndForget = async (label: string, fn: () => Promise<unknown>): Promise<void> => {
       try {
-        await api.resetProject(root);
-        fetched.reload();
+        await fn();
+        reload();
       } catch (err) {
-        ops.surfaceError(`purge ${name}`, err);
-      } finally {
+        surfaceError(label, err);
+      }
+    };
+    return {
+      pause: (id: string, name: string): Promise<void> =>
+        fireAndForget(`pause ${name}`, () => api.watchPause(id)),
+      resume: (id: string, name: string): Promise<void> =>
+        fireAndForget(`resume ${name}`, () => api.watchResume(id)),
+      rebuild: async (root: string, name: string): Promise<void> => {
+        const ok = await confirm({
+          title: `Rebuild ${name}?`,
+          message:
+            "Clears the project's index and re-indexes from scratch. " +
+            "Re-runs all enabled analyzers (lizard, duplicates, semgrep, ast-grep). " +
+            "Source files are untouched. Runs in the background — embeddings can take a few minutes.",
+          confirmLabel: "Rebuild",
+          danger: true,
+        });
+        if (!ok) return;
+        await fireAndForget(`rebuild ${name}`, () => api.rebuild(root));
+      },
+      purge: async (root: string, name: string): Promise<void> => {
+        const ok = await confirm({
+          title: `Purge ${name}?`,
+          message: "Removes index data for this project. Source files are untouched.",
+          confirmLabel: "Purge",
+          danger: true,
+        });
+        if (!ok) return;
+        // Mark this row as purging so RowActionButtons can render
+        // "purging…" and disable just this row's button. Clear in the
+        // finally so a failed request returns the button to its normal
+        // state (along with the error banner from surfaceError).
         setPurgingRoots((s) => {
-          if (!s.has(root)) return s;
           const next = new Set(s);
-          next.delete(root);
+          next.add(root);
           return next;
         });
-      }
-    },
-    activate: async (root: string, name: string): Promise<void> => {
-      try {
-        await api.activateProject(root);
-        fetched.reload();
-        // Enabling a project is the moment to offer agent wiring.
-        setConnectTarget({ root, name });
-      } catch (err) {
-        ops.surfaceError(`activate ${name}`, err);
-      }
-    },
-    deactivate: (root: string, name: string): Promise<void> =>
-      fireAndForget(`deactivate ${name}`, () => api.deactivateProject(root)),
-    connect: (root: string, name: string): void => setConnectTarget({ root, name }),
-  };
+        try {
+          await api.resetProject(root);
+          reload();
+        } catch (err) {
+          surfaceError(`purge ${name}`, err);
+        } finally {
+          setPurgingRoots((s) => {
+            if (!s.has(root)) return s;
+            const next = new Set(s);
+            next.delete(root);
+            return next;
+          });
+        }
+      },
+      activate: async (root: string, name: string): Promise<void> => {
+        try {
+          await api.activateProject(root);
+          reload();
+          // Enabling a project is the moment to offer agent wiring.
+          setConnectTarget({ root, name });
+        } catch (err) {
+          surfaceError(`activate ${name}`, err);
+        }
+      },
+      deactivate: (root: string, name: string): Promise<void> =>
+        fireAndForget(`deactivate ${name}`, () => api.deactivateProject(root)),
+      connect: (root: string, name: string): void => setConnectTarget({ root, name }),
+    };
+  }, [reload, surfaceError]);
+  const activeActions = useMemo(
+    () => ({
+      pause: handlers.pause,
+      resume: handlers.resume,
+      rebuild: handlers.rebuild,
+      deactivate: handlers.deactivate,
+      connect: handlers.connect,
+    }),
+    [handlers],
+  );
+  const orphanActions = useMemo(() => ({ purge: handlers.purge }), [handlers]);
+  // Recomputed only when the projects payload changes, not on every
+  // status-poll tick (#457).
+  const totals = useMemo(
+    () =>
+      (fetched.data?.active ?? []).reduce(
+        (acc, row) => ({
+          files: acc.files + row.files,
+          chunks: acc.chunks + row.chunks,
+          errors: acc.errors + row.errors,
+        }),
+        { files: 0, chunks: 0, errors: 0 },
+      ),
+    [fetched.data],
+  );
+
+  if (fetched.loading && fetched.data === null) return <p className="pullquote">Loading…</p>;
+  if (fetched.error !== null)
+    return (
+      <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
+        {fetched.error}
+      </p>
+    );
+  if (fetched.data === null) return <p className="pullquote">No data.</p>;
+
+  const data = fetched.data;
 
   const rootHeader = data.commonRoot !== "" ? applyHomeAbbrev(data.commonRoot, data.homeDir) : null;
 
@@ -219,13 +248,7 @@ export function ProjectsPage() {
                 ? "No projects activated yet — see Inactive below."
                 : "No projects discovered under current workspace_roots."
             }
-            actions={{
-              pause: handlers.pause,
-              resume: handlers.resume,
-              rebuild: handlers.rebuild,
-              deactivate: handlers.deactivate,
-              connect: handlers.connect,
-            }}
+            actions={activeActions}
             busy={ops.busy}
             purgingRoots={purgingRoots}
           />
@@ -261,7 +284,7 @@ export function ProjectsPage() {
               commonRoot={data.commonRoot}
               emptyMessage=""
               showReason
-              actions={{ purge: handlers.purge }}
+              actions={orphanActions}
               busy={ops.busy}
               purgingRoots={purgingRoots}
             />
@@ -330,7 +353,11 @@ interface RowActions {
   readonly connect?: (root: string, name: string) => void;
 }
 
-function ProjectsTable({
+// memo (#457): the page re-renders on every status-poll tick (3-8s) for
+// the analyzer banner; the table's props (rows from /api/projects, the
+// memoized actions, purgingRoots) are referentially stable across those
+// ticks, so the whole table subtree skips re-rendering.
+const ProjectsTable = memo(function ProjectsTable({
   rows,
   homeDir,
   commonRoot,
@@ -429,7 +456,7 @@ function ProjectsTable({
       </tbody>
     </table>
   );
-}
+});
 
 /**
  * Per-row "indexing/indexed · reconciling/reconciled" cell. Splits the
@@ -645,7 +672,8 @@ function RowActionButtons({
   );
 }
 
-function InactiveTable({
+// memo (#457): same reasoning as ProjectsTable — skip on status ticks.
+const InactiveTable = memo(function InactiveTable({
   rows,
   homeDir,
   commonRoot,
@@ -702,7 +730,7 @@ function InactiveTable({
       </tbody>
     </table>
   );
-}
+});
 
 /**
  * Rebuild action button that reflects the per-row tracker state from
