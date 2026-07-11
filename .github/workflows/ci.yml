@@ -3,11 +3,26 @@ name: ci
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
 
 permissions:
   contents: read
+
+# A new push to the same branch/PR supersedes the in-flight run —
+# cancel it instead of letting the 20-minute job finish. `github.ref`
+# is unique per PR (refs/pull/N/merge) and per branch on push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
@@ -56,8 +71,11 @@ jobs:
         # Playwright suite below — its webServer config spawns `loctx start`.
         run: pnpm run build
 
-      - name: Verify (lint + typecheck + unit tests)
-        run: pnpm run verify
+      - name: Lint + typecheck + unit tests
+        # Deliberately NOT `pnpm run verify` — verify starts with a
+        # build, and the build already ran in the previous step. Running
+        # verify here compiled every workspace twice per CI run.
+        run: pnpm run lint && pnpm run typecheck && pnpm test
         env:
           # apps/cli's integration test swaps to FakeEmbeddingProvider via
           # this env var on the spawned child. Keeping it unset at the top
@@ -65,9 +83,33 @@ jobs:
           # type contract.
           CI: "true"
 
+      - name: Resolve Playwright version
+        id: playwright-version
+        # Cache key ingredient — the browser build is tied to the
+        # @playwright/test version, nothing else.
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+        working-directory: apps/web
+
+      - name: Cache Playwright browser
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
       - name: Install Playwright browser
         # Chromium only — the admin UI tests don't need WebKit/Firefox.
+        # ~90MB download, skipped entirely on a cache hit.
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install chromium --with-deps
+        working-directory: apps/web
+
+      - name: Install Playwright OS dependencies
+        # On a cache hit the browser binary is restored but the runner
+        # image may still lack shared libraries — install-deps is a
+        # fast no-op when everything is present.
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
         working-directory: apps/web
 
       - name: E2E (Playwright)

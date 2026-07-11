@@ -21,6 +21,12 @@ permissions:
   contents: read
   pull-requests: write
 
+# A new push to the PR supersedes the in-flight eval — cancel it
+# instead of letting the 25-minute run finish and post a stale report.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   run-eval:
     name: run + report
