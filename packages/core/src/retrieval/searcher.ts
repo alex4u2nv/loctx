@@ -250,7 +250,8 @@ export class WorkspaceSearcher {
     ]);
 
     // Build a projectId → Project map so each result can carry its absolute
-    // root. One discovery pass; cached by the discovery layer.
+    // root. Served from the discovery layer's short-TTL cache (#443); only
+    // the first search per TTL window pays the filesystem walk.
     const projectsById = new Map<string, Project>();
     for (const p of this.discovery.discoverProjects()) projectsById.set(p.id, p);
 
