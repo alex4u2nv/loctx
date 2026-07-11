@@ -10,6 +10,7 @@ export {
   type LexicalQuery,
   type McpRequestLogEntry,
   type McpRequestLogInput,
+  type ProjectFileStats,
   SCHEMA_VERSION,
   StateStore,
   type SymbolRefHit,
