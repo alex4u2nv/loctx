@@ -75,6 +75,26 @@ function prepareFixture(): void {
     "utf-8",
   );
 
+  // Nested inner package (#276/#449): carries its own package.json
+  // marker but is NOT separately indexed — its files belong to the
+  // parent demo project's index (absorbed marker, #286). find-usages
+  // scoped to a path inside it must widen to the indexed parent.
+  const innerPkg = join(project, "packages", "inner");
+  mkdirSync(join(innerPkg, "src"), { recursive: true });
+  writeFileSync(join(innerPkg, "package.json"), '{ "name": "inner" }\n', "utf-8");
+  writeFileSync(
+    join(innerPkg, "src", "use-auth.ts"),
+    [
+      "// Consumes the parent project's authenticate helper.",
+      "",
+      "export async function login(token: string) {",
+      "  const session = { token };",
+      "  return session;",
+      "}",
+    ].join("\n"),
+    "utf-8",
+  );
+
   // Config: point loctx at the fixture, set the test port.
   mkdirSync(CONFIG_DIR, { recursive: true });
   writeFileSync(

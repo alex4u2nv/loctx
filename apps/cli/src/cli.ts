@@ -21,6 +21,7 @@ import {
   daemonClient,
   defaultConfigFile,
   findContainingProject,
+  findSymbolUsages,
   installTool,
   inventoryProjects,
   isWired,
@@ -829,23 +830,22 @@ program
     // discovery, no embedding warmup.
     const runtime = buildStateRuntime(config);
     try {
-      let projects = runtime.discovery.discoverProjects();
-      if (scopePath !== undefined) {
-        const scoped = runtime.discovery.resolveProject(scopePath);
-        if (scoped === null) {
-          console.error(
-            `# scope: ${scopePath} is not inside any indexed project; pass --all to search everywhere.`,
-          );
-          process.exit(1);
-        }
-        projects = [scoped];
+      // Shared resolve-scope → findSymbol sweep (#449): same #276
+      // nested-package handling as the MCP tool and the REST endpoint.
+      const result = findSymbolUsages(runtime.discovery, runtime.state, symbol, scopePath);
+      if (result.kind === "outside-indexed") {
+        console.error(
+          `# scope: ${scopePath} is not inside any indexed project; pass --all to search everywhere.`,
+        );
+        process.exit(1);
+      }
+      for (const w of result.warnings) {
+        console.error(`# warning: ${w}`);
       }
 
       let totalDefs = 0;
       let totalRefs = 0;
-      for (const project of projects) {
-        const { defs, refs } = runtime.state.findSymbol(project.id, symbol);
-        if (defs.length === 0 && refs.length === 0) continue;
+      for (const { project, defs, refs } of result.projects) {
         console.log(`# project: ${project.name}  defs=${defs.length}  refs=${refs.length}`);
         for (const d of defs) {
           const abs = `${project.root}/${d.relPath}`;
