@@ -32,6 +32,7 @@ import {
   planAgentSetup,
   purgeProjectVectors,
   readActiveDaemon,
+  readPackageVersion,
   refreshAgentSetup,
   resolveMcpStdioSpec,
   runDoctorChecks,
@@ -47,7 +48,9 @@ import {
 } from "@loctx/core";
 import { Command } from "commander";
 
-const VERSION = "0.1.0";
+// Real package version (#451) — resolves from src/ (tsx dev) and dist/
+// alike; both sit one level below apps/cli/package.json.
+const VERSION = readPackageVersion(new URL("../package.json", import.meta.url));
 
 interface CliContext {
   readonly configPath: string;

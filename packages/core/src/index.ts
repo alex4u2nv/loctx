@@ -22,6 +22,7 @@ export * from "./log.js";
 export * from "./models.js";
 export * from "./network.js";
 export * from "./paths.js";
+export * from "./pkg-version.js";
 export * from "./retrieval/index.js";
 export * from "./storage/index.js";
 export * from "./tools.js";

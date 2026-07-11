@@ -29,13 +29,15 @@ import {
   nofileBumpHint,
   type Project,
   type Runtime,
+  readPackageVersion,
   stopActiveDaemon,
   summarizeLegacyProjectConfig,
   WatcherRegistry,
   WatcherService,
 } from "@loctx/core";
 
-const DAEMON_VERSION = "0.1.0";
+// Real package version (#451) — one source of truth in package.json.
+const DAEMON_VERSION = readPackageVersion(new URL("../package.json", import.meta.url));
 
 /**
  * The set of analyzers that are currently *active* — i.e. would actually
