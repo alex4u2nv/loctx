@@ -1,8 +1,9 @@
 /**
  * Tiny data-fetching hook. Refetches when `key` changes; exposes
- * `reload` for explicit refresh after mutations. No cache, no
- * dedupe — the surface is small enough that swr/react-query would
- * be overkill.
+ * `reload` for explicit refresh after mutations. No cache — the
+ * surface is small enough that swr/react-query would be overkill.
+ * Concurrent-request dedupe lives in `api.ts` (`getJson`, #456), so
+ * two components mounting the same endpoint share one request.
  */
 
 import { useCallback, useEffect, useState } from "react";
