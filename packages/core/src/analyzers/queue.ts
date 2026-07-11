@@ -72,6 +72,19 @@ interface QueueSnapshot {
 }
 
 /**
+ * Slim dedup record for a settled task (#445). Deduplication only needs
+ * the content hash + analyzer version — storing the full
+ * EnrichmentResult here pinned every analyzer payload (and the task's
+ * `run` closure) in memory for the daemon's lifetime, growing with
+ * files × analyzers. Persistence happens in `onResult`; the queue keeps
+ * no payload references after the sink returns.
+ */
+interface SeenRecord {
+  readonly contentSha: string;
+  readonly analyzerVersion: number;
+}
+
+/**
  * Bounded FIFO queue with deduplication by task id. Once a task id
  * completes (or fails), submitting the same id with the same
  * (analyzer, version, contentSha) becomes a no-op until the result is
@@ -83,7 +96,7 @@ export class EnrichmentQueue {
   private readonly onResult: (result: EnrichmentResult) => void;
   private readonly waiting: EnrichmentTask[] = [];
   private readonly enqueuedAt = new Map<string, string>();
-  private readonly seen = new Map<string, EnrichmentResult>();
+  private readonly seen = new Map<string, SeenRecord>();
   private readonly inflight = new Set<string>();
   private failuresSinceBoot = 0;
   private completionsSinceBoot = 0;
@@ -102,11 +115,11 @@ export class EnrichmentQueue {
    * with the same id and content hash + analyzer version.
    */
   enqueue(task: EnrichmentTask): boolean {
-    const seenResult = this.seen.get(task.id);
+    const seenRecord = this.seen.get(task.id);
     if (
-      seenResult !== undefined &&
-      seenResult.task.contentSha === task.contentSha &&
-      seenResult.task.analyzerVersion === task.analyzerVersion
+      seenRecord !== undefined &&
+      seenRecord.contentSha === task.contentSha &&
+      seenRecord.analyzerVersion === task.analyzerVersion
     ) {
       return false;
     }
@@ -194,7 +207,12 @@ export class EnrichmentQueue {
       completedAt,
       elapsedMs: Date.now() - started,
     });
-    this.seen.set(task.id, result);
+    // Dedup record only — never the result. The full payload flows to
+    // `onResult` (which persists it) and is then droppable by GC (#445).
+    this.seen.set(task.id, {
+      contentSha: task.contentSha,
+      analyzerVersion: task.analyzerVersion,
+    });
     this.lastRunAt = completedAt;
     if (status === "complete") this.completionsSinceBoot += 1;
     try {
