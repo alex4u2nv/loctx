@@ -93,6 +93,15 @@ describe("StateStore", () => {
       { toPath: canonical, text: "Full process" },
     ]);
     expect(store.inboundCount(canonical)).toBe(2);
+
+    // Batched variant (#446): one query for many paths; unlinked paths
+    // are simply absent from the map (callers default them to 0).
+    const other = join(tmp, "repo", "other.md");
+    const counts = store.inboundCounts([canonical, other, join(tmp, "repo", "nope.md"), canonical]);
+    expect(counts.get(canonical)).toBe(2);
+    expect(counts.get(other)).toBe(1);
+    expect(counts.has(join(tmp, "repo", "nope.md"))).toBe(false);
+    expect(store.inboundCounts([])).toEqual(new Map());
     store.close();
   });
 
@@ -1124,6 +1133,54 @@ describe("StateStore", () => {
     expect(
       store.findLiteralMatches("needle", { relPathPrefix: "src/" }).map((h) => h.relPath),
     ).toEqual(["src/a.ts"]);
+  });
+
+  it("findLiteralMatches pushes project + subtree scope into SQL (#446)", () => {
+    const store = new StateStore(join(tmp, "state.db"));
+    const p1 = { id: projectId("proj0a"), name: "a", root: join(tmp, "a") };
+    const p2 = { id: projectId("proj0b"), name: "b", root: join(tmp, "b") };
+    store.upsertProject(p1);
+    store.upsertProject(p2);
+    const mk = (p: typeof p1, rel: string, id: string): [FileState, ChunkInsert] => {
+      const file: FileState = { ...fileState(p), fileId: toFileId(`f-${id}`), relPath: rel };
+      const chunk: ChunkInsert = {
+        chunkId: id,
+        fileId: file.fileId,
+        projectId: p.id,
+        relPath: rel,
+        startLine: 1,
+        endLine: 1,
+        kind: "function",
+        symbols: [],
+        document: "needle here",
+      };
+      return [file, chunk];
+    };
+    for (const [file, chunk] of [
+      mk(p1, "src/a.ts", "c1"),
+      mk(p1, "docs/b.md", "c2"),
+      mk(p2, "src/c.ts", "c3"),
+    ]) {
+      store.upsertFile(file);
+      store.replaceChunks(file.fileId, [chunk]);
+    }
+
+    // Whole workspace: all three.
+    expect(store.findLiteralMatches("needle").length).toBe(3);
+    // Project-scoped: only p1's two files.
+    expect(
+      store
+        .findLiteralMatches("needle", { projectId: p1.id })
+        .map((h) => h.relPath)
+        .sort(),
+    ).toEqual(["docs/b.md", "src/a.ts"]);
+    // Subtree-scoped: p1's src/ only.
+    expect(
+      store
+        .findLiteralMatches("needle", { projectId: p1.id, relPathPrefix: "src/" })
+        .map((h) => h.relPath),
+    ).toEqual(["src/a.ts"]);
+    store.close();
   });
 
   it("countFilesIndexedSince scopes to project + since-timestamp (#365)", () => {
