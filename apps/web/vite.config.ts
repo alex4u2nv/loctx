@@ -25,5 +25,17 @@ export default defineConfig({
     outDir: resolve(__dirname, "dist/client"),
     emptyOutDir: true,
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        // Pin the React runtime into its own vendor chunk (#458) so a
+        // change to a route component doesn't churn the framework bytes
+        // — the vendor chunk hash stays stable and browsers keep it
+        // cached across deploys. shiki is already isolated via dynamic
+        // import (lib/highlight.ts), so it stays out of this.
+        manualChunks: {
+          vendor: ["react", "react-dom", "react-router-dom"],
+        },
+      },
+    },
   },
 });
