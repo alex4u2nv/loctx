@@ -20,6 +20,7 @@ import {
   inventoryProjects,
   type ProjectId,
   type Runtime,
+  readActiveDaemon,
   resolveProjectScope,
   type SearchResponse,
   type SymbolRefHit,
@@ -78,9 +79,17 @@ export interface ProjectStatusEntry {
  * partial — particularly for the project named in `currentProject`.
  * Idle calls return `reconciling=false` and the other fields stay
  * informational (e.g. `total=0`).
+ *
+ * `reconciling="unknown"` (#453): this server can't observe reconcile
+ * state. The stdio MCP binary never loops a reconciler — a separate
+ * `loctx start` daemon owns that — so when a daemon holds the lock, its
+ * in-memory progress is invisible here. Reporting `false` would be a
+ * lie ("index is settled") when the daemon might be mid-pass, so we say
+ * `unknown` instead. Agents should treat it like `true` for 0-hit
+ * semantics: the index may be updating; verify or retry.
  */
 export interface IndexHealth {
-  readonly reconciling: boolean;
+  readonly reconciling: boolean | "unknown";
   readonly startedAt: string | null;
   readonly currentProject: string | null;
   readonly completed: number;
@@ -306,10 +315,30 @@ export interface AdminOptions {
 
 export class ToolError extends Error {}
 
+/**
+ * Resolve the tri-state `reconciling` value (#453). Pure so it can be
+ * unit-tested without touching the lock file.
+ *
+ *   - this process's reconciler is running        → true
+ *   - idle, and no *other* daemon owns the lock    → false (authoritative)
+ *   - idle, but another live daemon holds the lock → "unknown"
+ *     (that daemon runs the reconciler loop; we can't see its progress)
+ */
+export function reconcilingState(
+  running: boolean,
+  activeDaemon: { readonly pid: number } | null,
+  selfPid: number,
+): boolean | "unknown" {
+  if (running) return true;
+  if (activeDaemon !== null && activeDaemon.pid !== selfPid) return "unknown";
+  return false;
+}
+
 function currentIndexHealth(runtime: Runtime): IndexHealth {
   const s = runtime.reconciler.status();
+  const activeDaemon = readActiveDaemon(runtime.config.paths.dataDir);
   return Object.freeze({
-    reconciling: s.running,
+    reconciling: reconcilingState(s.running, activeDaemon, process.pid),
     startedAt: s.startedAt,
     currentProject: s.currentProjectName,
     completed: s.completed,
@@ -754,7 +783,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_usages",
     description:
-      "**Use when you ask 'where is X used' or 'where is X defined' and X is a symbol name** (function, class, exported identifier). **Beats `grep -rn X`** because each hit is *classified* as `def`|`call`|`import`|`reference` instead of just a text match, and includes the **surrounding chunk** (function body, class body) so you don't need a follow-up `Read` of the file. One call replaces find + grep + several Read calls. **Not** the right tool for file paths or arbitrary literal strings — use `find_literal` for those, or `grep` for safety-critical audits. Each hit carries `relPath`, `line` (exact reference), `chunkStartLine`/`chunkEndLine`, `kind`, and the chunk body. Pass `path` to scope to one project; omit to search every project that knows the symbol. **0-hit semantics:** check `indexHealth.reconciling`. If `true`, the file may not be re-indexed yet — retry after the pass completes. If `false`, either the symbol genuinely isn't defined or this repo isn't indexed (verify with `workspace_status`); don't silently fall back to `grep` on the first 0-hit or you'll lose the signal that the index is the problem. Highest-leverage on unfamiliar or large codebases; for a small repo you've already explored, `grep` may be faster end-to-end.",
+      "**Use when you ask 'where is X used' or 'where is X defined' and X is a symbol name** (function, class, exported identifier). **Beats `grep -rn X`** because each hit is *classified* as `def`|`call`|`import`|`reference` instead of just a text match, and includes the **surrounding chunk** (function body, class body) so you don't need a follow-up `Read` of the file. One call replaces find + grep + several Read calls. **Not** the right tool for file paths or arbitrary literal strings — use `find_literal` for those, or `grep` for safety-critical audits. Each hit carries `relPath`, `line` (exact reference), `chunkStartLine`/`chunkEndLine`, `kind`, and the chunk body. Pass `path` to scope to one project; omit to search every project that knows the symbol. **0-hit semantics:** check `indexHealth.reconciling`. If `true` or `unknown`, the file may not be re-indexed yet (an `unknown` value means a separate daemon owns reconciliation and this server can't see its progress) — retry after the pass, or verify with `workspace_status`. If `false`, either the symbol genuinely isn't defined or this repo isn't indexed (verify with `workspace_status`); don't silently fall back to `grep` on the first 0-hit or you'll lose the signal that the index is the problem. Highest-leverage on unfamiliar or large codebases; for a small repo you've already explored, `grep` may be faster end-to-end.",
     inputSchema: {
       type: "object",
       required: ["symbol"],
@@ -795,7 +824,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_literal",
     description:
-      "**Use when you need every occurrence of a literal substring across the indexed workspace** — code, docs, runbooks, prompts, skill files, anything text. E.g. 'every file referencing agents/foo.md', 'every config still pointing at the old URL', 'every runbook mentioning the deprecated escalation contact', 'every prompt that says \"tier-1\"', 'where is the legacy SKU naming still used'. Returns one row per matched line with `relPath`, `line`, `column`, `lineText`, plus surrounding chunk metadata. **Does NOT beat `grep` for safety-critical audits.** The scan operates on indexed chunk text, so chunker gaps (#360) and excluded-by-default directories (`.git`, `node_modules`, build outputs) are blind spots. Use when an indexed-chunk view is sufficient and you want structured per-line responses with chunk context. The response always includes a `coverageNote` — read it. For audit-critical questions ('is this stale phrase referenced anywhere'), supplement with `rg <pattern>` to verify. Complements `search_workspace` (ranked / semantic) and `find_usages` (exact symbol cross-ref). **0-hit semantics:** check `indexHealth.reconciling`. If `true`, retry after the re-index. If `false`, the substring either isn't in indexed chunks or this workspace isn't indexed (verify with `workspace_status`). Highest-leverage on unfamiliar or large workspaces; for small sets, `rg` may be faster.",
+      "**Use when you need every occurrence of a literal substring across the indexed workspace** — code, docs, runbooks, prompts, skill files, anything text. E.g. 'every file referencing agents/foo.md', 'every config still pointing at the old URL', 'every runbook mentioning the deprecated escalation contact', 'every prompt that says \"tier-1\"', 'where is the legacy SKU naming still used'. Returns one row per matched line with `relPath`, `line`, `column`, `lineText`, plus surrounding chunk metadata. **Does NOT beat `grep` for safety-critical audits.** The scan operates on indexed chunk text, so chunker gaps (#360) and excluded-by-default directories (`.git`, `node_modules`, build outputs) are blind spots. Use when an indexed-chunk view is sufficient and you want structured per-line responses with chunk context. The response always includes a `coverageNote` — read it. For audit-critical questions ('is this stale phrase referenced anywhere'), supplement with `rg <pattern>` to verify. Complements `search_workspace` (ranked / semantic) and `find_usages` (exact symbol cross-ref). **0-hit semantics:** check `indexHealth.reconciling`. If `true` or `unknown`, retry after the re-index (an `unknown` value means a separate daemon owns reconciliation and its progress is invisible here). If `false`, the substring either isn't in indexed chunks or this workspace isn't indexed (verify with `workspace_status`). Highest-leverage on unfamiliar or large workspaces; for small sets, `rg` may be faster.",
     inputSchema: {
       type: "object",
       required: ["pattern"],
@@ -816,7 +845,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "refresh_workspace",
     description:
-      "**Use when the user mentions recently changing files and you want loctx to see them before the next search.** Triggers a synchronous reconcile pass that prunes deleted files and re-indexes drift. Slow on a cold workspace; usually unnecessary for routine queries (the watcher catches changes live). Returns per-project indexed/skipped/failed counts. Pass `path` to reindex one project; omit to reindex all. Don't call this just because a previous loctx query returned empty — first check `workspace_status` to confirm coverage, then check `indexHealth.reconciling` on a recent response.",
+      "**Use when the user mentions recently changing files and you want loctx to see them before the next search.** Triggers a synchronous reconcile pass that prunes deleted files and re-indexes drift. Slow on a cold workspace; usually unnecessary for routine queries (the watcher catches changes live). Returns per-project indexed/skipped/failed counts. Pass `path` to reindex one project; omit to reindex all. Don't call this just because a previous loctx query returned empty — first check `workspace_status` to confirm coverage, then check `indexHealth.reconciling` on a recent response (a `unknown` value means a separate daemon owns reconciliation and its progress isn't observable here).",
     inputSchema: {
       type: "object",
       properties: {
