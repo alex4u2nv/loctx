@@ -186,4 +186,23 @@ describe("EnrichmentQueue", () => {
     await q.drainAll();
     expect(runs).toBe(2);
   });
+
+  it("retains only a slim dedup record after completion — no payload, no task (#445)", async () => {
+    const bigPayload = { findings: "x".repeat(4096) };
+    const q = new EnrichmentQueue();
+    q.enqueue(task("slim", async () => bigPayload));
+    await q.drainAll();
+
+    // Reach into the private dedup map deliberately: the regression this
+    // guards against is memory retention, which no public API exposes.
+    const seen = (q as unknown as { seen: Map<string, Record<string, unknown>> }).seen;
+    const record = seen.get("slim");
+    expect(record).toEqual({ contentSha: "sha-abc", analyzerVersion: 1 });
+    expect(Object.keys(record ?? {}).sort()).toEqual(["analyzerVersion", "contentSha"]);
+
+    // Dedup semantics preserved by the slim record.
+    expect(q.enqueue(task("slim", async () => null))).toBe(false);
+    expect(q.enqueue(task("slim", async () => null, { contentSha: "sha-new" }))).toBe(true);
+    await q.drainAll();
+  });
 });
