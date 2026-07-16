@@ -64,6 +64,9 @@ export function mountOps(
         409,
       );
     }
+    // An index request exists to pick up new/changed projects — never
+    // serve the project list from the discovery cache (#443).
+    rt.discovery.invalidate();
     let projects: ReturnType<typeof rt.discovery.discoverProjects>;
     if (body.path) {
       const confined = resolveUnderWorkspaceRoots(body.path, config.workspaceRoots);
@@ -119,6 +122,7 @@ export function mountOps(
         409,
       );
     }
+    rt.discovery.invalidate();
     const projects = rt.discovery.discoverProjects();
     const summaries = await rt.reconciler.reconcileAll(projects);
     return c.json({

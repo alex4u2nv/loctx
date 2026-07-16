@@ -555,6 +555,9 @@ export const tools = {
     const data = v.requireRecord(input ?? {}, "arguments");
     const path = v.getStr(data, "path");
 
+    // A refresh exists to pick up new/changed projects — never serve it
+    // from the discovery cache (#443).
+    runtime.discovery.invalidate();
     const projects = path
       ? [runtime.discovery.resolveProject(path)].filter((p) => p !== null)
       : runtime.discovery.discoverProjects();

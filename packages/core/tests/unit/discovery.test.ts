@@ -215,3 +215,51 @@ describe("project discovery markers (#81)", () => {
     expect(project?.root).toBe(root);
   });
 });
+
+describe("WorkspaceDiscovery cache (#443)", () => {
+  it("serves repeat calls from the cache within the TTL", () => {
+    gitInit(join(tmp, "alpha"));
+    const d = new WorkspaceDiscovery([tmp]);
+    expect(d.discoverProjects().map((p) => p.name)).toEqual(["alpha"]);
+    // A project created after the first walk is invisible until
+    // invalidation — that's the cache doing its job.
+    gitInit(join(tmp, "bravo"));
+    expect(d.discoverProjects().map((p) => p.name)).toEqual(["alpha"]);
+  });
+
+  it("invalidate() forces a re-walk", () => {
+    gitInit(join(tmp, "alpha"));
+    const d = new WorkspaceDiscovery([tmp]);
+    expect(d.discoverProjects().length).toBe(1);
+    gitInit(join(tmp, "bravo"));
+    d.invalidate();
+    expect(d.discoverProjects().map((p) => p.name)).toEqual(["alpha", "bravo"]);
+  });
+
+  it("cacheTtlMs: 0 disables caching", () => {
+    gitInit(join(tmp, "alpha"));
+    const d = new WorkspaceDiscovery([tmp], { cacheTtlMs: 0 });
+    expect(d.discoverProjects().length).toBe(1);
+    gitInit(join(tmp, "bravo"));
+    expect(d.discoverProjects().length).toBe(2);
+  });
+
+  it("expired TTL re-walks", async () => {
+    gitInit(join(tmp, "alpha"));
+    const d = new WorkspaceDiscovery([tmp], { cacheTtlMs: 5 });
+    expect(d.discoverProjects().length).toBe(1);
+    gitInit(join(tmp, "bravo"));
+    await new Promise((r) => setTimeout(r, 25));
+    expect(d.discoverProjects().length).toBe(2);
+  });
+
+  it("cached results are fresh copies — caller mutation doesn't leak", () => {
+    gitInit(join(tmp, "alpha"));
+    gitInit(join(tmp, "bravo"));
+    const d = new WorkspaceDiscovery([tmp]);
+    const first = d.discoverWithMarkers();
+    first.reverse();
+    first.pop();
+    expect(d.discoverWithMarkers().map((h) => h.project.name)).toEqual(["alpha", "bravo"]);
+  });
+});

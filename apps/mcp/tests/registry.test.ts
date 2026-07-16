@@ -40,6 +40,7 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
       resolveProject: (path: string) =>
         projects.find((p) => path.startsWith(p.root)) ?? null,
       findAbsorbedMarkers: () => [],
+      invalidate: () => {},
       configuredRoots: ["/ws"] as ReadonlyArray<string>,
     },
     state: {
@@ -642,6 +643,7 @@ describe("inner-project scope fallback (#276)", () => {
             ? { id: "proj-a", name: "alpha", root: "/ws/alpha" }
             : null;
         },
+        invalidate: () => {},
       } as unknown as Runtime["discovery"],
       state: {
         listProjects: () => [

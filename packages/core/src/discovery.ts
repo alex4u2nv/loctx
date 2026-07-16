@@ -183,7 +183,19 @@ export interface DiscoveryOptions {
    * defaults. First-matching, group-ranked precedence still applies.
    */
   readonly markers?: ReadonlyArray<MarkerSpec>;
+  /**
+   * How long a {@link WorkspaceDiscovery.discoverWithMarkers} result is
+   * reused before the workspace roots are walked again. The walk is
+   * synchronous filesystem I/O over every root to `maxDepth`, and it sits
+   * on the search hot path (#443) — without a cache every search pays it.
+   * `0` disables caching. Callers that mutate the project set (index,
+   * refresh, activate) should call {@link WorkspaceDiscovery.invalidate}
+   * rather than rely on expiry.
+   */
+  readonly cacheTtlMs?: number;
 }
+
+const DEFAULT_CACHE_TTL_MS = 10_000;
 
 /**
  * A project plus the marker that identified it. Returned by
@@ -203,6 +215,8 @@ export class WorkspaceDiscovery {
   private readonly roots: ReadonlyArray<string>;
   private readonly maxDepth: number;
   private readonly markers: ReadonlyArray<MarkerSpec>;
+  private readonly cacheTtlMs: number;
+  private cached: { hits: ReadonlyArray<DiscoveryHit>; expiresAt: number } | null = null;
 
   constructor(workspaceRoots: Iterable<string>, options: DiscoveryOptions = {}) {
     this.roots = Object.freeze(
@@ -210,10 +224,21 @@ export class WorkspaceDiscovery {
     );
     this.maxDepth = Math.max(0, options.maxDepth ?? DEFAULT_MAX_DEPTH);
     this.markers = options.markers ?? DEFAULT_PROJECT_MARKERS;
+    this.cacheTtlMs = Math.max(0, options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS);
   }
 
   get configuredRoots(): ReadonlyArray<string> {
     return this.roots;
+  }
+
+  /**
+   * Drop the cached walk result. Call after any operation that changes
+   * the project set — activating/adding a project, `refresh_workspace`,
+   * a full index pass — so the next discovery reflects the mutation
+   * immediately instead of after TTL expiry.
+   */
+  invalidate(): void {
+    this.cached = null;
   }
 
   /** Discover every project under configured roots. Dedupe by id, sort by root path. */
@@ -226,8 +251,16 @@ export class WorkspaceDiscovery {
    * that identified the directory as a project. Useful for status,
    * doctor, and admin UI surfaces that explain *why* a directory was
    * picked up.
+   *
+   * Results are served from a short-TTL cache (see
+   * {@link DiscoveryOptions.cacheTtlMs}) because this walk is
+   * synchronous I/O on the search hot path. A fresh shallow copy is
+   * returned each call so callers can sort/filter freely.
    */
   discoverWithMarkers(): DiscoveryHit[] {
+    if (this.cached !== null && Date.now() < this.cached.expiresAt) {
+      return [...this.cached.hits];
+    }
     const seen = new Map<string, DiscoveryHit>();
     for (const root of this.roots) {
       if (!isDir(root)) continue;
@@ -235,7 +268,11 @@ export class WorkspaceDiscovery {
         if (!seen.has(hit.project.id)) seen.set(hit.project.id, hit);
       }
     }
-    return [...seen.values()].sort((a, b) => a.project.root.localeCompare(b.project.root));
+    const hits = [...seen.values()].sort((a, b) => a.project.root.localeCompare(b.project.root));
+    if (this.cacheTtlMs > 0) {
+      this.cached = { hits: Object.freeze([...hits]), expiresAt: Date.now() + this.cacheTtlMs };
+    }
+    return hits;
   }
 
   // Inner project markers absorbed by a parent project (#286). Walks the
