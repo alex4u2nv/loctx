@@ -22,7 +22,7 @@ import { detectLanguage } from "../chunking/index.js";
 import type { RetrievalConfig } from "../config.js";
 import type { WorkspaceDiscovery } from "../discovery.js";
 import type { EmbeddingProvider } from "../embeddings/index.js";
-import type { AnalyzerMetadata, Project, ProjectId } from "../models.js";
+import type { AnalyzerMetadata, FileId, Project, ProjectId } from "../models.js";
 import type { LexicalMatch, StateStore, VectorMatch, VectorStore } from "../storage/index.js";
 
 /** What kind of slice the searcher applied. Reported back on the response. */
@@ -267,11 +267,25 @@ export class WorkspaceSearcher {
     const lexicalById = new Map(lexicalMatches.map((m) => [m.chunkId, m]));
 
     const fused = rrfFuse(matches, lexicalMatches, this.retrieval.rrfK);
+    // Batch the inbound-link authority counts for the whole candidate set
+    // in one GROUP BY query (#446) instead of a round-trip per unique
+    // file inside the ranking loop below.
+    const absByChunk = new Map<string, string>();
+    for (const entry of fused) {
+      const v = vectorById.get(entry.chunkId);
+      const l = lexicalById.get(entry.chunkId);
+      const relPath = l?.relPath ?? String(v?.metadata["rel_path"] ?? "");
+      const projectId = l?.projectId ?? String(v?.metadata["project_id"] ?? "");
+      const proj = projectsById.get(projectId);
+      if (proj !== undefined && relPath !== "") {
+        absByChunk.set(entry.chunkId, join(proj.root, relPath));
+      }
+    }
+    const inboundByPath = this.state.inboundCounts([...absByChunk.values()]);
     // Apply boosts over the full candidate set BEFORE slicing so a buried-
     // but-authoritative doc can climb into the top-N (#427). Three signals
     // beyond the analyzer reasons: inbound-link authority, heading-defines-
     // concept, and a down-weight for derivative formats.
-    const authorityCache = new Map<string, number>();
     for (const entry of fused) {
       const reasons = [...computeMatchReasons(analyzers.get(entry.chunkId) ?? null, queryTerms)];
       let boost = reasons.length * BOOST_PER_REASON;
@@ -286,9 +300,8 @@ export class WorkspaceSearcher {
       // Authority: how many other docs link to this file (source-of-truth).
       const proj = projectsById.get(projectId);
       if (proj !== undefined && relPath !== "") {
-        const abs = join(proj.root, relPath);
-        const refBy = authorityCache.get(abs) ?? this.state.inboundCount(abs);
-        authorityCache.set(abs, refBy);
+        const abs = absByChunk.get(entry.chunkId) ?? join(proj.root, relPath);
+        const refBy = inboundByPath.get(abs) ?? 0;
         entry.referencedBy = refBy;
         if (refBy > 0) {
           boost += AUTHORITY_WEIGHT * Math.log1p(refBy);
@@ -354,22 +367,33 @@ export class WorkspaceSearcher {
    */
   private attachEnrichments(results: ReadonlyArray<SearchResult>): SearchResult[] {
     if (results.length === 0) return [...results];
+    // One getFile per unique file (#446): the lizard + rule-pack readers
+    // used to each resolve the file row independently, doubling the
+    // lookup. Resolve the fileId once here and hand it to both.
+    const fileIdCache = new Map<string, FileId | null>();
     const lizardCache = new Map<string, LizardEnrichmentMetric[] | null>();
     const findingsCache = new Map<string, RulePackFindingEnrichment[] | null>();
 
     return results.map((r) => {
       if (r.projectRoot === null) return r;
       const cacheKey = `${r.projectId}:${r.relPath}`;
+      let fileId = fileIdCache.get(cacheKey);
+      if (fileId === undefined) {
+        fileId = this.state.getFile(r.projectId as ProjectId, r.relPath)?.fileId ?? null;
+        fileIdCache.set(cacheKey, fileId);
+      }
+      if (fileId === null) return r;
+
       let lizardFns = lizardCache.get(cacheKey);
       if (lizardFns === undefined) {
-        lizardFns = readLizardFunctions(this.state, r.projectId, r.relPath);
+        lizardFns = readLizardFunctions(this.state, fileId);
         lizardCache.set(cacheKey, lizardFns);
       }
       const lizard = lizardFns === null ? null : pickOverlapping(lizardFns, r.startLine, r.endLine);
 
       let allFindings = findingsCache.get(cacheKey);
       if (allFindings === undefined) {
-        allFindings = readRulePackFindings(this.state, r.projectId, r.relPath);
+        allFindings = readRulePackFindings(this.state, fileId);
         findingsCache.set(cacheKey, allFindings);
       }
       const findings =
@@ -939,15 +963,12 @@ const SEVERITY_ORDER: Readonly<Record<RulePackFindingEnrichment["severity"], num
  */
 function readRulePackFindings(
   state: StateStore,
-  projectId: string,
-  relPath: string,
+  fileId: FileId,
 ): RulePackFindingEnrichment[] | null {
-  const file = state.getFile(projectId as ProjectId, relPath);
-  if (file === null) return null;
   const out: RulePackFindingEnrichment[] = [];
   let any = false;
   for (const analyzer of ["semgrep", "ast-grep"]) {
-    const row = state.getFileEnrichment(file.fileId, analyzer);
+    const row = state.getFileEnrichment(fileId, analyzer);
     if (row === null) continue;
     any = true;
     if (row.status !== "complete" || row.payloadJson === undefined) continue;
@@ -1010,14 +1031,8 @@ function coverageKey(r: SearchResult): string {
  * Returns null when no enrichment exists or the payload is unparseable;
  * empty array means lizard ran but found no functions.
  */
-function readLizardFunctions(
-  state: StateStore,
-  projectId: string,
-  relPath: string,
-): LizardEnrichmentMetric[] | null {
-  const file = state.getFile(projectId as ProjectId, relPath);
-  if (file === null) return null;
-  const row = state.getFileEnrichment(file.fileId, "lizard");
+function readLizardFunctions(state: StateStore, fileId: FileId): LizardEnrichmentMetric[] | null {
+  const row = state.getFileEnrichment(fileId, "lizard");
   if (row === null || row.status !== "complete" || row.payloadJson === undefined) return null;
   try {
     const parsed = JSON.parse(row.payloadJson) as {

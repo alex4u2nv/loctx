@@ -564,6 +564,52 @@ WHERE chunks_fts.document LIKE ? ESCAPE '\'
   AND files.error IS NULL
 ORDER BY chunks_fts.rel_path, chunks.start_line;
 
+-- :name find_literal_matches_project
+-- Project-scoped variant of find_literal_matches (#446): pushes the
+-- project filter into SQL instead of loading every project's matches
+-- and dropping the wrong ones host-side. Bind order: document LIKE,
+-- project_id.
+SELECT chunks_fts.chunk_id     AS chunk_id,
+       chunks_fts.file_id      AS file_id,
+       chunks_fts.project_id   AS project_id,
+       chunks_fts.rel_path     AS rel_path,
+       chunks_fts.document     AS document,
+       chunks.start_line       AS start_line,
+       chunks.end_line         AS end_line,
+       chunks.kind             AS kind,
+       projects.name           AS project_name
+FROM chunks_fts
+INNER JOIN chunks   ON chunks.chunk_id   = chunks_fts.chunk_id
+INNER JOIN files    ON files.file_id     = chunks_fts.file_id
+INNER JOIN projects ON projects.id       = chunks_fts.project_id
+WHERE chunks_fts.document LIKE ? ESCAPE '\'
+  AND chunks_fts.project_id = ?
+  AND files.error IS NULL
+ORDER BY chunks_fts.rel_path, chunks.start_line;
+
+-- :name find_literal_matches_subtree
+-- Project + path-prefix scoped variant (#446). rel_path LIKE 'prefix%'
+-- pushes the subtree filter into SQL. Bind order: document LIKE,
+-- project_id, rel_path LIKE (prefix already `%`-suffixed + escaped).
+SELECT chunks_fts.chunk_id     AS chunk_id,
+       chunks_fts.file_id      AS file_id,
+       chunks_fts.project_id   AS project_id,
+       chunks_fts.rel_path     AS rel_path,
+       chunks_fts.document     AS document,
+       chunks.start_line       AS start_line,
+       chunks.end_line         AS end_line,
+       chunks.kind             AS kind,
+       projects.name           AS project_name
+FROM chunks_fts
+INNER JOIN chunks   ON chunks.chunk_id   = chunks_fts.chunk_id
+INNER JOIN files    ON files.file_id     = chunks_fts.file_id
+INNER JOIN projects ON projects.id       = chunks_fts.project_id
+WHERE chunks_fts.document LIKE ? ESCAPE '\'
+  AND chunks_fts.project_id = ?
+  AND chunks_fts.rel_path LIKE ? ESCAPE '\'
+  AND files.error IS NULL
+ORDER BY chunks_fts.rel_path, chunks.start_line;
+
 -- :name count_files_indexed_since
 -- Number of file rows in a project whose `indexed_at` is at or after
 -- `since`. Used by /api/projects to derive live rebuild progress

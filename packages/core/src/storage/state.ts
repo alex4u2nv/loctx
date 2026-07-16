@@ -590,6 +590,27 @@ export class StateStore {
     return row?.n ?? 0;
   }
 
+  /**
+   * Batched {@link inboundCount}: distinct inbound-link counts for many
+   * paths in one `GROUP BY` query instead of one round-trip per file
+   * (#446). The ranking loop over the over-fetched candidate set (~100
+   * chunks) was issuing a query per unique file; this collapses it to a
+   * single prepared statement. Paths absent from the result linked
+   * nowhere — callers default those to 0. Dynamic IN placeholder count,
+   * same shape as {@link getAnalyzersByChunkIds}.
+   */
+  inboundCounts(absPaths: ReadonlyArray<string>): Map<string, number> {
+    const out = new Map<string, number>();
+    const unique = [...new Set(absPaths)];
+    if (unique.length === 0) return out;
+    const placeholders = unique.map(() => "?").join(",");
+    const sql = `SELECT to_path, COUNT(DISTINCT from_file_id) AS n
+                 FROM file_links WHERE to_path IN (${placeholders}) GROUP BY to_path`;
+    const rows = this.db.prepare(sql).all(...unique) as Array<{ to_path: string; n: number }>;
+    for (const r of rows) out.set(r.to_path, Number(r.n));
+    return out;
+  }
+
   // ---- files ----------------------------------------------------------
 
   upsertFile(state: FileState): void {
@@ -733,12 +754,34 @@ export class StateStore {
     opts: { readonly projectId?: ProjectId; readonly relPathPrefix?: string } = {},
   ): Array<LiteralMatch> {
     if (pattern.length === 0) return [];
-    const escaped = escapeLikePattern(pattern);
-    const rows = this.readAll<LiteralMatchRow>("find_literal_matches", [`%${escaped}%`]);
+    const like = `%${escapeLikePattern(pattern)}%`;
+    // Push project / subtree scope into SQL (#446) instead of loading
+    // every project's matches and dropping the wrong ones host-side.
+    let rows: LiteralMatchRow[];
+    if (opts.projectId !== undefined && opts.relPathPrefix !== undefined) {
+      const prefixLike = `${escapeLikePattern(opts.relPathPrefix)}%`;
+      rows = this.readAll<LiteralMatchRow>("find_literal_matches_subtree", [
+        like,
+        opts.projectId,
+        prefixLike,
+      ]);
+    } else if (opts.projectId !== undefined) {
+      rows = this.readAll<LiteralMatchRow>("find_literal_matches_project", [like, opts.projectId]);
+    } else {
+      rows = this.readAll<LiteralMatchRow>("find_literal_matches", [like]);
+    }
     const out: LiteralMatch[] = [];
     for (const r of rows) {
-      if (opts.projectId !== undefined && r.project_id !== opts.projectId) continue;
-      if (opts.relPathPrefix !== undefined && !r.rel_path.startsWith(opts.relPathPrefix)) continue;
+      // Defensive: a relPathPrefix without a projectId can't use the
+      // subtree query (which is project-scoped); fall back to a host-side
+      // prefix check for that (contract-violating) case only.
+      if (
+        opts.projectId === undefined &&
+        opts.relPathPrefix !== undefined &&
+        !r.rel_path.startsWith(opts.relPathPrefix)
+      ) {
+        continue;
+      }
       for (const m of extractLineMatches(r.document, pattern, r.start_line)) {
         out.push({
           projectId: r.project_id as ProjectId,

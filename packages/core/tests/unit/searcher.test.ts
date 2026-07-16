@@ -75,8 +75,10 @@ function fakeState(
     // existing assertions stay focused on RRF + scope behavior.
     getAnalyzersByChunkIds: () => new Map(),
     // Authority ranking (#427) queries the cross-link graph; no links in
-    // these unit fixtures, so every file has 0 inbound references.
+    // these unit fixtures, so every file has 0 inbound references. The
+    // searcher batches these via inboundCounts (#446).
     inboundCount: () => 0,
+    inboundCounts: () => new Map<string, number>(),
     // Enrichment surfacing (lizard, etc.) reads file_enrichments via
     // getFile + getFileEnrichment. Stub them to nothing so the suite
     // doesn't have to opt in to those tables for every test.
@@ -190,7 +192,9 @@ describe("authority ranking (#427)", () => {
       searchLexical: () => [],
       getAnalyzersByChunkIds: () => new Map(),
       // governance.md is linked by 10 other docs; the slide deck by none.
-      inboundCount: (p: string) => (p.endsWith("governance.md") ? 10 : 0),
+      // The searcher batches these via inboundCounts (#446).
+      inboundCounts: (paths: ReadonlyArray<string>) =>
+        new Map(paths.map((p) => [p, p.endsWith("governance.md") ? 10 : 0])),
       getFile: () => null,
       getFileEnrichment: () => null,
       listProjects: () => [
@@ -474,6 +478,7 @@ describe("WorkspaceSearcher hybrid retrieval (RRF)", () => {
       }),
       getAnalyzersByChunkIds: () => new Map(),
       inboundCount: () => 0,
+      inboundCounts: () => new Map<string, number>(),
       getFile: () => null,
       getFileEnrichment: () => null,
     } as unknown as StateStore;
@@ -522,6 +527,7 @@ describe("WorkspaceSearcher analyzer-driven match reasons (#60)", () => {
   ): StateStore {
     return {
       searchLexical: () => [...matches],
+      inboundCounts: () => new Map<string, number>(),
       getAnalyzersByChunkIds: (ids: ReadonlyArray<string>) => {
         const m = new Map<string, AnalyzerMetadata | null>();
         for (const id of ids) m.set(id, byChunk[id] ?? null);
@@ -667,6 +673,7 @@ describe("WorkspaceSearcher coverage expansion (#72)", () => {
   }): StateStore {
     return {
       searchLexical: () => [],
+      inboundCounts: () => new Map<string, number>(),
       getAnalyzersByChunkIds: (ids: ReadonlyArray<string>) => {
         const m = new Map<string, AnalyzerMetadata | null>();
         for (const id of ids) m.set(id, opts.analyzersByChunk[id] ?? null);
