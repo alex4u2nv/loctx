@@ -1278,3 +1278,66 @@ describe("StateStore", () => {
     expect(scoped[0]?.hash).toBe("h1");
   });
 });
+
+describe("file stats aggregates (#455)", () => {
+  function file(p: Project, relPath: string, indexedAt: string, error: string | null): FileState {
+    return {
+      fileId: toFileId(`file-${relPath}`) as FileId,
+      projectId: p.id,
+      relPath,
+      size: 1,
+      mtime: 1.0,
+      contentSha: "sha",
+      indexedAt,
+      embeddingIdentity: "fake|hash|d=16|n=1",
+      error,
+    };
+  }
+
+  it("fileStatsByProject aggregates count, errors, and newest indexed_at per project", () => {
+    const store = new StateStore(join(tmp, "state.db"));
+    const a: Project = { id: projectId("proj0a"), name: "a", root: join(tmp, "a") };
+    const b: Project = { id: projectId("proj0b"), name: "b", root: join(tmp, "b") };
+    store.upsertProject(a);
+    store.upsertProject(b);
+    store.upsertFile(file(a, "one.ts", "2024-01-01T00:00:00.000Z", null));
+    store.upsertFile(file(a, "two.ts", "2024-03-01T00:00:00.000Z", "boom"));
+    store.upsertFile(file(a, "three.ts", "2024-02-01T00:00:00.000Z", "boom"));
+    store.upsertFile(file(b, "solo.ts", "2024-04-01T00:00:00.000Z", null));
+
+    const stats = store.fileStatsByProject();
+    expect(stats.get(a.id)).toEqual({
+      files: 3,
+      errors: 2,
+      lastIndexed: "2024-03-01T00:00:00.000Z",
+    });
+    expect(stats.get(b.id)).toEqual({
+      files: 1,
+      errors: 0,
+      lastIndexed: "2024-04-01T00:00:00.000Z",
+    });
+    // Matches what the listFiles-derived scalars produced before #455.
+    const legacyErrors = store.listFiles(a.id).filter((f) => f.error !== null).length;
+    expect(stats.get(a.id)?.errors).toBe(legacyErrors);
+    store.close();
+  });
+
+  it("fileStatsForProject scopes to one project and zeroes on unknown ids", () => {
+    const store = new StateStore(join(tmp, "state.db"));
+    const a: Project = { id: projectId("proj0a"), name: "a", root: join(tmp, "a") };
+    store.upsertProject(a);
+    store.upsertFile(file(a, "one.ts", "2024-01-01T00:00:00.000Z", null));
+
+    expect(store.fileStatsForProject(a.id)).toEqual({
+      files: 1,
+      errors: 0,
+      lastIndexed: "2024-01-01T00:00:00.000Z",
+    });
+    expect(store.fileStatsForProject(projectId("nosuch"))).toEqual({
+      files: 0,
+      errors: 0,
+      lastIndexed: null,
+    });
+    store.close();
+  });
+});

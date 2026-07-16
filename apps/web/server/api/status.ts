@@ -47,8 +47,11 @@ export function mountStatus(
   config: Config,
   getRuntime: () => Promise<Runtime>,
 ): void {
+  // One discovery instance for the server's lifetime instead of one per
+  // request (#455) — /api/status is polled every 3-8s by the admin UI.
+  const discovery = new WorkspaceDiscovery(config.workspaceRoots);
+
   app.get("/api/status", async (c) => {
-    const discovery = new WorkspaceDiscovery(config.workspaceRoots);
     const projects = discovery.discoverProjects();
     const daemon = readActiveDaemon(config.paths.dataDir);
     // Best-effort runtime lookup — if the runtime hasn't built yet

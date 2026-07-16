@@ -494,6 +494,26 @@ FROM chunks
 INNER JOIN files ON chunks.file_id = files.file_id
 GROUP BY files.project_id;
 
+-- :name file_stats_by_project
+-- Per-project file count, error count, and newest indexed_at in one
+-- GROUP BY. Backs the admin projects table + doctor (#455) — replaces
+-- loading every file row per project to derive three scalars.
+SELECT project_id,
+       COUNT(*) AS files,
+       SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END) AS errors,
+       MAX(indexed_at) AS last_indexed
+FROM files
+GROUP BY project_id;
+
+-- :name file_stats_for_project
+-- Single-project variant of file_stats_by_project for detail views.
+SELECT project_id,
+       COUNT(*) AS files,
+       SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END) AS errors,
+       MAX(indexed_at) AS last_indexed
+FROM files
+WHERE project_id = ?;
+
 -- :name list_indexed_files_with_chunks
 -- One row per successfully-indexed file with its chunk count and
 -- indexed_at timestamp. Used by /api/projects/:id stats (byExtension,

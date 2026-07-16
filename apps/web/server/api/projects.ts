@@ -50,9 +50,23 @@ export function mountProjects(
   getRuntime: () => Promise<Runtime>,
   rebuildTracker: RebuildTracker,
 ): void {
+  // One SQLite handle + one discovery instance for the lifetime of the
+  // server (#455). These were constructed per request, which paid a DB
+  // open + (for discovery) a fresh instance on an endpoint the UI polls
+  // every 3-8s. Lazy so mounting stays side-effect free; deliberately
+  // independent of getRuntime() so /api/projects keeps working during
+  // early boot while the runtime (embedding model) is still building.
+  let shared: { state: StateStore; discovery: WorkspaceDiscovery } | null = null;
+  const getShared = () => {
+    shared ??= {
+      state: new StateStore(config.paths.stateDb),
+      discovery: new WorkspaceDiscovery(config.workspaceRoots),
+    };
+    return shared;
+  };
+
   app.get("/api/projects", async (c) => {
-    const discovery = new WorkspaceDiscovery(config.workspaceRoots);
-    const state = new StateStore(config.paths.stateDb);
+    const { state, discovery } = getShared();
     // Live reconcile snapshot: lets each row know whether the daemon is
     // currently reconciling it (vs the stale `lastReconciled` stamp).
     // Best-effort — if the runtime isn't ready yet (very early boot)
@@ -75,9 +89,13 @@ export function mountProjects(
     } catch {
       // Runtime not ready yet — fall through with reconcileSnap=null.
     }
-    try {
+    {
       const inventory = inventoryProjects(discovery, state);
       const chunkCounts = state.chunkCountsByProject();
+      // Files/errors/lastIndexed for every project in one GROUP BY —
+      // this endpoint previously loaded every file row per project to
+      // derive these three scalars (#455).
+      const fileStats = state.fileStatsByProject();
       const rebuilds = rebuildTracker.snapshot();
       // Persisted rebuild intent (survives daemon restart). Lets the
       // UI render "resuming rebuild…" on rows whose rebuild was
@@ -95,16 +113,17 @@ export function mountProjects(
         isOrphaned = false,
         absorbedMarkers: ProjectsRow["absorbedMarkers"] = [],
       ): ProjectsRow => {
-        const files = state.listFiles(project.id);
-        const errors = files.filter((f) => f.error !== null).length;
-        const lastIndexed = files
-          .map((f) => f.indexedAt)
-          .sort()
-          .at(-1);
+        const stats = fileStats.get(project.id as ProjectId) ?? {
+          files: 0,
+          errors: 0,
+          lastIndexed: null,
+        };
+        const errors = stats.errors;
+        const lastIndexed = stats.lastIndexed ?? undefined;
         const watcherEntry =
           watcherRegistry !== undefined ? watcherRegistry.get(project.id as ProjectId) : null;
         const watcherState = watcherEntry !== null ? watcherEntry.state : null;
-        const filesCount = files.length;
+        const filesCount = stats.files;
         const rebuildProgress = liveRebuildProgress(
           state,
           project.id,
@@ -193,15 +212,12 @@ export function mountProjects(
         homeDir: homedir(),
       };
       return c.json(payload);
-    } finally {
-      state.close();
     }
   });
 
   app.get("/api/projects/:id", async (c) => {
     const id = c.req.param("id");
-    const discovery = new WorkspaceDiscovery(config.workspaceRoots);
-    const state = new StateStore(config.paths.stateDb);
+    const { state, discovery } = getShared();
     let detailReconcileSnap: {
       running: boolean;
       currentProjectId: string | null;
@@ -220,7 +236,7 @@ export function mountProjects(
     } catch {
       /* runtime not ready — leave null */
     }
-    try {
+    {
       const inventory = inventoryProjects(discovery, state);
       // The inspect view spans active + orphaned. Inactive projects
       // have no indexed content yet, so detail is pointless — surface
@@ -234,12 +250,9 @@ export function mountProjects(
       }
       const isOrphan = "rootExists" in found;
       const project = found.project;
-      const files = state.listFiles(project.id);
-      const errors = files.filter((f) => f.error !== null).length;
-      const lastIndexed = files
-        .map((f) => f.indexedAt)
-        .sort()
-        .at(-1);
+      const fileStats = state.fileStatsForProject(project.id);
+      const errors = fileStats.errors;
+      const lastIndexed = fileStats.lastIndexed ?? undefined;
       const watcherEntry =
         watcherRegistry !== undefined ? watcherRegistry.get(project.id) : null;
       const watcherState = watcherEntry !== null ? watcherEntry.state : null;
@@ -266,7 +279,7 @@ export function mountProjects(
       const { health, healthHint } = computeHealth({
         isOrphaned: isOrphan,
         watcherState,
-        files: files.length,
+        files: fileStats.files,
         errors,
         lastIndexed: lastIndexed ?? null,
         rebuilding:
@@ -281,7 +294,7 @@ export function mountProjects(
         root: project.root,
         marker: "marker" in found ? (found.marker as string | null) : null,
         markerKind: "markerKind" in found ? (found.markerKind as string | null) : null,
-        files: files.length,
+        files: fileStats.files,
         chunks: chunkCounts.get(project.id) ?? 0,
         errors,
         lastIndexed: lastIndexed ?? null,
@@ -313,8 +326,6 @@ export function mountProjects(
       const stats = projectStats(state, project.id);
       const payload: ProjectDetailPayload = { project: row, stats };
       return c.json(payload);
-    } finally {
-      state.close();
     }
   });
 

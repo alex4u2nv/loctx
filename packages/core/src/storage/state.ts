@@ -151,6 +151,14 @@ export interface SymbolRefHit extends SymbolRef {
   readonly document: string;
 }
 
+/** Aggregated file stats for one project. See {@link StateStore.fileStatsByProject}. */
+export interface ProjectFileStats {
+  readonly files: number;
+  readonly errors: number;
+  /** Newest `indexed_at` across the project's files (ISO-8601), null when empty. */
+  readonly lastIndexed: string | null;
+}
+
 /** A BM25-ranked match returned by {@link StateStore.searchLexical}. */
 export interface LexicalMatch {
   readonly chunkId: string;
@@ -640,6 +648,27 @@ export class StateStore {
   }
 
   /**
+   * Per-project file stats in one GROUP BY: file count, error count,
+   * newest indexed_at. Replaces the `listFiles().filter().length`
+   * pattern that pulled every file row per project just to derive
+   * three scalars — the /api/projects endpoint is polled every 3-8s,
+   * so that N+1 scaled with projects × files (#455). Same shape as
+   * {@link chunkCountsByProject}.
+   */
+  fileStatsByProject(): Map<ProjectId, ProjectFileStats> {
+    const rows = this.readAll<FileStatsRow>("file_stats_by_project");
+    return new Map(rows.map((r) => [r.project_id as ProjectId, fileStatsFromRow(r)]));
+  }
+
+  /** Single-project variant of {@link fileStatsByProject} for detail views. */
+  fileStatsForProject(projectId: ProjectId): ProjectFileStats {
+    const row = this.readOne<FileStatsRow>("file_stats_for_project", [projectId]);
+    return row === undefined || row.files === 0
+      ? { files: 0, errors: 0, lastIndexed: null }
+      : fileStatsFromRow(row);
+  }
+
+  /**
    * One row per successfully-indexed file (error IS NULL) with its chunk
    * count and indexed_at stamp. The admin /api/projects/:id route
    * aggregates byExtension, topFiles, and recentFiles from this single
@@ -1074,6 +1103,21 @@ export class StateStore {
 }
 
 // ---- row mappings -------------------------------------------------------
+
+interface FileStatsRow {
+  project_id: string;
+  files: number;
+  errors: number;
+  last_indexed: string | null;
+}
+
+function fileStatsFromRow(r: FileStatsRow): ProjectFileStats {
+  return {
+    files: Number(r.files),
+    errors: Number(r.errors),
+    lastIndexed: r.last_indexed,
+  };
+}
 
 interface FileRow {
   file_id: string;

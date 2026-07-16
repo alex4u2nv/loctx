@@ -102,9 +102,10 @@ export async function runDoctorChecks(
           status: "ok",
           detail: `${projects.length} project rows, schema healthy`,
         });
+        // One GROUP BY instead of loading every file row per project (#455).
         let totalErrors = 0;
-        for (const p of projects) {
-          totalErrors += state.listFiles(p.id).filter((f) => f.error !== null).length;
+        for (const stats of state.fileStatsByProject().values()) {
+          totalErrors += stats.errors;
         }
         checks.push(
           totalErrors > 0
