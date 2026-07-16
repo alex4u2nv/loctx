@@ -1,4 +1,9 @@
-import { type Config, type Runtime, resolveUnderWorkspaceRoots } from "@loctx/core";
+import {
+  type Config,
+  findSymbolUsages,
+  type Runtime,
+  resolveUnderWorkspaceRoots,
+} from "@loctx/core";
 import type { Hono } from "hono";
 import type { FindUsagesPayload, UsageHit } from "../../shared/contracts.js";
 import { reconcileWarnings } from "../lib/index-health-warnings.js";
@@ -20,7 +25,7 @@ export function mountFindUsages(app: Hono, config: Config, getRuntime: () => Pro
     }
 
     const rt = await getRuntime();
-    let projects = rt.discovery.discoverProjects();
+    let scopePath: string | undefined;
     if (pathField !== null && pathField !== "") {
       // Refuse paths outside configured workspace_roots so this surface
       // can't be used to probe arbitrary filesystem locations.
@@ -28,21 +33,26 @@ export function mountFindUsages(app: Hono, config: Config, getRuntime: () => Pro
       if (confined === null) {
         return c.json({ error: "path is not under any configured workspace_root" }, 403);
       }
-      const scoped = rt.discovery.resolveProject(confined);
-      if (scoped === null) {
-        return c.json({ error: `path is not inside any indexed project` }, 404);
-      }
-      projects = [scoped];
+      scopePath = confined;
+    }
+
+    // Shared resolve-scope → findSymbol sweep (#449). Previously this
+    // endpoint used plain discovery.resolveProject, so a path inside an
+    // unindexed inner package (#276) resolved to the empty inner project
+    // and silently returned zero hits — while the same path through the
+    // MCP tool scoped to the indexed parent and found them.
+    const result = findSymbolUsages(rt.discovery, rt.state, symbol, scopePath);
+    if (result.kind === "outside-indexed") {
+      return c.json({ error: "path is not inside any indexed project" }, 404);
     }
 
     const defs: UsageHit[] = [];
     const refs: UsageHit[] = [];
-    for (const project of projects) {
-      const r = rt.state.findSymbol(project.id, symbol);
-      for (const hit of r.defs) {
+    for (const { project, defs: pDefs, refs: pRefs } of result.projects) {
+      for (const hit of pDefs) {
         defs.push(toHit(project.id, project.name, hit));
       }
-      for (const hit of r.refs) {
+      for (const hit of pRefs) {
         refs.push(toHit(project.id, project.name, hit));
       }
     }
@@ -50,7 +60,7 @@ export function mountFindUsages(app: Hono, config: Config, getRuntime: () => Pro
       symbol,
       defs,
       refs,
-      warnings: reconcileWarnings(rt),
+      warnings: [...result.warnings, ...reconcileWarnings(rt)],
     };
     return c.json(payload);
   });

@@ -16,6 +16,7 @@ import { join } from "node:path";
 import {
   CONFIG_SCHEMA,
   type DuplicateGroup,
+  findSymbolUsages,
   inventoryProjects,
   type ProjectId,
   type Runtime,
@@ -412,38 +413,29 @@ export const tools = {
     if (!symbol) throw new ToolError("symbol is required and must be a non-empty string");
     const path = v.getStr(data, "path");
 
-    // Scope: if path given, narrow to one project. Otherwise sweep all.
-    // resolveProjectScope prefers the deepest *indexed* ancestor over an
-    // unindexed inner marker (e.g. a monorepo `packages/core`), so a path
-    // inside a nested package still finds usages in the indexed parent
-    // instead of returning an empty list (#276).
-    const warnings: string[] = [];
-    let projects = runtime.discovery.discoverProjects();
-    if (path !== undefined) {
-      const scope = resolveProjectScope(runtime.discovery, runtime.state, path, warnings);
-      if (scope.project === null) {
-        throw new ToolError(
-          `path ${path} is not inside any indexed project; omit path to search every project.`,
-        );
-      }
-      projects = [scope.project];
-    }
-
-    const out: Array<{
-      readonly projectId: string;
-      readonly projectName: string;
-      readonly defs: ReadonlyArray<SymbolRefHit>;
-      readonly refs: ReadonlyArray<SymbolRefHit>;
-    }> = [];
-    for (const project of projects) {
-      const { defs, refs } = runtime.state.findSymbol(project.id, symbol);
-      if (defs.length === 0 && refs.length === 0) continue;
-      out.push({ projectId: project.id, projectName: project.name, defs, refs });
+    // Shared resolve-scope → findSymbol sweep (#449). findSymbolUsages
+    // prefers the deepest *indexed* ancestor over an unindexed inner
+    // marker (e.g. a monorepo `packages/core`), so a path inside a
+    // nested package still finds usages in the indexed parent instead
+    // of returning an empty list (#276) — identically across the MCP
+    // tool, the REST endpoint, and the CLI fallback.
+    const result = findSymbolUsages(runtime.discovery, runtime.state, symbol, path);
+    if (result.kind === "outside-indexed") {
+      throw new ToolError(
+        `path ${path} is not inside any indexed project; omit path to search every project.`,
+      );
     }
     return Object.freeze({
       symbol,
-      projects: Object.freeze(out),
-      warnings: Object.freeze(warnings),
+      projects: Object.freeze(
+        result.projects.map((p) => ({
+          projectId: p.project.id as string,
+          projectName: p.project.name,
+          defs: p.defs,
+          refs: p.refs,
+        })),
+      ),
+      warnings: result.warnings,
       indexHealth: currentIndexHealth(runtime),
     });
   },

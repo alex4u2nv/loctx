@@ -8,3 +8,4 @@ export {
   type SearchResult,
   WorkspaceSearcher,
 } from "./searcher.js";
+export { findSymbolUsages, type SymbolUsageProject, type SymbolUsages } from "./usages.js";
