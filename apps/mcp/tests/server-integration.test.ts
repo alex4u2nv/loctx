@@ -10,7 +10,7 @@ import type { Runtime, SearchResponse } from "@loctx/core";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerTools } from "../src/registry.js";
 
 let cleanups: Array<() => Promise<void>> = [];
@@ -96,7 +96,7 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
 
 async function connectedPair(
   runtime: Runtime,
-  options?: { reloadConfig?: () => void | Promise<void> },
+  options?: Parameters<typeof registerTools>[2],
 ): Promise<{ client: Client; server: Server }> {
   const server = new Server({ name: "loctx", version: "test" }, { capabilities: { tools: {} } });
   registerTools(server, runtime, options ?? {});
@@ -201,5 +201,54 @@ describe("MCP Server + registry over in-memory transport", () => {
     const { client } = await connectedPair(adminRuntime(false));
     const result = await client.callTool({ name: "admin_workspace", arguments: { action: "compact" } });
     expect(result.isError).toBe(true);
+  });
+
+  // ---- observability (#452) ----------------------------------------
+
+  it("surfaces injected process faults on workspace_status", async () => {
+    const snapshot = {
+      total: 3,
+      unique: 1,
+      lastAt: "2026-07-16T00:00:00.000Z",
+      recent: [
+        {
+          signature: "unhandledRejection:boom",
+          kind: "unhandledRejection" as const,
+          count: 3,
+          lastDetail: "boom",
+          lastAt: "2026-07-16T00:00:00.000Z",
+        },
+      ],
+    };
+    const { client } = await connectedPair(stubRuntime(), { processFaults: () => snapshot });
+    const result = await client.callTool({ name: "workspace_status", arguments: {} });
+    const payload = JSON.parse(
+      (result.content as Array<{ type: string; text: string }>)[0]?.text ?? "{}",
+    );
+    expect(payload.processFaults).toEqual(snapshot);
+  });
+
+  it("omits processFaults when no tracker is injected (web transport)", async () => {
+    const { client } = await connectedPair(stubRuntime());
+    const result = await client.callTool({ name: "workspace_status", arguments: {} });
+    const payload = JSON.parse(
+      (result.content as Array<{ type: string; text: string }>)[0]?.text ?? "{}",
+    );
+    expect(payload.processFaults).toBeUndefined();
+  });
+
+  it("defers request logging off the response critical path (setImmediate)", async () => {
+    const runtime = stubRuntime();
+    (runtime.config as { mcp?: unknown }).mcp = { logMaxRows: 100 };
+    const logMcpRequest = vi.fn();
+    (runtime.state as { logMcpRequest?: unknown }).logMcpRequest = logMcpRequest;
+
+    const { client } = await connectedPair(runtime);
+    await client.callTool({ name: "workspace_status", arguments: {} });
+    // The response resolved via promise microtasks; the deferred
+    // setImmediate write is a macrotask that hasn't run yet.
+    expect(logMcpRequest).not.toHaveBeenCalled();
+    await new Promise((r) => setImmediate(r));
+    expect(logMcpRequest).toHaveBeenCalledTimes(1);
   });
 });
