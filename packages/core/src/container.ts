@@ -342,6 +342,54 @@ function backfillSpecs(config: Config): ReadonlyArray<BackfillSpec> {
   ];
 }
 
+/** Discovery wiring shared by {@link buildRuntime} and {@link buildStateRuntime}. */
+function buildDiscovery(config: Config): WorkspaceDiscovery {
+  const extraMarkers: MarkerSpec[] = config.discovery.extraMarkers.map((name) => ({
+    name,
+    kind: "file" as const,
+    group: "build" as const,
+  }));
+  return new WorkspaceDiscovery(config.workspaceRoots, {
+    maxDepth: config.discovery.maxDepth,
+    markers:
+      extraMarkers.length === 0
+        ? DEFAULT_PROJECT_MARKERS
+        : [...DEFAULT_PROJECT_MARKERS, ...extraMarkers],
+  });
+}
+
+/**
+ * The slice of {@link Runtime} that needs no embedding model: SQLite
+ * state plus workspace discovery. For CLI commands that only read or
+ * delete index rows (`find-usages`, `purge` no-daemon fallbacks),
+ * {@link buildRuntime} was overkill — its unconditional
+ * `embeddings.ensureReady()` loads the ~90MB ONNX model and costs
+ * seconds of latency for work that never embeds anything (#448).
+ */
+export interface StateRuntime {
+  readonly config: Config;
+  readonly state: StateStore;
+  readonly discovery: WorkspaceDiscovery;
+  close(): void;
+}
+
+/**
+ * Build a state-only runtime: no embedding warmup, no vector-store
+ * construction, no analyzer probes. Synchronous — there is nothing to
+ * await. See {@link StateRuntime} for when to prefer this over
+ * {@link buildRuntime}.
+ */
+export function buildStateRuntime(config: Config): StateRuntime {
+  const state = new StateStore(config.paths.stateDb);
+  const discovery = buildDiscovery(config);
+  return Object.freeze({
+    config,
+    state,
+    discovery,
+    close: () => state.close(),
+  });
+}
+
 export async function buildRuntime(config: Config): Promise<Runtime> {
   // Apply proxy / CA / TLS settings before anything makes an outbound
   // request (the embedding-model download). No-op when network config is
@@ -368,18 +416,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
   // Lazy providers (Local) need a warmup; in-process providers (Fake) skip it.
   await embeddings.ensureReady?.();
   const vectors = createVectorStore(config.paths.vectorDir, embeddings.identity, state);
-  const extraMarkers: MarkerSpec[] = config.discovery.extraMarkers.map((name) => ({
-    name,
-    kind: "file" as const,
-    group: "build" as const,
-  }));
-  const discovery = new WorkspaceDiscovery(config.workspaceRoots, {
-    maxDepth: config.discovery.maxDepth,
-    markers:
-      extraMarkers.length === 0
-        ? DEFAULT_PROJECT_MARKERS
-        : [...DEFAULT_PROJECT_MARKERS, ...extraMarkers],
-  });
+  const discovery = buildDiscovery(config);
 
   const filterFor = (project: Project): ProjectFilter =>
     new ProjectFilter(project, rules, combinedGitignore(project.root));

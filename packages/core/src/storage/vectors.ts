@@ -247,6 +247,42 @@ export function createVectorStore(
   return api;
 }
 
+/**
+ * Delete a project's vector rows from every named collection that
+ * actually exists on disk. Identity-free: the collection names come
+ * from the state DB's registry (`StateStore.listCollections()`), so
+ * callers never need an embedding model to derive a table name. That
+ * makes it the right delete for maintenance paths like the CLI's
+ * no-daemon `purge` (#448) — and unlike an identity-derived delete, it
+ * also reaches rows written under a previous embedding model.
+ *
+ * Returns the number of collections a delete ran against.
+ */
+export async function purgeProjectVectors(
+  vectorDir: string,
+  collectionNames: ReadonlyArray<string>,
+  projectId: ProjectId,
+): Promise<number> {
+  if (collectionNames.length === 0) return 0;
+  const lancedb = (await import("@lancedb/lancedb")) as unknown as LanceModule;
+  let db: LanceConnection;
+  try {
+    db = await lancedb.connect(vectorDir);
+  } catch {
+    // No vector directory yet — nothing indexed, nothing to purge.
+    return 0;
+  }
+  const existing = new Set(await db.tableNames());
+  let touched = 0;
+  for (const name of collectionNames) {
+    if (!existing.has(name)) continue;
+    const table = await db.openTable(name);
+    await table.delete(`project_id = ${quote(projectId)}`);
+    touched += 1;
+  }
+  return touched;
+}
+
 // ---- helpers -----------------------------------------------------------
 
 function buildSchema(dimension: number): Schema {

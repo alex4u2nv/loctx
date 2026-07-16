@@ -10,7 +10,11 @@ import {
   projectId,
 } from "../../src/models.js";
 import { StateStore } from "../../src/storage/state.js";
-import { createVectorStore, type EmbeddedChunk } from "../../src/storage/vectors.js";
+import {
+  createVectorStore,
+  type EmbeddedChunk,
+  purgeProjectVectors,
+} from "../../src/storage/vectors.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
 
 const DIM = 4;
@@ -120,6 +124,55 @@ describe("VectorStore (LanceDB)", () => {
     ops.push(store.deleteFileChunks(projectId("p1") as ProjectId, "src/a.ts"));
     // No throw → mutex held the line.
     await Promise.all(ops);
+  });
+
+  it("purgeProjectVectors deletes a project from every registered collection (#448)", async () => {
+    // Two collections in one vector dir — as after an embedding-model
+    // switch. The registry-driven purge must reach rows in both without
+    // any identity in hand.
+    const otherIdentity: EmbeddingIdentity = Object.freeze({
+      provider: "test",
+      model: "tiny-v2",
+      dimension: DIM,
+      normalize: true,
+    });
+    const dir = join(tmp, "vectors");
+    const storeA = createVectorStore(dir, identity, state);
+    const storeB = createVectorStore(dir, otherIdentity, state);
+    await storeA.upsertChunks([
+      chunk("a1", unitVector(1, 0, 0, 0)),
+      chunk("a2", unitVector(0, 1, 0, 0), {
+        projectId: projectId("p2") as ProjectId,
+        fileId: fileId("f2") as FileId,
+      }),
+    ]);
+    await storeB.upsertChunks([chunk("b1", unitVector(0, 0, 1, 0))]);
+
+    const touched = await purgeProjectVectors(
+      dir,
+      state.listCollections(),
+      projectId("p1") as ProjectId,
+    );
+
+    expect(touched).toBe(2);
+    // Fresh handles for the reads: the purge writes through its own
+    // LanceDB connection, and the original stores' cached table handles
+    // can serve the pre-delete version. The real caller (CLI purge
+    // fallback) is a fresh process with no other handles open.
+    const freshA = createVectorStore(dir, identity, state);
+    const freshB = createVectorStore(dir, otherIdentity, state);
+    // p1 rows gone from both collections; p2 untouched.
+    expect(await freshA.count()).toBe(1);
+    expect(await freshB.count()).toBe(0);
+    const [survivor] = await freshA.query({ embedding: unitVector(0, 1, 0, 0), k: 1 });
+    expect(survivor?.metadata).toMatchObject({ project_id: "p2" });
+  });
+
+  it("purgeProjectVectors is a no-op on a missing vector dir or unknown collections", async () => {
+    expect(
+      await purgeProjectVectors(join(tmp, "does-not-exist"), ["loctx_nope"], projectId("p1")),
+    ).toBe(0);
+    expect(await purgeProjectVectors(join(tmp, "also-missing"), [], projectId("p1"))).toBe(0);
   });
 
   it("applies a SQL `where` predicate to filter results", async () => {
