@@ -18,6 +18,7 @@ import {
 } from "@loctx/core";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import { compress } from "hono/compress";
 import { mountApi } from "./api/index.js";
 import { mountMcp } from "./mcp.js";
 import { localDaemonGuard } from "./security.js";
@@ -65,6 +66,15 @@ export function createWebApp(opts: CreateWebAppOptions): Hono {
       port: opts.config.daemon.port,
     }),
   );
+
+  // Response compression (#458). The daemon fronts browsers directly
+  // (@hono/node-server, no reverse proxy), so nothing else would
+  // compress the main bundle, the shiki chunk, or API JSON. Skip
+  // /api/events: it streams text/event-stream (SSE) and must not be
+  // buffered by the compressor, or events would stall until the stream
+  // closed.
+  const compressor = compress();
+  app.use("*", (c, next) => (c.req.path === "/api/events" ? next() : compressor(c, next)));
 
   // Lazy runtime: prebuilt one wins; otherwise build on first need and
   // memoise. `buildRuntime` is heavy (embedding model load) so /status,
