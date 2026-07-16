@@ -15,6 +15,7 @@ import { pathToFileURL } from "node:url";
 import { buildRuntime, loadConfig, type Runtime, readPackageVersion } from "@loctx/core";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { ProcessFaultTracker } from "./process-faults.js";
 import { registerTools } from "./registry.js";
 
 export type {
@@ -64,17 +65,27 @@ async function main(): Promise<void> {
   // recovery. Log and keep serving; each tool call still reports its own
   // errors via the dispatch try/catch in registry.ts. (Restarting the
   // daemon is the canonical trigger: #mcp-session-resilience.)
+  // Track swallowed faults so they're observable instead of invisible
+  // (#452): dedupe/rate-limit the stderr spam, and surface a running
+  // count via workspace_status.processFaults so a client can tell a
+  // healthy quiet server from one limping through a fault loop.
+  const faults = new ProcessFaultTracker();
   process.on("unhandledRejection", (reason) => {
     const detail = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
-    console.error(`[loctx-mcp] unhandledRejection (ignored): ${detail}`);
+    if (faults.record("unhandledRejection", detail)) {
+      console.error(`[loctx-mcp] unhandledRejection (ignored): ${detail}`);
+    }
   });
   process.on("uncaughtException", (err) => {
-    console.error(`[loctx-mcp] uncaughtException (ignored): ${err.stack ?? err.message}`);
+    const detail = err.stack ?? err.message;
+    if (faults.record("uncaughtException", detail)) {
+      console.error(`[loctx-mcp] uncaughtException (ignored): ${detail}`);
+    }
   });
 
   const runtime: Runtime = await buildRuntime(loadConfig());
   const server = new Server(SERVER_INFO, { capabilities: { tools: {} } });
-  registerTools(server, runtime);
+  registerTools(server, runtime, { processFaults: () => faults.snapshot() });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

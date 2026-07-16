@@ -28,6 +28,7 @@ import {
 } from "@loctx/core";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import type { ProcessFaultSnapshot } from "./process-faults.js";
 
 // ---- input / output types ----------------------------------------------
 
@@ -97,6 +98,13 @@ export interface StatusOutput {
   readonly projects: ReadonlyArray<ProjectStatusEntry>;
   readonly indexedFileCounts?: Readonly<Record<string, number>>;
   readonly indexHealth: IndexHealth;
+  /**
+   * Swallowed process faults on the long-lived stdio server (#452).
+   * Present only when this server injected a fault tracker; a nonzero
+   * `total` means the server stayed up through N unhandled
+   * rejections/exceptions that would otherwise be invisible.
+   */
+  readonly processFaults?: ProcessFaultSnapshot;
   /**
    * What loctx is NOT indexing — directly observable so agents know
    * when to fall back to `grep`/`find` without guessing. Sourced from
@@ -286,6 +294,14 @@ export interface AdminOptions {
    * applies on the next daemon restart.
    */
   readonly reloadConfig?: () => void | Promise<void>;
+  /**
+   * Snapshot of swallowed process faults (#452). Injected by the stdio
+   * server (which owns the unhandledRejection/uncaughtException
+   * handlers) so `workspace_status` can surface them. Absent for the web
+   * HTTP transport, which runs in the daemon process with its own
+   * fault handling.
+   */
+  readonly processFaults?: () => ProcessFaultSnapshot;
 }
 
 export class ToolError extends Error {}
@@ -922,7 +938,14 @@ export function registerTools(server: Server, runtime: Runtime, options: AdminOp
         return { content: [{ type: "text" as const, text: adminText }] };
       }
       if (!isToolName(name)) throw new ToolError(`Unknown tool: ${name}`);
-      const result = await TOOL_HANDLERS[name](runtime, args);
+      const handlerResult = await TOOL_HANDLERS[name](runtime, args);
+      // Surface swallowed process faults on workspace_status when the
+      // stdio server injected a tracker (#452). Kept out of the pure
+      // handler so the web transport stays unaffected.
+      const result =
+        name === "workspace_status" && options.processFaults !== undefined
+          ? { ...handlerResult, processFaults: options.processFaults() }
+          : handlerResult;
       const text = JSON.stringify(result, null, 2);
       recordMcpRequest(runtime, name, args, {
         responseJson: text,
@@ -969,16 +992,23 @@ function recordMcpRequest(
   // still serve tool calls. Absent config => logging off.
   const maxRows = runtime.config.mcp?.logMaxRows ?? 0;
   if (maxRows <= 0) return;
-  try {
-    let argumentsJson: string;
+  // Fire-and-forget (#452): defer both the JSON.stringify(args) and the
+  // synchronous SQLite write to the next tick so the tool response
+  // returns first. Logging must never add latency to the response
+  // critical path. `args`/`outcome` aren't mutated after the handler
+  // returns, so serializing on the next tick is safe.
+  setImmediate(() => {
     try {
-      argumentsJson = JSON.stringify(args ?? {});
+      let argumentsJson: string;
+      try {
+        argumentsJson = JSON.stringify(args ?? {});
+      } catch {
+        argumentsJson = '"<unserializable arguments>"';
+      }
+      runtime.state.logMcpRequest({ tool, argumentsJson, ...outcome }, maxRows);
     } catch {
-      argumentsJson = '"<unserializable arguments>"';
+      // Logging is observability, not correctness — never fail a tool call
+      // because the request couldn't be recorded.
     }
-    runtime.state.logMcpRequest({ tool, argumentsJson, ...outcome }, maxRows);
-  } catch {
-    // Logging is observability, not correctness — never fail a tool call
-    // because the request couldn't be recorded.
-  }
+  });
 }
