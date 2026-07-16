@@ -12,7 +12,7 @@
 
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { buildRuntime, loadConfig, type Runtime } from "@loctx/core";
+import { buildRuntime, loadConfig, type Runtime, readPackageVersion } from "@loctx/core";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerTools } from "./registry.js";
@@ -32,7 +32,11 @@ export {
   tools,
 } from "./registry.js";
 
-const SERVER_INFO = { name: "loctx", version: "0.1.0" };
+// Real package version (#451) — one source of truth in package.json.
+const SERVER_INFO = {
+  name: "loctx",
+  version: readPackageVersion(new URL("../package.json", import.meta.url)),
+};
 
 /**
  * True when this module is the process entry point (launched directly),
