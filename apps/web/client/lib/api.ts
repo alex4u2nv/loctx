@@ -30,10 +30,26 @@ import type {
   WatchersPayload,
 } from "@shared/contracts";
 
-async function getJson<T>(url: string): Promise<T> {
-  const r = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`);
-  return (await r.json()) as T;
+/**
+ * In-flight GET dedupe (#456). Concurrent callers of the same URL share
+ * one request — the dashboard fires `api.status()` from both the header
+ * StatusChip and the status page on load, and `/api/projects` is the
+ * heaviest endpoint in the API. Entries clear when the request settles,
+ * so this is NOT a cache: a later call (poll tick, `reload()` after a
+ * mutation) always issues a fresh request.
+ */
+const inFlightGets = new Map<string, Promise<unknown>>();
+
+function getJson<T>(url: string): Promise<T> {
+  const pending = inFlightGets.get(url);
+  if (pending !== undefined) return pending as Promise<T>;
+  const request = (async () => {
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`);
+    return (await r.json()) as T;
+  })().finally(() => inFlightGets.delete(url));
+  inFlightGets.set(url, request);
+  return request;
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
