@@ -201,15 +201,21 @@ export async function buildSandboxedRuntime(corpus: CorpusConfig): Promise<{
     dataDir,
     close: async () => {
       await runtime.close();
-      if (previousProvider === undefined) process.env["LOCTX_EMBEDDING_PROVIDER"] = undefined;
-      else process.env["LOCTX_EMBEDDING_PROVIDER"] = previousProvider;
-      if (previousDataDir === undefined) process.env["LOCTX_DATA_DIR"] = undefined;
-      else process.env["LOCTX_DATA_DIR"] = previousDataDir;
-      if (previousConfigDir === undefined) process.env["LOCTX_CONFIG_DIR"] = undefined;
-      else process.env["LOCTX_CONFIG_DIR"] = previousConfigDir;
+      // Restore-by-delete for originally-unset vars (#466): assigning
+      // `undefined` to a process.env key coerces to the STRING
+      // "undefined" and keeps the key present, so the next loadConfig()
+      // in this process would read LOCTX_DATA_DIR="undefined".
+      restoreEnv("LOCTX_EMBEDDING_PROVIDER", previousProvider);
+      restoreEnv("LOCTX_DATA_DIR", previousDataDir);
+      restoreEnv("LOCTX_CONFIG_DIR", previousConfigDir);
       rmSync(dataDir, { recursive: true, force: true });
     },
   });
+}
+
+function restoreEnv(key: string, previous: string | undefined): void {
+  if (previous === undefined) delete process.env[key];
+  else process.env[key] = previous;
 }
 
 /**
