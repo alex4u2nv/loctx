@@ -43,7 +43,7 @@ registerProjectMaintenance(program); // pause, resume, rebuild, purge
 registerAgentCommands(program); // init, setup-agent
 registerConfigCommands(program); // config
 registerModelCommands(program); // model
-registerSystemCommands(program); // serve, doctor, status
+registerSystemCommands(program); // doctor, status
 registerResetCommands(program); // reset
 
 program.parseAsync(process.argv).catch((err: unknown) => {
