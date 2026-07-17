@@ -18,7 +18,7 @@
  */
 
 import type { StatusPayload } from "@shared/contracts";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AsyncBoundary } from "../components/async-boundary";
 import { FlowChart, type FlowProject } from "../components/flow-chart";
 import { Icon } from "../components/icon";
@@ -44,20 +44,26 @@ export function StatusPage() {
   }, [statusReq.reload, projectsReq.reload]);
   useLiveRefreshEvent(onRefresh);
   const events = useWatcherEvents(8);
+  // Recomputed only when the projects payload changes, not on every
+  // status-poll tick (#461).
+  const totals = useMemo(
+    () =>
+      (projectsReq.data?.active ?? []).reduce(
+        (acc, row) => ({
+          files: acc.files + row.files,
+          chunks: acc.chunks + row.chunks,
+          errors: acc.errors + row.errors,
+        }),
+        { files: 0, chunks: 0, errors: 0 },
+      ),
+    [projectsReq.data],
+  );
 
   return (
     <AsyncBoundary state={statusReq}>
       {(status) => {
         const projects = projectsReq.data?.active ?? [];
         const inactiveCount = projectsReq.data?.inactive.length ?? 0;
-        const totals = projects.reduce(
-          (acc, row) => ({
-            files: acc.files + row.files,
-            chunks: acc.chunks + row.chunks,
-            errors: acc.errors + row.errors,
-          }),
-          { files: 0, chunks: 0, errors: 0 },
-        );
 
         const daemon = status.daemon;
         // Fall back to the page's own origin when /api/status hasn't returned

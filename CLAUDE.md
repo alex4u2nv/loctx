@@ -40,7 +40,11 @@ Concrete heuristics:
   filing an issue first.
 - Modals: every dialog goes through `components/modal.tsx`. New
   `createPortal` calls outside `modal.tsx` are a regression — see
-  #259.
+  #259. The one sanctioned exception is
+  `components/overflow-menu.tsx`: an anchored, flip-aware popover is a
+  genuinely different primitive from a centered modal, so it portals to
+  `document.body` on its own. Don't add other portal exceptions without
+  filing an issue first.
 - Icons: register in `components/icon.tsx`, reference by semantic
   name. Don't import FontAwesome icons elsewhere.
 - Imperative state APIs (e.g. `confirm()`) stay rare. When the only
