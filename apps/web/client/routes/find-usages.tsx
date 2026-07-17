@@ -1,6 +1,7 @@
 import type { FindUsagesPayload, UsageHit } from "@shared/contracts";
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { AsyncError } from "../components/async-boundary";
 import { DataTable } from "../components/data-table";
 import { QueryForm } from "../components/query-form";
 import { SearchTabs } from "../components/search-tabs";
@@ -93,9 +94,7 @@ export function FindUsagesPage() {
         </div>
 
         {error !== null ? (
-          <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-            {error}
-          </p>
+          <AsyncError error={error} />
         ) : response === null ? null : (
           <div className="card" id="fu-results">
             <Results r={response} scopedPath={urlPath} onClearScope={() => void submit(response.symbol, "")} />

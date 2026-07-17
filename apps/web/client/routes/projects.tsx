@@ -6,6 +6,7 @@ import type {
   StatusPayload,
 } from "@shared/contracts";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { AsyncBoundary } from "../components/async-boundary";
 import { confirm } from "../components/confirm";
 import { ConnectEditorModal } from "../components/connect-editor-modal";
 import { Icon, type IconName } from "../components/icon";
@@ -55,9 +56,7 @@ export function ProjectsPage() {
   // fire-and-forget refactor feel broken. Keyed by the project root
   // (the same value passed to api.resetProject) since handlers don't
   // get the row id.
-  const [purgingRoots, setPurgingRoots] = useState<ReadonlySet<string>>(
-    () => new Set<string>(),
-  );
+  const [purgingRoots, setPurgingRoots] = useState<ReadonlySet<string>>(() => new Set<string>());
   // Project whose "connect your editor" dialog is open. Opened from the
   // row action and auto-opened right after a project is activated (#agent-setup).
   const [connectTarget, setConnectTarget] = useState<{ root: string; name: string } | null>(null);
@@ -177,129 +176,131 @@ export function ProjectsPage() {
     [fetched.data],
   );
 
-  if (fetched.loading && fetched.data === null) return <p className="pullquote">Loading…</p>;
-  if (fetched.error !== null)
-    return (
-      <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-        {fetched.error}
-      </p>
-    );
-  if (fetched.data === null) return <p className="pullquote">No data.</p>;
-
-  const data = fetched.data;
-
-  const rootHeader = data.commonRoot !== "" ? applyHomeAbbrev(data.commonRoot, data.homeDir) : null;
-
-  const navSections: NavSection[] = [{ id: "section-active", label: "Active" }];
-  if (data.inactive.length > 0)
-    navSections.push({ id: "section-inactive", label: "Inactive" });
-  if (data.orphaned.length > 0)
-    navSections.push({ id: "section-orphaned", label: "Orphaned" });
-
   return (
-    <section>
-      <span className="eyebrow">Index</span>
-      <h1 className="display">Projects</h1>
-      <p className="summary">
-        {data.active.length} active<span className="sep">·</span>
-        {totals.files} files<span className="sep">·</span>
-        {totals.chunks} chunks
-        {totals.errors > 0 ? (
-          <>
-            <span className="sep">·</span>
-            <span className="err">{totals.errors} errors</span>
-          </>
-        ) : null}
-        {data.inactive.length > 0 ? (
-          <>
-            <span className="sep">·</span>
-            {data.inactive.length} inactive
-          </>
-        ) : null}
-        {data.orphaned.length > 0 ? (
-          <>
-            <span className="sep">·</span>
-            {data.orphaned.length} orphaned
-          </>
-        ) : null}
-      </p>
-      {rootHeader ? (
-        <p className="summary">
-          under <code>{rootHeader}</code>
-        </p>
-      ) : null}
-      {ops.message ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--warn)" }}>
-          {ops.message}
-        </p>
-      ) : null}
+    <AsyncBoundary state={fetched}>
+      {(data) => {
+        const rootHeader =
+          data.commonRoot !== "" ? applyHomeAbbrev(data.commonRoot, data.homeDir) : null;
 
-      {analyzers !== null ? <AnalyzerActivity queue={analyzers} /> : null}
+        const navSections: NavSection[] = [{ id: "section-active", label: "Active" }];
+        if (data.inactive.length > 0)
+          navSections.push({ id: "section-inactive", label: "Inactive" });
+        if (data.orphaned.length > 0)
+          navSections.push({ id: "section-orphaned", label: "Orphaned" });
 
-      <div className="card-stack">
-        <div className="card">
-          <p className="card-section-title" id="section-active">Active</p>
-          <ProjectsTable
-            rows={data.active}
-            homeDir={data.homeDir}
-            commonRoot={data.commonRoot}
-            emptyMessage={
-              data.inactive.length > 0
-                ? "No projects activated yet — see Inactive below."
-                : "No projects discovered under current workspace_roots."
-            }
-            actions={activeActions}
-            busy={ops.busy}
-            purgingRoots={purgingRoots}
-          />
-        </div>
-
-        {data.inactive.length > 0 ? (
-          <div className="card">
-            <p className="card-section-title" id="section-inactive">Inactive</p>
+        return (
+          <section>
+            <span className="eyebrow">Index</span>
+            <h1 className="display">Projects</h1>
             <p className="summary">
-              Discovered under <code>workspace_roots</code> but not yet indexed. Activating runs an
-              initial index pass and registers the watcher.
+              {data.active.length} active<span className="sep">·</span>
+              {totals.files} files<span className="sep">·</span>
+              {totals.chunks} chunks
+              {totals.errors > 0 ? (
+                <>
+                  <span className="sep">·</span>
+                  <span className="err">{totals.errors} errors</span>
+                </>
+              ) : null}
+              {data.inactive.length > 0 ? (
+                <>
+                  <span className="sep">·</span>
+                  {data.inactive.length} inactive
+                </>
+              ) : null}
+              {data.orphaned.length > 0 ? (
+                <>
+                  <span className="sep">·</span>
+                  {data.orphaned.length} orphaned
+                </>
+              ) : null}
             </p>
-            <InactiveTable
-              rows={data.inactive}
-              homeDir={data.homeDir}
-              commonRoot={data.commonRoot}
-              onActivate={handlers.activate}
-              busy={ops.busy}
-            />
-          </div>
-        ) : null}
+            {rootHeader ? (
+              <p className="summary">
+                under <code>{rootHeader}</code>
+              </p>
+            ) : null}
+            {ops.message ? (
+              <p className="pullquote" style={{ borderLeftColor: "var(--warn)" }}>
+                {ops.message}
+              </p>
+            ) : null}
 
-        {data.orphaned.length > 0 ? (
-          <div className="card">
-            <p className="card-section-title" id="section-orphaned">Orphaned</p>
-            <p className="summary">
-              Indexed previously but no longer maintained. <code>purge</code> removes their data;
-              restoring <code>workspace_roots</code> brings them back as active.
-            </p>
-            <ProjectsTable
-              rows={data.orphaned}
-              homeDir={data.homeDir}
-              commonRoot={data.commonRoot}
-              emptyMessage=""
-              showReason
-              actions={orphanActions}
-              busy={ops.busy}
-              purgingRoots={purgingRoots}
-            />
-          </div>
-        ) : null}
-      </div>
-      <SectionNav sections={navSections} />
-      {connectTarget !== null ? (
-        <ConnectEditorModal
-          projectRoot={connectTarget.root}
-          projectName={connectTarget.name}
-          onClose={() => setConnectTarget(null)}
-        />
-      ) : null}
-    </section>
+            {analyzers !== null ? <AnalyzerActivity queue={analyzers} /> : null}
+
+            <div className="card-stack">
+              <div className="card">
+                <p className="card-section-title" id="section-active">
+                  Active
+                </p>
+                <ProjectsTable
+                  rows={data.active}
+                  homeDir={data.homeDir}
+                  commonRoot={data.commonRoot}
+                  emptyMessage={
+                    data.inactive.length > 0
+                      ? "No projects activated yet — see Inactive below."
+                      : "No projects discovered under current workspace_roots."
+                  }
+                  actions={activeActions}
+                  busy={ops.busy}
+                  purgingRoots={purgingRoots}
+                />
+              </div>
+
+              {data.inactive.length > 0 ? (
+                <div className="card">
+                  <p className="card-section-title" id="section-inactive">
+                    Inactive
+                  </p>
+                  <p className="summary">
+                    Discovered under <code>workspace_roots</code> but not yet indexed. Activating
+                    runs an initial index pass and registers the watcher.
+                  </p>
+                  <InactiveTable
+                    rows={data.inactive}
+                    homeDir={data.homeDir}
+                    commonRoot={data.commonRoot}
+                    onActivate={handlers.activate}
+                    busy={ops.busy}
+                  />
+                </div>
+              ) : null}
+
+              {data.orphaned.length > 0 ? (
+                <div className="card">
+                  <p className="card-section-title" id="section-orphaned">
+                    Orphaned
+                  </p>
+                  <p className="summary">
+                    Indexed previously but no longer maintained. <code>purge</code> removes their
+                    data; restoring <code>workspace_roots</code> brings them back as active.
+                  </p>
+                  <ProjectsTable
+                    rows={data.orphaned}
+                    homeDir={data.homeDir}
+                    commonRoot={data.commonRoot}
+                    emptyMessage=""
+                    showReason
+                    actions={orphanActions}
+                    busy={ops.busy}
+                    purgingRoots={purgingRoots}
+                  />
+                </div>
+              ) : null}
+            </div>
+            <SectionNav sections={navSections} />
+            {connectTarget !== null ? (
+              <ConnectEditorModal
+                projectRoot={connectTarget.root}
+                projectName={connectTarget.name}
+                onClose={() => setConnectTarget(null)}
+              />
+            ) : null}
+          </section>
+        );
+      }}
+    </AsyncBoundary>
   );
 }
 
@@ -398,9 +399,7 @@ const ProjectsTable = memo(function ProjectsTable({
               <td>
                 <div title={`${row.id} · ${row.root}`}>
                   <strong>{row.name}</strong>
-                  <span className="dim">
-                    {row.marker !== null ? ` [${row.marker}]` : ""}
-                  </span>
+                  <span className="dim">{row.marker !== null ? ` [${row.marker}]` : ""}</span>
                   {row.absorbedMarkers.length > 0 ? (
                     <AbsorbedMarkersPill markers={row.absorbedMarkers} />
                   ) : null}
@@ -419,9 +418,7 @@ const ProjectsTable = memo(function ProjectsTable({
                 <div className="num">{row.files} files</div>
                 <div className="num dim" style={{ fontSize: "0.85em" }}>
                   {row.chunks} chunks
-                  {row.errors > 0 ? (
-                    <span className="err"> · {row.errors} errors</span>
-                  ) : null}
+                  {row.errors > 0 ? <span className="err"> · {row.errors} errors</span> : null}
                 </div>
               </td>
               <td className="dim" style={{ fontSize: "0.9em" }}>
@@ -751,8 +748,7 @@ function RebuildButton({
   const job = row.rebuilding;
   if (job !== null && job.status === "running") {
     const eta = estimateEta(job);
-    const counts =
-      job.totalFiles !== null ? `${job.indexed}/${job.totalFiles}` : null;
+    const counts = job.totalFiles !== null ? `${job.indexed}/${job.totalFiles}` : null;
     const label =
       counts === null
         ? "rebuilding"
@@ -800,9 +796,7 @@ function RebuildButton({
     );
   }
   // status === "done" briefly lingers; render the normal button.
-  return (
-    <IconButton icon="rebuild" label="rebuild" onClick={onClick} disabled={disabled} />
-  );
+  return <IconButton icon="rebuild" label="rebuild" onClick={onClick} disabled={disabled} />;
 }
 
 /**

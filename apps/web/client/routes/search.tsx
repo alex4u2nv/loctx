@@ -1,6 +1,7 @@
 import type { SearchHit, SearchPayload } from "@shared/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { AsyncError } from "../components/async-boundary";
 import { CodeBlock } from "../components/code-block";
 import { SearchTabs } from "../components/search-tabs";
 import { SectionNav } from "../components/section-nav";
@@ -188,11 +189,7 @@ export function SearchPage() {
       </form>
       </div>
 
-      {error !== null ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-          {error}
-        </p>
-      ) : null}
+      {error !== null ? <AsyncError error={error} /> : null}
 
       <div className="card" id="search-results">
       {error !== null ? null : response === null ? (

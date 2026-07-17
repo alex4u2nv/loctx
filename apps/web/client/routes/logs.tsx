@@ -1,6 +1,7 @@
 import type { McpLogEntry } from "@shared/contracts";
 import { useEffect, useState } from "react";
 import { AdminTabs } from "../components/admin-tabs";
+import { AsyncError, AsyncLoading } from "../components/async-boundary";
 import { confirm } from "../components/confirm";
 import { DataTable } from "../components/data-table";
 import { Icon } from "../components/icon";
@@ -60,11 +61,7 @@ export function LogsPage() {
 
       <AdminTabs />
 
-      {error !== null ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-          {error}
-        </p>
-      ) : null}
+      {error !== null ? <AsyncError error={error} /> : null}
 
       <div className="card-stack">
       <div className="card">
@@ -103,7 +100,7 @@ export function LogsPage() {
 
       <div className="card card-flush">
       {data === null && error === null ? (
-        <p className="pullquote">Loading…</p>
+        <AsyncLoading />
       ) : data === null ? null : (
         <DataTable<McpLogEntry>
           className="logs-table"

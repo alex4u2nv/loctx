@@ -21,6 +21,7 @@ import type {
 } from "@shared/contracts";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { AsyncError, AsyncLoading, AsyncNoData } from "../components/async-boundary";
 import { BarChart, type BarRow } from "../components/bar-chart";
 import { type Column, DataTable } from "../components/data-table";
 import { useLiveRefreshEvent } from "../components/live-refresh";
@@ -46,16 +47,15 @@ export function ProjectDetailPage() {
   // on any SSE event so file counts + recent files stay live.
   useLiveRefreshEvent(fetched.reload);
 
-  if (fetched.loading && fetched.data === null) return <p className="pullquote">Loading…</p>;
+  if (fetched.loading && fetched.data === null) return <AsyncLoading />;
   if (fetched.error !== null)
     return (
-      <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-        {fetched.error}
+      <AsyncError error={fetched.error}>
         <br />
         <Link to="/projects">← back to projects</Link>
-      </p>
+      </AsyncError>
     );
-  if (fetched.data === null) return <p className="pullquote">No data.</p>;
+  if (fetched.data === null) return <AsyncNoData />;
 
   const { project, stats } = fetched.data;
   const TOP_N = 8;
@@ -401,11 +401,7 @@ function ScopedSearch({ projectRoot }: { projectRoot: string }) {
           {busy ? "Searching…" : "Search"}
         </button>
       </form>
-      {error !== null ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-          {error}
-        </p>
-      ) : null}
+      {error !== null ? <AsyncError error={error} /> : null}
       {results !== null ? <SearchResults response={results} /> : null}
     </>
   );
@@ -563,11 +559,7 @@ function ScopedFindUsages({ projectRoot }: { projectRoot: string }) {
         ]}
         onSubmit={(values) => void submit(values["sym"] ?? "")}
       />
-      {error !== null ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-          {error}
-        </p>
-      ) : null}
+      {error !== null ? <AsyncError error={error} /> : null}
       {results !== null ? (
         <UsageResults defs={results.defs} refs={results.refs} symbol={results.symbol} />
       ) : null}
@@ -637,11 +629,7 @@ function ScopedFindLiteral({ projectRoot }: { projectRoot: string }) {
           {busy ? "Scanning…" : "Find"}
         </button>
       </form>
-      {error !== null ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-          {error}
-        </p>
-      ) : null}
+      {error !== null ? <AsyncError error={error} /> : null}
       {results !== null ? <LiteralResults response={results} /> : null}
     </>
   );

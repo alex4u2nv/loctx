@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AdminTabs } from "../components/admin-tabs";
+import { AsyncBoundary } from "../components/async-boundary";
 import { DataTable } from "../components/data-table";
 import { Icon } from "../components/icon";
 import { api } from "../lib/api";
@@ -49,54 +50,50 @@ export function DoctorPage() {
       <AdminTabs />
 
       <div className="card">
-      <p style={{ marginTop: 0 }}>
-        <button
-          type="button"
-          className={`btn ${justCompleted ? "btn-success" : "btn-primary"}`}
-          onClick={onRerun}
-          disabled={loading}
-        >
-          {loading ? (
+        <p style={{ marginTop: 0 }}>
+          <button
+            type="button"
+            className={`btn ${justCompleted ? "btn-success" : "btn-primary"}`}
+            onClick={onRerun}
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <Icon name="refresh" /> Re-running…
+              </>
+            ) : justCompleted ? (
+              <>
+                <Icon name="ok" /> Done
+              </>
+            ) : (
+              <>
+                <Icon name="refresh" /> Re-run checks
+              </>
+            )}
+          </button>
+        </p>
+        <AsyncBoundary state={{ data, error, loading, reload }}>
+          {(report) => (
             <>
-              <Icon name="refresh" /> Re-running…
-            </>
-          ) : justCompleted ? (
-            <>
-              <Icon name="ok" /> Done
-            </>
-          ) : (
-            <>
-              <Icon name="refresh" /> Re-run checks
+              <p className="summary">
+                summary: <strong>{report.summary}</strong>
+              </p>
+              <DataTable
+                rows={report.checks}
+                rowKey={(c) => c.name}
+                columns={[
+                  { key: "check", header: "check", cell: (c) => c.name },
+                  {
+                    key: "status",
+                    header: "status",
+                    cell: (c) => <DoctorStatusCell status={c.status} />,
+                  },
+                  { key: "detail", header: "detail", dim: true, cell: (c) => c.detail },
+                ]}
+              />
             </>
           )}
-        </button>
-      </p>
-      {error !== null ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-          {error}
-        </p>
-      ) : data === null ? (
-        <p className="pullquote">Loading…</p>
-      ) : (
-        <>
-          <p className="summary">
-            summary: <strong>{data.summary}</strong>
-          </p>
-          <DataTable
-            rows={data.checks}
-            rowKey={(c) => c.name}
-            columns={[
-              { key: "check", header: "check", cell: (c) => c.name },
-              {
-                key: "status",
-                header: "status",
-                cell: (c) => <DoctorStatusCell status={c.status} />,
-              },
-              { key: "detail", header: "detail", dim: true, cell: (c) => c.detail },
-            ]}
-          />
-        </>
-      )}
+        </AsyncBoundary>
       </div>
     </section>
   );
