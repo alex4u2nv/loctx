@@ -33,6 +33,12 @@ export async function runQueries(
   const limit = Math.max(1, options.fetchK ?? DEFAULT_FETCH_K);
   const results: QueryRunResult[] = [];
 
+  // Queries run serially, each embedding its own query text inside
+  // searcher.search(). Fine today — the harness forces the deterministic
+  // fake provider (no network, negligible cost) — but this loop would
+  // dominate wall-clock against a real embedder. When the real-embedder
+  // flag lands, batch-embed the unique query texts once before the loop
+  // and pass the vectors in, instead of one embedQuery per query (#471).
   for (const [qid, queryQrels] of grouped) {
     const first = queryQrels[0];
     if (first === undefined) continue;

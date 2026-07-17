@@ -70,4 +70,27 @@ describe("renderCompare", () => {
     const md = renderCompare(makeRun(), makeRun());
     expect(md).toContain("·");
   });
+
+  it("marks a query type present in only one run as n/a with no fabricated delta (#471)", () => {
+    const a = makeRun({
+      metrics: {
+        overall: ZERO_METRICS,
+        byQueryType: { symbol: { ...ZERO_METRICS, hitAt1: 0.8 } },
+      },
+    });
+    const b = makeRun({
+      metrics: {
+        overall: ZERO_METRICS,
+        byQueryType: { prose: { ...ZERO_METRICS, hitAt1: 0.4 } },
+      },
+    });
+    const md = renderCompare(a, b);
+    // symbol exists only in a, prose only in b → each shows n/a on the
+    // absent side and an em-dash delta, never a 0-filled +0.800/-0.400.
+    expect(md).toContain("n/a");
+    const symbolRow = md.split("\n").find((l) => l.startsWith("| symbol | Hit@1 |"));
+    expect(symbolRow).toContain("n/a"); // b side absent
+    expect(symbolRow).toContain("—"); // delta suppressed
+    expect(symbolRow).not.toMatch(/[+-]0\.800/); // no fake full-magnitude delta
+  });
 });
