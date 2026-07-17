@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/eval" },
+    { "path": "apps/mcp" },
+    { "path": "apps/web/tsconfig.server.json" },
+    { "path": "apps/cli" }
+  ]
+}

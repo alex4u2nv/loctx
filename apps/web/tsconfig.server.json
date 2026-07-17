@@ -2,7 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2023"],
+    "lib": [
+      "ES2023"
+    ],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "verbatimModuleSyntax": false,
@@ -12,8 +14,23 @@
     "declarationMap": true,
     "sourceMap": true,
     "noEmit": false,
-    "composite": false
+    "composite": true
   },
-  "include": ["server/**/*.ts", "shared/**/*.ts"],
-  "exclude": ["node_modules", "dist", "client"]
+  "include": [
+    "server/**/*.ts",
+    "shared/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "client"
+  ],
+  "references": [
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../mcp"
+    }
+  ]
 }
