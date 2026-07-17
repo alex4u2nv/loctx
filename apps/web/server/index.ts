@@ -77,8 +77,12 @@ export function createWebApp(opts: CreateWebAppOptions): Hono {
   app.use("*", (c, next) => (c.req.path === "/api/events" ? next() : compressor(c, next)));
 
   // Lazy runtime: prebuilt one wins; otherwise build on first need and
-  // memoise. `buildRuntime` is heavy (embedding model load) so /status,
-  // /projects, /events deliberately don't trigger it.
+  // memoise. `buildRuntime` is heavy (embedding model load). In the
+  // daemon `opts.runtime` is always provided, so getRuntime() is a
+  // no-op resolve — /status and /projects call it best-effort (for the
+  // live reconcile snapshot) without paying a build, and /events never
+  // touches it. Only a runtime-omitted deployment (a bare test harness)
+  // would lazy-build here, and only on the first /search or /mcp call.
   //
   // Invariant: once assigned, `lazyRuntime` is NEVER reset, even on a
   // failed buildRuntime promise. A reset-on-error refactor would let
