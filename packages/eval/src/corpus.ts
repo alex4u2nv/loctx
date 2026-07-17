@@ -42,32 +42,57 @@ export function loadCorpusConfig(path: string): CorpusConfig {
  *
  *   1. If the string is a path that exists on disk and contains `.git`,
  *      use it as a local source — fastest, no network.
- *   2. Otherwise, assume an URL and clone into the temp dir.
+ *   2. Otherwise probe the search roots for a local checkout — but only
+ *      accept one that actually contains the pinned `sha` (#468).
+ *   3. Failing both, treat `repo` as a URL and clone.
  *
- * Local-clone preference matters because the v1 corpus is the loctx
- * repo itself; the worktree we're running inside already has the
+ * The local-source preference matters because the v1 corpus is the
+ * loctx repo itself; the worktree we're running inside already has the
  * commit graph, no need to round-trip to GitHub.
+ *
+ * The sha-containment guard is the fix for #468: without it, the
+ * search-root probe bound the *nearest* `.git` ancestor as the corpus
+ * source regardless of which repo it was. A v2 gold set pinning a
+ * different public repo, run from inside a loctx checkout, would resolve
+ * the local loctx repo and then fail at `git worktree add <foreign-sha>`
+ * with a confusing CorpusError. Checking "does this local repo contain
+ * the sha" is more robust than matching remote URLs, which trips on SSH
+ * host aliases (this repo's own remote is `git@alex:…`, not github.com,
+ * yet still contains the v1 sha).
  */
 export function resolveGitSource(
   repo: string,
   searchRoots: ReadonlyArray<string>,
+  sha?: string,
 ):
   | { readonly kind: "local"; readonly path: string }
   | { readonly kind: "url"; readonly url: string } {
+  const usableLocal = (root: string): boolean => sha === undefined || repoContainsCommit(root, sha);
   // Direct path
   const absRepo = resolve(repo);
-  if (existsSync(absRepo) && existsSync(join(absRepo, ".git"))) {
+  if (existsSync(absRepo) && existsSync(join(absRepo, ".git")) && usableLocal(absRepo)) {
     return { kind: "local", path: absRepo };
   }
   // Search-root probes: walk each up to the filesystem root looking
   // for a `.git`. Picks up CI checkouts, dev clones run from any
   // subdirectory, and worktree siblings without forcing the caller
-  // to compute the repo root themselves.
+  // to compute the repo root themselves — but only when the found
+  // repo can actually satisfy the pinned sha.
   for (const start of searchRoots) {
     const root = findRepoRoot(start);
-    if (root !== null) return { kind: "local", path: root };
+    if (root !== null && usableLocal(root)) return { kind: "local", path: root };
   }
   return { kind: "url", url: repo };
+}
+
+/** True when `root` is a git repo whose object DB contains `sha` as a commit. */
+function repoContainsCommit(root: string, sha: string): boolean {
+  try {
+    execFileSync("git", ["-C", root, "cat-file", "-e", `${sha}^{commit}`], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function findRepoRoot(start: string): string | null {
@@ -105,7 +130,7 @@ export async function snapshotCorpus(
   rmSync(tmpRoot, { recursive: true, force: true });
   mkdirSync(tmpRoot, { recursive: true });
 
-  const source = resolveGitSource(corpus.repo, searchRoots);
+  const source = resolveGitSource(corpus.repo, searchRoots, corpus.sha);
   const worktreePath = join(tmpRoot, "checkout");
   if (source.kind === "local") {
     try {
@@ -252,7 +277,7 @@ function collectChunkBoundaries(runtime: Runtime, project: Project): ReadonlyArr
   return out;
 }
 
-function hashBoundaries(boundaries: ReadonlyArray<string>): string {
+export function hashBoundaries(boundaries: ReadonlyArray<string>): string {
   const h = createHash("sha256");
   for (const b of boundaries) h.update(`${b}\n`);
   return h.digest("hex");
