@@ -10,6 +10,7 @@ import { compareCommand } from "./cmd/compare.js";
 import { indexCommand } from "./cmd/index.js";
 import { reportCommand } from "./cmd/report.js";
 import { runCommand } from "./cmd/run.js";
+import { validateCommand } from "./cmd/validate.js";
 
 const program = new Command()
   .name("loctx-eval")
@@ -54,6 +55,31 @@ program
   .description("Pairwise delta table over two run JSONs.")
   .action((a: string, b: string) => {
     console.log(compareCommand({ a, b }));
+  });
+
+program
+  .command("validate <golden-set>")
+  .description(
+    "Cross-check every qrel span against the indexed corpus's chunk boundaries. Non-zero exit on any qrel whose file or span is gone (gold-set rot).",
+  )
+  .action(async (goldenSet: string) => {
+    const result = await validateCommand({ goldenSet });
+    const c = result.counts;
+    console.log(
+      `validated ${result.total} qrels — exact=${c.exact} drift=${c.drift} ` +
+        `no-overlap=${c["no-overlap"]} missing-file=${c["missing-file"]}`,
+    );
+    for (const f of result.failures) {
+      console.error(`  ✗ ${f.queryId} ${f.relPath}:${f.startLine}-${f.endLine} (${f.status})`);
+    }
+    if (!result.ok) {
+      console.error(
+        `\n${result.failures.length} qrel(s) no longer resolvable in the corpus — ` +
+          "the gold set has drifted. Fix the spans or bump to a new gold-set version.",
+      );
+      process.exit(1);
+    }
+    console.log("gold set is intact.");
   });
 
 program.parseAsync(process.argv).catch((err: unknown) => {

@@ -76,6 +76,14 @@ jobs:
             git fetch --no-tags origin "$sha" || git fetch --no-tags origin
           fi
 
+      - name: Validate gold set (#469)
+        # Fail loudly on gold-set rot (a qrel whose file/span is gone)
+        # BEFORE the run, so it surfaces as an integrity error instead of
+        # a silent metric drop that reads like a retrieval regression.
+        run: pnpm eval validate v1
+        env:
+          LOCTX_EMBEDDING_PROVIDER: fake
+
       - name: Run eval (v1 gold set)
         run: pnpm eval run v1
         env:
