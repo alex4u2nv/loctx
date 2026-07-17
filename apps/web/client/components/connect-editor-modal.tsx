@@ -10,6 +10,7 @@ import type { AgentPlanStatus } from "@shared/contracts";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
+import { AsyncError, AsyncLoading } from "./async-boundary";
 import { Icon } from "./icon";
 import { Modal } from "./modal";
 
@@ -71,12 +72,8 @@ export function ConnectEditorModal({
         project. Non-destructive — merges JSON, updates only loctx-marked blocks.
       </p>
 
-      {req.loading && req.data === null ? <p className="pullquote">Loading…</p> : null}
-      {req.error !== null ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-          {req.error}
-        </p>
-      ) : null}
+      {req.loading && req.data === null ? <AsyncLoading /> : null}
+      {req.error !== null ? <AsyncError error={req.error} /> : null}
 
       {req.data !== null
         ? req.data.agents.map((a) => (

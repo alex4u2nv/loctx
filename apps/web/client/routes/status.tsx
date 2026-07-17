@@ -19,6 +19,7 @@
 
 import type { StatusPayload } from "@shared/contracts";
 import { useCallback, useState } from "react";
+import { AsyncBoundary } from "../components/async-boundary";
 import { FlowChart, type FlowProject } from "../components/flow-chart";
 import { Icon } from "../components/icon";
 import { useLiveRefreshData, useLiveRefreshEvent } from "../components/live-refresh";
@@ -44,93 +45,90 @@ export function StatusPage() {
   useLiveRefreshEvent(onRefresh);
   const events = useWatcherEvents(8);
 
-  if (statusReq.loading && statusReq.data === null) {
-    return <p className="pullquote">Loading…</p>;
-  }
-  if (statusReq.error !== null) {
-    return (
-      <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-        {statusReq.error}
-      </p>
-    );
-  }
-  if (statusReq.data === null) return <p className="pullquote">No data.</p>;
-
-  const status = statusReq.data;
-  const projects = projectsReq.data?.active ?? [];
-  const inactiveCount = projectsReq.data?.inactive.length ?? 0;
-  const totals = projects.reduce(
-    (acc, row) => ({
-      files: acc.files + row.files,
-      chunks: acc.chunks + row.chunks,
-      errors: acc.errors + row.errors,
-    }),
-    { files: 0, chunks: 0, errors: 0 },
-  );
-
-  const daemon = status.daemon;
-  // Fall back to the page's own origin when /api/status hasn't returned
-  // a hostname+port yet (transient boot state, daemon misconfig). The
-  // page can only have loaded from the daemon's address, so this is
-  // always the right value — no hardcoded port that drifts when the
-  // user picks a different `daemon.port` to dodge a collision.
-  const baseUrl =
-    daemon.running && daemon.port !== null
-      ? `http://${daemon.hostname ?? "127.0.0.1"}:${daemon.port}`
-      : typeof window !== "undefined"
-        ? window.location.origin
-        : "";
-
-  // Coverage: discovered projects that have *any* indexed content. We
-  // base the gauge on chunks rather than live watcher state so a daemon
-  // started with --no-watch still shows useful coverage (the watcher is
-  // a freshness signal, not a "did we index this once" signal).
-  const indexedProjects = projects.filter((p) => p.chunks > 0).length;
-  // Discovered = active + inactive (anything we know about under the
-  // workspace_roots, regardless of whether it's currently indexing).
-  const discoveredProjects = projects.length + inactiveCount;
-  const coveragePct =
-    projects.length === 0 ? 0 : Math.round((indexedProjects / projects.length) * 100);
-
-  const flowProjects: FlowProject[] = projects.map((p) => ({
-    id: p.id,
-    name: p.name,
-    chunks: p.chunks,
-    watcher: p.watcher,
-    inFlight:
-      (p.rebuilding !== null && p.rebuilding.status === "running") || p.reconciling !== null,
-  }));
-
   return (
-    <section className="dashboard">
-      {/* Reconcile state moved to the top-nav notifications bell so it
+    <AsyncBoundary state={statusReq}>
+      {(status) => {
+        const projects = projectsReq.data?.active ?? [];
+        const inactiveCount = projectsReq.data?.inactive.length ?? 0;
+        const totals = projects.reduce(
+          (acc, row) => ({
+            files: acc.files + row.files,
+            chunks: acc.chunks + row.chunks,
+            errors: acc.errors + row.errors,
+          }),
+          { files: 0, chunks: 0, errors: 0 },
+        );
+
+        const daemon = status.daemon;
+        // Fall back to the page's own origin when /api/status hasn't returned
+        // a hostname+port yet (transient boot state, daemon misconfig). The
+        // page can only have loaded from the daemon's address, so this is
+        // always the right value — no hardcoded port that drifts when the
+        // user picks a different `daemon.port` to dodge a collision.
+        const baseUrl =
+          daemon.running && daemon.port !== null
+            ? `http://${daemon.hostname ?? "127.0.0.1"}:${daemon.port}`
+            : typeof window !== "undefined"
+              ? window.location.origin
+              : "";
+
+        // Coverage: discovered projects that have *any* indexed content. We
+        // base the gauge on chunks rather than live watcher state so a daemon
+        // started with --no-watch still shows useful coverage (the watcher is
+        // a freshness signal, not a "did we index this once" signal).
+        const indexedProjects = projects.filter((p) => p.chunks > 0).length;
+        // Discovered = active + inactive (anything we know about under the
+        // workspace_roots, regardless of whether it's currently indexing).
+        const discoveredProjects = projects.length + inactiveCount;
+        const coveragePct =
+          projects.length === 0 ? 0 : Math.round((indexedProjects / projects.length) * 100);
+
+        const flowProjects: FlowProject[] = projects.map((p) => ({
+          id: p.id,
+          name: p.name,
+          chunks: p.chunks,
+          watcher: p.watcher,
+          inFlight:
+            (p.rebuilding !== null && p.rebuilding.status === "running") || p.reconciling !== null,
+        }));
+
+        return (
+          <section className="dashboard">
+            {/* Reconcile state moved to the top-nav notifications bell so it
           surfaces on every page, not just the dashboard. */}
-      <IndexFlowHero
-        totals={totals}
-        flowProjects={flowProjects}
-        indexedProjects={indexedProjects}
-        discoveredProjects={discoveredProjects}
-        indexSizeBytes={status.runtime.indexSizeBytes}
-        daemonRunning={daemon.running}
-      />
-      <DaemonCard status={status} baseUrl={baseUrl} />
-      <CoverageGauge percent={coveragePct} healthy={indexedProjects} total={projects.length} />
-      <div className="tiles">
-        <DetailsTile status={status} />
-        <ActivityTile events={events} />
-        <McpTile baseUrl={baseUrl} />
-      </div>
-      <SectionNav
-        sections={[
-          { id: "dash-flow", label: "Flow" },
-          { id: "dash-daemon", label: "Daemon" },
-          { id: "dash-coverage", label: "Coverage" },
-          { id: "dash-details", label: "Details" },
-          { id: "dash-activity", label: "Activity" },
-          { id: "dash-mcp", label: "MCP" },
-        ]}
-      />
-    </section>
+            <IndexFlowHero
+              totals={totals}
+              flowProjects={flowProjects}
+              indexedProjects={indexedProjects}
+              discoveredProjects={discoveredProjects}
+              indexSizeBytes={status.runtime.indexSizeBytes}
+              daemonRunning={daemon.running}
+            />
+            <DaemonCard status={status} baseUrl={baseUrl} />
+            <CoverageGauge
+              percent={coveragePct}
+              healthy={indexedProjects}
+              total={projects.length}
+            />
+            <div className="tiles">
+              <DetailsTile status={status} />
+              <ActivityTile events={events} />
+              <McpTile baseUrl={baseUrl} />
+            </div>
+            <SectionNav
+              sections={[
+                { id: "dash-flow", label: "Flow" },
+                { id: "dash-daemon", label: "Daemon" },
+                { id: "dash-coverage", label: "Coverage" },
+                { id: "dash-details", label: "Details" },
+                { id: "dash-activity", label: "Activity" },
+                { id: "dash-mcp", label: "MCP" },
+              ]}
+            />
+          </section>
+        );
+      }}
+    </AsyncBoundary>
   );
 }
 
@@ -207,7 +205,6 @@ function IndexFlowHero({
     </article>
   );
 }
-
 
 // ---- daemon card -------------------------------------------------------
 
@@ -365,11 +362,7 @@ function ActivityTile({ events }: { events: ReadonlyArray<WatcherEvent> }) {
 }
 
 function McpTile({ baseUrl }: { baseUrl: string }) {
-  const httpSnippet = JSON.stringify(
-    { mcpServers: { loctx: { url: `${baseUrl}/mcp` } } },
-    null,
-    2,
-  );
+  const httpSnippet = JSON.stringify({ mcpServers: { loctx: { url: `${baseUrl}/mcp` } } }, null, 2);
   const stdioSnippet = JSON.stringify(
     { mcpServers: { loctx: { command: "npx", args: ["loctx-mcp"] } } },
     null,
@@ -448,9 +441,7 @@ function useWatcherEvents(n: number): ReadonlyArray<WatcherEvent> {
         typeof candidate.at !== "number" ||
         typeof candidate.projectName !== "string" ||
         typeof candidate.relPath !== "string" ||
-        (candidate.kind !== "add" &&
-          candidate.kind !== "change" &&
-          candidate.kind !== "unlink")
+        (candidate.kind !== "add" && candidate.kind !== "change" && candidate.kind !== "unlink")
       ) {
         return;
       }

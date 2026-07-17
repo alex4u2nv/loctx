@@ -11,6 +11,7 @@
 import type { FindLiteralPayload, LiteralHit } from "@shared/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { AsyncError } from "../components/async-boundary";
 import { SearchTabs } from "../components/search-tabs";
 import { SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
@@ -134,11 +135,7 @@ export function FindLiteralPage() {
       </form>
       </div>
 
-      {error !== null ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-          {error}
-        </p>
-      ) : null}
+      {error !== null ? <AsyncError error={error} /> : null}
 
       <div className="card" id="fl-results">
       {error !== null ? null : response === null ? (

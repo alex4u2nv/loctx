@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AdminTabs } from "../components/admin-tabs";
+import { AsyncBoundary } from "../components/async-boundary";
 import { confirm } from "../components/confirm";
 import { DataTable } from "../components/data-table";
 import { api } from "../lib/api";
@@ -70,53 +71,49 @@ export function ModelsPage() {
           {message}
         </p>
       ) : null}
-      {loading && data === null ? (
-        <p className="pullquote">Loading…</p>
-      ) : error !== null ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-          {error}
-        </p>
-      ) : data === null ? null : (
-        <div className="card card-flush">
-        <DataTable
-          rows={data.available}
-          rowKey={(m) => m.id}
-          columns={[
-            { key: "model", header: "model", cell: (m) => m.id },
-            {
-              key: "state",
-              header: "state",
-              dim: true,
-              cell: (m) => <ModelState current={m.current} downloaded={m.downloaded} />,
-            },
-            {
-              key: "actions",
-              header: "actions",
-              cell: (m) => (
-                <>
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={() => void handleUse(m.id)}
-                    disabled={busy !== null || m.current}
-                  >
-                    use
-                  </button>{" "}
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={() => void handleDownload(m.id)}
-                    disabled={busy !== null}
-                  >
-                    {busy === m.id ? "downloading…" : "download"}
-                  </button>
-                </>
-              ),
-            },
-          ]}
-        />
-        </div>
-      )}
+      <AsyncBoundary state={{ data, error, loading, reload }}>
+        {(models) => (
+          <div className="card card-flush">
+            <DataTable
+              rows={models.available}
+              rowKey={(m) => m.id}
+              columns={[
+                { key: "model", header: "model", cell: (m) => m.id },
+                {
+                  key: "state",
+                  header: "state",
+                  dim: true,
+                  cell: (m) => <ModelState current={m.current} downloaded={m.downloaded} />,
+                },
+                {
+                  key: "actions",
+                  header: "actions",
+                  cell: (m) => (
+                    <>
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => void handleUse(m.id)}
+                        disabled={busy !== null || m.current}
+                      >
+                        use
+                      </button>{" "}
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => void handleDownload(m.id)}
+                        disabled={busy !== null}
+                      >
+                        {busy === m.id ? "downloading…" : "download"}
+                      </button>
+                    </>
+                  ),
+                },
+              ]}
+            />
+          </div>
+        )}
+      </AsyncBoundary>
     </section>
   );
 }
@@ -135,7 +132,10 @@ function ModelState({ current, downloaded }: { current: boolean; downloaded: boo
   if (current && downloaded) return <>active · downloaded</>;
   if (current && !downloaded)
     return (
-      <span className="warn" title="The daemon will fetch this on first embed. Click 'download' to pre-fetch.">
+      <span
+        className="warn"
+        title="The daemon will fetch this on first embed. Click 'download' to pre-fetch."
+      >
         active · pending download
       </span>
     );

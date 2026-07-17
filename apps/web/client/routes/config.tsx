@@ -24,6 +24,7 @@ import type {
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AdminTabs } from "../components/admin-tabs";
+import { AsyncBoundary } from "../components/async-boundary";
 import { confirm } from "../components/confirm";
 import { Icon } from "../components/icon";
 import { api } from "../lib/api";
@@ -47,10 +48,21 @@ const PANEL_OWNED_SECTIONS = new Set([
  * "Other" at the end (keeps new schema sections visible without a code
  * change here).
  */
-const CONFIG_CATEGORIES: ReadonlyArray<{ readonly label: string; readonly ids: ReadonlyArray<string> }> = [
+const CONFIG_CATEGORIES: ReadonlyArray<{
+  readonly label: string;
+  readonly ids: ReadonlyArray<string>;
+}> = [
   {
     label: "Indexing & search",
-    ids: ["workspace", "discovery", "embedding", "retrieval", "watcher", "reconciliation", "maintenance"],
+    ids: [
+      "workspace",
+      "discovery",
+      "embedding",
+      "retrieval",
+      "watcher",
+      "reconciliation",
+      "maintenance",
+    ],
   },
   { label: "Server & network", ids: ["daemon", "mcp", "network"] },
 ];
@@ -70,148 +82,145 @@ export function ConfigPage() {
   // to the first field so it's never empty.
   const [activeKey, setActiveKey] = useState<string | null>(null);
 
-  if (loading && data === null) return <p className="pullquote">Loading…</p>;
-  if (error !== null)
-    return (
-      <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
-        {error}
-      </p>
-    );
-  if (data === null) return <p className="pullquote">No data.</p>;
-
-  const pendingCount = Object.keys(patch).length;
-  const setField = (key: string, value: unknown) => {
-    setPatch((prev) => {
-      const next = { ...prev };
-      // If the new value matches the effective baseline, drop the patch
-      // entry — keeps the pending-count honest when the user reverts.
-      if (deepEqual(value, data.effective[key])) delete next[key];
-      else next[key] = value;
-      return next;
-    });
-    setSaveState({ kind: "idle" });
-  };
-
-  const onSave = async (): Promise<void> => {
-    setSaveState({ kind: "saving" });
-    try {
-      const r = await api.configWrite({ patch });
-      setSaveState({ kind: "saved", path: r.path, reloaded: r.reloaded ?? false });
-      setPatch({});
-      reload();
-    } catch (e) {
-      setSaveState({ kind: "error", message: e instanceof Error ? e.message : String(e) });
-    }
-  };
-
-  const onRestart = async (): Promise<void> => {
-    const ok = await confirm({
-      title: "Restart daemon?",
-      message: "Required for most config changes to take effect.",
-      confirmLabel: "Restart",
-    });
-    if (!ok) return;
-    setRestartState("restarting");
-    try {
-      await api.restart();
-      setRestartState("done");
-    } catch {
-      setRestartState("idle");
-    }
-  };
-
-  // The per-tool analyzer sections (install / enable / rule_dirs) are now
-  // owned by the unified Analyzers panel on Admin, so they're hidden from
-  // this generic editor — a bare `enabled` toggle here was a no-op footgun
-  // (it didn't download the binary or backfill). Tuning that isn't tool
-  // provisioning (background/concurrency/timeouts, duplicates) stays here.
-  const sections = data.schema.filter((s) => !PANEL_OWNED_SECTIONS.has(s.id));
-
-  // Group the visible sections into normalized categories; anything not
-  // explicitly placed lands in a trailing "Other" group.
-  const placed = new Set(CONFIG_CATEGORIES.flatMap((c) => c.ids));
-  const categorized: ReadonlyArray<{ label: string; sections: ConfigSectionSchemaWire[] }> = [
-    ...CONFIG_CATEGORIES.map((c) => ({
-      label: c.label,
-      sections: c.ids
-        .map((id) => sections.find((s) => s.id === id))
-        .filter((s): s is ConfigSectionSchemaWire => s !== undefined),
-    })),
-    { label: "Other", sections: sections.filter((s) => !placed.has(s.id)) },
-  ].filter((g) => g.sections.length > 0);
-
-  // Flat field lookup so the help panel can resolve the active field +
-  // its section regardless of which section it lives in.
-  const fieldIndex = new Map<
-    string,
-    { field: ConfigFieldSchemaWire; section: ConfigSectionSchemaWire }
-  >();
-  for (const section of sections) {
-    for (const f of section.fields) fieldIndex.set(f.key, { field: f, section });
-  }
-  const activeFieldKey = activeKey ?? sections[0]?.fields[0]?.key ?? null;
-  const active = activeFieldKey !== null ? (fieldIndex.get(activeFieldKey) ?? null) : null;
-
   return (
-    <section>
-      <span className="eyebrow">Configuration</span>
-      <h1 className="display">Config editor</h1>
-      <p className="subtitle">
-        Layered YAML config — global ⊳ project ⊳ env. Each field shows where its current value
-        came from; pick a save target before applying changes.
-      </p>
+    <AsyncBoundary state={{ data, error, loading, reload }}>
+      {(data) => {
+        const pendingCount = Object.keys(patch).length;
+        const setField = (key: string, value: unknown) => {
+          setPatch((prev) => {
+            const next = { ...prev };
+            // If the new value matches the effective baseline, drop the patch
+            // entry — keeps the pending-count honest when the user reverts.
+            if (deepEqual(value, data.effective[key])) delete next[key];
+            else next[key] = value;
+            return next;
+          });
+          setSaveState({ kind: "idle" });
+        };
 
-      <AdminTabs />
+        const onSave = async (): Promise<void> => {
+          setSaveState({ kind: "saving" });
+          try {
+            const r = await api.configWrite({ patch });
+            setSaveState({ kind: "saved", path: r.path, reloaded: r.reloaded ?? false });
+            setPatch({});
+            reload();
+          } catch (e) {
+            setSaveState({ kind: "error", message: e instanceof Error ? e.message : String(e) });
+          }
+        };
 
-      <LayerSummary data={data} />
+        const onRestart = async (): Promise<void> => {
+          const ok = await confirm({
+            title: "Restart daemon?",
+            message: "Required for most config changes to take effect.",
+            confirmLabel: "Restart",
+          });
+          if (!ok) return;
+          setRestartState("restarting");
+          try {
+            await api.restart();
+            setRestartState("done");
+          } catch {
+            setRestartState("idle");
+          }
+        };
 
-      <SaveBar
-        pendingCount={pendingCount}
-        data={data}
-        onSave={() => void onSave()}
-        saveState={saveState}
-      />
+        // The per-tool analyzer sections (install / enable / rule_dirs) are now
+        // owned by the unified Analyzers panel on Admin, so they're hidden from
+        // this generic editor — a bare `enabled` toggle here was a no-op footgun
+        // (it didn't download the binary or backfill). Tuning that isn't tool
+        // provisioning (background/concurrency/timeouts, duplicates) stays here.
+        const sections = data.schema.filter((s) => !PANEL_OWNED_SECTIONS.has(s.id));
 
-      {saveState.kind === "saved" ? (
-        <RestartBanner
-          state={restartState}
-          onClick={() => void onRestart()}
-          path={saveState.path}
-          reloaded={saveState.reloaded}
-        />
-      ) : null}
+        // Group the visible sections into normalized categories; anything not
+        // explicitly placed lands in a trailing "Other" group.
+        const placed = new Set(CONFIG_CATEGORIES.flatMap((c) => c.ids));
+        const categorized: ReadonlyArray<{ label: string; sections: ConfigSectionSchemaWire[] }> = [
+          ...CONFIG_CATEGORIES.map((c) => ({
+            label: c.label,
+            sections: c.ids
+              .map((id) => sections.find((s) => s.id === id))
+              .filter((s): s is ConfigSectionSchemaWire => s !== undefined),
+          })),
+          { label: "Other", sections: sections.filter((s) => !placed.has(s.id)) },
+        ].filter((g) => g.sections.length > 0);
 
-      <div className="config-layout">
-        <div className="config-main">
-          {categorized.map((group) => (
-            <div key={group.label}>
-              <p className="config-category">{group.label}</p>
-              {group.sections.map((section) => (
-                <SectionEditor
-                  key={section.id}
-                  section={section}
-                  data={data}
-                  patch={patch}
-                  onChange={setField}
-                  activeKey={activeFieldKey}
-                  onActivate={setActiveKey}
-                />
-              ))}
+        // Flat field lookup so the help panel can resolve the active field +
+        // its section regardless of which section it lives in.
+        const fieldIndex = new Map<
+          string,
+          { field: ConfigFieldSchemaWire; section: ConfigSectionSchemaWire }
+        >();
+        for (const section of sections) {
+          for (const f of section.fields) fieldIndex.set(f.key, { field: f, section });
+        }
+        const activeFieldKey = activeKey ?? sections[0]?.fields[0]?.key ?? null;
+        const active = activeFieldKey !== null ? (fieldIndex.get(activeFieldKey) ?? null) : null;
+
+        return (
+          <section>
+            <span className="eyebrow">Configuration</span>
+            <h1 className="display">Config editor</h1>
+            <p className="subtitle">
+              Layered YAML config — global ⊳ project ⊳ env. Each field shows where its current value
+              came from; pick a save target before applying changes.
+            </p>
+
+            <AdminTabs />
+
+            <LayerSummary data={data} />
+
+            <SaveBar
+              pendingCount={pendingCount}
+              data={data}
+              onSave={() => void onSave()}
+              saveState={saveState}
+            />
+
+            {saveState.kind === "saved" ? (
+              <RestartBanner
+                state={restartState}
+                onClick={() => void onRestart()}
+                path={saveState.path}
+                reloaded={saveState.reloaded}
+              />
+            ) : null}
+
+            <div className="config-layout">
+              <div className="config-main">
+                {categorized.map((group) => (
+                  <div key={group.label}>
+                    <p className="config-category">{group.label}</p>
+                    {group.sections.map((section) => (
+                      <SectionEditor
+                        key={section.id}
+                        section={section}
+                        data={data}
+                        patch={patch}
+                        onChange={setField}
+                        activeKey={activeFieldKey}
+                        onActivate={setActiveKey}
+                      />
+                    ))}
+                  </div>
+                ))}
+
+                <p className="dim" style={{ fontSize: "0.85rem", marginTop: "var(--space-5)" }}>
+                  Analyzers (lizard, semgrep, ast-grep, duplicate detection) — install, enable,
+                  tune, rule dirs and reindex — are managed on the{" "}
+                  <Link to="/analyzers">Analyzers</Link> tab. Embedding models are switched on{" "}
+                  <Link to="/models">Models</Link>. Filtering rules (gitignore-style) live in{" "}
+                  <code>~/.loctx/config_overrides/*.yaml</code> and aren't edited here.
+                </p>
+              </div>
+
+              <ConfigHelp active={active} data={data} patch={patch} />
             </div>
-          ))}
-
-          <p className="dim" style={{ fontSize: "0.85rem", marginTop: "var(--space-5)" }}>
-            Analyzers (lizard, semgrep, ast-grep, duplicate detection) — install, enable, tune, rule
-            dirs and reindex — are managed on the <Link to="/analyzers">Analyzers</Link> tab.
-            Embedding models are switched on <Link to="/models">Models</Link>. Filtering rules
-            (gitignore-style) live in <code>~/.loctx/config_overrides/*.yaml</code> and aren't
-            edited here.
-          </p>
-        </div>
-
-        <ConfigHelp active={active} data={data} patch={patch} />
-      </div>
-    </section>
+          </section>
+        );
+      }}
+    </AsyncBoundary>
   );
 }
 
