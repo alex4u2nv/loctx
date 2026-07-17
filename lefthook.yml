@@ -15,6 +15,14 @@ pre-commit:
       glob: "{apps,packages}/**/*.{ts,tsx,js,jsx,json}"
       run: pnpm exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
       stage_fixed: true
+    claude-review:
+      # Advisory staged-diff review by the Claude CLI (#465). This used
+      # to live in a separate .pre-commit-config.yaml (Python pre-commit
+      # framework) — but lefthook owns the git pre-commit hook, so that
+      # file never actually ran. Folded in here and the second hook
+      # manager dropped. The script self-skips when the `claude` CLI
+      # isn't installed; bypass a run with CLAUDE_PRECOMMIT_SKIP=1.
+      run: scripts/claude-precommit-review.sh
 
 pre-push:
   # Sequential: install must finish before verify reads node_modules,

@@ -23,7 +23,10 @@ pnpm run verify   # lint, typecheck, tests
 
 CI runs the same command **plus the Playwright e2e suite**. The pre-push
 git hook also runs both — so a push only goes through after the full CI
-gate succeeds locally. To pre-stage the Playwright browser one time:
+gate succeeds locally. The pre-commit hook (also lefthook) auto-formats
+staged files with biome and runs an advisory Claude staged-diff review;
+skip the review for a single commit with `CLAUDE_PRECOMMIT_SKIP=1 git
+commit …`. To pre-stage the Playwright browser one time:
 
 ```bash
 pnpm --filter @loctx/web exec playwright install chromium
