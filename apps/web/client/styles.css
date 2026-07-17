@@ -2768,3 +2768,32 @@ h3 {
 .swatch-terminal {
   background: linear-gradient(135deg, #0b0e0c 0 50%, #39d353 50% 100%);
 }
+
+/* Inline-SVG icon sizing + animation (#460). Replaces the Font Awesome
+   CSS the @fortawesome packages used to auto-inject: `.lx-icon` is the
+   `svg-inline--fa` baseline (1em tall, dropped 0.125em to sit on the
+   text baseline), `.lx-icon-fw` the `fa-fw` fixed-width box, and
+   `.lx-icon-beat` the `fa-beat` pulse used on the running-rebuild
+   hammer. */
+.lx-icon {
+  height: 1em;
+  overflow: visible;
+  vertical-align: -0.125em;
+}
+.lx-icon-fw {
+  width: 1.25em;
+  text-align: center;
+}
+.lx-icon-beat {
+  animation: lx-icon-beat 1s ease-in-out infinite;
+  transform-origin: center;
+}
+@keyframes lx-icon-beat {
+  0%,
+  90% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.25);
+  }
+}
