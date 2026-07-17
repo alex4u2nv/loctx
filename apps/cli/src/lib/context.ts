@@ -32,14 +32,9 @@ export const program = new Command();
 export function getCtx(): CliContext {
   const opts = program.opts<{ config?: string; debug?: boolean }>();
   return Object.freeze({
-    configPath: opts.config ?? defaultConfigFile().replace(/\.toml$/, ".yaml"),
+    configPath: opts.config ?? defaultConfigFile(),
     debug: opts.debug ?? false,
   });
-}
-
-export function unimplemented(name: string, note?: string): never {
-  console.error(`loctx ${name}: not yet implemented${note ? ` ${note}` : ""}`);
-  process.exit(2);
 }
 
 export function loadConfigOrFail(ctx: CliContext): Config {

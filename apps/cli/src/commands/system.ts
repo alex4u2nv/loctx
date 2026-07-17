@@ -1,5 +1,5 @@
 /**
- * `serve` (stub), `doctor`, and `status` — health and diagnostics.
+ * `doctor` and `status` — health and diagnostics.
  */
 
 import {
@@ -12,16 +12,9 @@ import {
   worstStatus,
 } from "@loctx/core";
 import type { Command } from "commander";
-import { getCtx, loadConfigOrFail, unimplemented } from "../lib/context.js";
+import { getCtx, loadConfigOrFail } from "../lib/context.js";
 
 export function registerSystemCommands(program: Command): void {
-  program
-    .command("serve")
-    .description("Start the MCP stdio server (use `loctx start` for the integrated daemon).")
-    .action(() =>
-      unimplemented("serve", "— use `loctx-mcp` (stdio) or `loctx start` (HTTP at /mcp) instead"),
-    );
-
   program
     .command("doctor")
     .description("Check configuration, storage, daemon, schema, and discovery health.")
