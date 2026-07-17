@@ -2,6 +2,16 @@ packages:
   - "packages/*"
   - "apps/*"
 
+# Single source of truth for versions shared across workspaces (#464).
+# Referenced as `"<dep>": "catalog:"` in each package.json so the version
+# lives here once — no more commander ^12 in eval vs ^15 in cli, or yaml
+# ^2.6 vs ^2.9. Bump here to bump everywhere.
+catalog:
+  commander: ^15.0.0
+  yaml: ^2.9.0
+  "@modelcontextprotocol/sdk": ^1.29.0
+  "@hono/node-server": ^1.19.14
+
 # pnpm 9.15+ moved settings out of package.json's "pnpm" field. Postinstall
 # scripts run only for explicitly trusted packages — anything else is
 # visibly skipped at install time with a prompt to add it here. This list
