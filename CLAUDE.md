@@ -125,3 +125,6 @@ daemon running.
 - `docs/audits/2026-05-17-web-modularity.md` — first web-modularity
   inventory.
 - Audit issue: #255. Modal consolidation issue: #259 (closed).
+- `docs/audits/2026-07-17-lancedb-write-coordination.md` — design for
+  unblocking indexing concurrency + the ANN index trigger (#447).
+  Implementation split into #488–#491.
