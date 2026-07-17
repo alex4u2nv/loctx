@@ -43,11 +43,11 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.14",
+    "@hono/node-server": "catalog:",
     "@inquirer/prompts": "^8.5.2",
     "@loctx/core": "workspace:^",
     "@loctx/web": "workspace:*",
-    "commander": "^15.0.0",
-    "yaml": "^2.9.0"
+    "commander": "catalog:",
+    "yaml": "catalog:"
   }
 }
