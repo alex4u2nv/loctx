@@ -128,11 +128,15 @@ export function renderCompare(a: RunResultJson, b: RunResultJson): string {
     const am = a.metrics.byQueryType[t];
     const bm = b.metrics.byQueryType[t];
     for (const k of METRIC_KEYS) {
-      const av = am?.[k] ?? 0;
-      const bv = bm?.[k] ?? 0;
-      sections.push(
-        `| ${t} | ${METRIC_LABELS[k]} | ${fmt(av)} | ${fmt(bv)} | ${fmtDelta(bv - av)} |`,
-      );
+      // A query type present in only one run must NOT be 0-filled on the
+      // other side — that faked a full-magnitude delta (e.g. -1.000) for
+      // what is really "absent, not comparable". Render n/a and suppress
+      // the delta unless the type is in both runs (#471).
+      const aCell = am === undefined ? "n/a" : fmt(am[k] ?? 0);
+      const bCell = bm === undefined ? "n/a" : fmt(bm[k] ?? 0);
+      const deltaCell =
+        am === undefined || bm === undefined ? "—" : fmtDelta((bm[k] ?? 0) - (am[k] ?? 0));
+      sections.push(`| ${t} | ${METRIC_LABELS[k]} | ${aCell} | ${bCell} | ${deltaCell} |`);
     }
   }
   return sections.join("\n");

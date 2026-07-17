@@ -62,7 +62,7 @@ loctx/                                  # workspace root (private)
         sql/state.sql                   # named-section query file
         sql/loader.ts                   # loadQueries()
         chunking/                       # base, prose (LineWindow), code, index
-        embeddings/                     # base, local (HF transformers, lazy)
+        embeddings/                     # base, local (HF transformers, lazy), registry
         indexing/indexer.ts             # ProjectIndexer pipeline
         retrieval/searcher.ts           # WorkspaceSearcher + scope resolution
         storage/state.ts                # better-sqlite3 + named queries
@@ -150,6 +150,10 @@ so `loctx doctor` and `loctx status` can explain skipped files.
 - `LocalEmbeddingProvider` uses `@huggingface/transformers` (ONNX-runtime,
   pure JS) — lazy-loads model on first use
 - `FakeEmbeddingProvider` for tests (deterministic SHA-derived vectors)
+- `embeddings/registry.ts` — the model registry: known local models with
+  their dimensions and defaults, including the 2025-generation
+  `gte-modernbert` and `EmbeddingGemma` entries. `config.ts` and the
+  admin Models tab resolve model choices through it.
 
 `EmbeddingIdentity` includes provider, model, dimension, and normalize flag.
 The Lance table name derives from this identity to prevent mixed-dimension
