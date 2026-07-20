@@ -5,6 +5,7 @@ export {
   parseAstGrepJson,
   type RunAstGrepOptions,
   runAstGrep,
+  sgConfigForRuleDirs,
 } from "./ast-grep.js";
 export {
   compileDefinitionSchema,
