@@ -14,7 +14,8 @@
     "declarationMap": true,
     "sourceMap": true,
     "noEmit": false,
-    "composite": true
+    "composite": true,
+    "tsBuildInfoFile": "./dist/server/tsconfig.server.tsbuildinfo"
   },
   "include": [
     "server/**/*.ts",

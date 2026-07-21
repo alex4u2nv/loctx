@@ -46,19 +46,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Cache TypeScript incremental build info
-        # tsc's project-reference build (#463) writes per-project
-        # *.tsbuildinfo; restoring them lets a run skip type-checking
-        # files unchanged since the last cache. Keyed on the TS sources
-        # so an exact match is a near-no-op; restore-keys give a partial
-        # hit (older tsbuildinfo) that tsc reconciles incrementally.
-        uses: actions/cache@v4
-        with:
-          path: |
-            **/*.tsbuildinfo
-          key: tsbuildinfo-${{ runner.os }}-${{ hashFiles('**/*.ts', '**/*.tsx', 'tsconfig*.json', '**/tsconfig*.json') }}
-          restore-keys: |
-            tsbuildinfo-${{ runner.os }}-
+      # NOTE: we deliberately do NOT cache *.tsbuildinfo. Restoring a
+      # buildinfo into a fresh checkout (which has no dist/) makes tsc
+      # think a project is up to date and skip emitting its .d.ts — then
+      # every dependent workspace fails with "Cannot find module
+      # '@loctx/core'". The buildinfo now lives inside each project's
+      # dist/ (tsBuildInfoFile), so its lifecycle is tied to the output;
+      # a clean checkout is always a clean, correct build.
 
       - name: Audit tree-sitter grammar pins
         # Native tree-sitter grammars execute during indexing — a
