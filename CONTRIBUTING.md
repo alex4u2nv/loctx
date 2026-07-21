@@ -18,10 +18,19 @@ pnpm --filter @loctx/mcp link --global
 ## Verify
 
 ```bash
-pnpm run verify   # lint, typecheck, tests
+pnpm run verify         # build, lint, typecheck, tests (warm — reuses dist/)
+pnpm run verify:clean   # same, but wipes dist/ + *.tsbuildinfo first
 ```
 
-CI runs the same command **plus the Playwright e2e suite**. The pre-push
+`verify:clean` reproduces exactly what CI does on a fresh checkout: a
+cold, from-scratch build. Reach for it if you suspect a "works locally,
+fails in CI" issue (e.g. a stale build artifact) — the warm `verify`
+reuses `dist/` and can mask a broken clean build. (The incremental
+`*.tsbuildinfo` now lives inside each project's `dist/`, so `pnpm clean`
+— or any `rm -rf dist` — clears it and a fresh checkout is always a
+correct build.)
+
+CI runs `verify` **plus the Playwright e2e suite**. The pre-push
 git hook also runs both — so a push only goes through after the full CI
 gate succeeds locally. The pre-commit hook (also lefthook) auto-formats
 staged files with biome and runs an advisory Claude staged-diff review;

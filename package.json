@@ -17,6 +17,8 @@
     "format": "biome format --write packages apps",
     "format:check": "biome format --check packages apps",
     "verify": "pnpm run build && pnpm run lint && pnpm run typecheck && pnpm test",
+    "clean": "rm -rf packages/*/dist apps/*/dist && find packages apps -name '*.tsbuildinfo' -not -path '*/node_modules/*' -delete",
+    "verify:clean": "pnpm run clean && pnpm run verify",
     "install:local": "pnpm run build && npm install -g ./apps/cli ./apps/mcp",
     "release:build": "pnpm run build && node scripts/build-release.mjs",
     "prepare": "lefthook install",
