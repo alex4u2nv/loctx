@@ -33,6 +33,7 @@ export function mountModels(app: Hono, config: Config): void {
       // `node_modules/@huggingface/transformers/.cache/`), which we don't
       // own and shouldn't poke at directly.
       downloaded: isModelTrusted(config.paths.dataDir, m.name),
+      license: m.license,
     }));
     const payload: ModelsPayload = { current, available };
     return c.json(payload);

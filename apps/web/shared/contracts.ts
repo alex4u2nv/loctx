@@ -381,6 +381,8 @@ export interface ModelInfo {
   readonly id: string;
   readonly current: boolean;
   readonly downloaded: boolean;
+  /** Model license the user accepts by downloading (e.g. "apache-2.0", "gemma"). */
+  readonly license: string;
 }
 
 export interface ModelsPayload {

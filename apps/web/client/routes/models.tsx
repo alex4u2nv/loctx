@@ -79,6 +79,9 @@ export function ModelsPage() {
               rowKey={(m) => m.id}
               columns={[
                 { key: "model", header: "model", cell: (m) => m.id },
+                // Downloads come straight from Hugging Face; the user accepts
+                // this license, not a loctx one — so it must be visible pre-click.
+                { key: "license", header: "license", dim: true, cell: (m) => m.license },
                 {
                   key: "state",
                   header: "state",

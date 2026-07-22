@@ -148,7 +148,7 @@ async function pickModel(useCase: EmbeddingUseCase): Promise<EmbeddingModelInfo>
     message: "Embedding model:",
     default: recommended.name,
     choices: ordered.map((m) => ({
-      name: `${m.name}  (${m.sizeMB} MB · ${m.dimension}-dim)\n      ${m.description}`,
+      name: `${m.name}  (${m.sizeMB} MB · ${m.dimension}-dim · ${m.license})\n      ${m.description}`,
       value: m.name,
     })),
   });

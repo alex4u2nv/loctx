@@ -3,6 +3,7 @@ export { DEFAULT_LOCAL_MODEL, LocalEmbeddingProvider } from "./local.js";
 export {
   EMBEDDING_REGISTRY,
   type EmbeddingModelInfo,
+  type EmbeddingPooling,
   type EmbeddingUseCase,
   findModel,
 } from "./registry.js";

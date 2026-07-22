@@ -45,12 +45,15 @@ export function registerModelCommands(program: Command): void {
       for (const m of EMBEDDING_REGISTRY) {
         const marker = m.name === current ? "*" : " ";
         console.log(
-          `  ${marker} ${m.name.padEnd(46)} ${String(m.sizeMB).padStart(4)} MB  dim=${String(m.dimension).padStart(4)}  [${m.useCase}]`,
+          `  ${marker} ${m.name.padEnd(46)} ${String(m.sizeMB).padStart(4)} MB  dim=${String(m.dimension).padStart(4)}  [${m.useCase}]  ${m.license}`,
         );
         console.log(`      ${m.description}`);
       }
       console.log("");
       console.log("* = active. Run 'loctx model use <name>' to switch.");
+      console.log(
+        "Models download from Hugging Face on first use — you accept the listed license.",
+      );
     });
 
   modelCmd
