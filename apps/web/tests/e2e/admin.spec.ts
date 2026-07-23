@@ -166,8 +166,9 @@ test.describe("loctx admin UI", () => {
     await page.goto("/");
     const nav = page.getByRole("navigation", { name: "Page sections" });
     await expect(nav).toBeVisible();
-    // Six dashboard sections.
-    await expect(nav.locator(".section-nav-item")).toHaveCount(6);
+    // Seven dashboard sections: Flow, Daemon, Coverage, Value, Details,
+    // Activity, MCP.
+    await expect(nav.locator(".section-nav-item")).toHaveCount(7);
     // Exactly one is the active (elongated) marker.
     await expect(nav.locator(".section-nav-item.active")).toHaveCount(1);
   });
