@@ -1,8 +1,25 @@
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { type Config, type Runtime, WorkspaceDiscovery, readActiveDaemon } from "@loctx/core";
+import {
+  type Config,
+  type Runtime,
+  WorkspaceDiscovery,
+  readActiveDaemon,
+  summarizeUsage,
+} from "@loctx/core";
 import type { Hono } from "hono";
-import type { StatusPayload } from "../../shared/contracts.js";
+import type { StatusPayload, ValueMetrics } from "../../shared/contracts.js";
+
+const ZERO_VALUE: ValueMetrics = {
+  queries: 0,
+  tokensSaved: 0,
+  baselineTokens: 0,
+  reductionPct: 0,
+  filesReadAvoided: 0,
+  zeroHitQueries: 0,
+  zeroHitPct: 0,
+  avgLatencyMs: 0,
+};
 
 /**
  * Recursively sum the byte size of a file or directory. Best-effort:
@@ -81,12 +98,14 @@ export function mountStatus(
       lastRunAt: null as string | null,
       lastFreedBytes: null as number | null,
     };
+    let value: ValueMetrics = ZERO_VALUE;
     try {
       const rt = await getRuntime();
       embeddingReady = true;
       reconciliation = rt.reconciler.status();
       analyzers = rt.enrichments.status();
       maintenance = rt.maintenanceStatus();
+      value = summarizeUsage(rt.state.readUsageStats()).workspace;
     } catch {
       // Leave defaults; daemon is still booting or build failed.
     }
@@ -121,6 +140,7 @@ export function mountStatus(
       analyzers,
       maintenance,
       projects: projects.map((p) => ({ id: p.id, name: p.name, root: p.root })),
+      value,
     };
     return c.json(payload);
   });

@@ -11,6 +11,7 @@ import {
   inventoryProjects,
   makeProject,
   resolveUnderWorkspaceRoots,
+  summarizeUsage,
 } from "@loctx/core";
 import type { Hono } from "hono";
 import type {
@@ -105,6 +106,19 @@ export function mountProjects(
         state.listProjectsWithRebuildPending().map((p) => [p.id, p.rebuildPendingAt]),
       );
 
+      // Value served per project (#value-metrics): tokens saved, queries,
+      // reads avoided. Keyed by projectId for O(1) lookup per row.
+      const valueByProject = new Map(
+        summarizeUsage(state.readUsageStats()).byProject.map((v) => [
+          v.projectId,
+          {
+            tokensSaved: v.tokensSaved,
+            queriesServed: v.queries,
+            filesReadAvoided: v.filesReadAvoided,
+          },
+        ]),
+      );
+
       const buildRow = (
         project: Project,
         lastReconciled: string | null,
@@ -170,6 +184,7 @@ export function mountProjects(
           rebuildPendingAt: rebuildPendingByProject.get(project.id) ?? null,
           absorbedMarkers,
           reconciling,
+          value: valueByProject.get(project.id) ?? null,
         };
       };
 
@@ -288,6 +303,17 @@ export function mountProjects(
             : null,
         reconciling: detailReconciling,
       });
+      const detailValueSummary = summarizeUsage(state.readUsageStats()).byProject.find(
+        (v) => v.projectId === project.id,
+      );
+      const detailValue =
+        detailValueSummary === undefined
+          ? null
+          : {
+              tokensSaved: detailValueSummary.tokensSaved,
+              queriesServed: detailValueSummary.queries,
+              filesReadAvoided: detailValueSummary.filesReadAvoided,
+            };
       const row: ProjectsRow = {
         id: project.id,
         name: project.name,
@@ -322,6 +348,7 @@ export function mountProjects(
                 total: detailReconcileSnap.currentProjectTotal,
               }
             : null,
+        value: detailValue,
       };
       const stats = projectStats(state, project.id);
       const payload: ProjectDetailPayload = { project: row, stats };

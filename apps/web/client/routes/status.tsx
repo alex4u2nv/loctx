@@ -17,7 +17,7 @@
  * MCP client snippets.
  */
 
-import type { StatusPayload } from "@shared/contracts";
+import type { StatusPayload, ValueMetrics } from "@shared/contracts";
 import { useCallback, useMemo, useState } from "react";
 import { AsyncBoundary } from "../components/async-boundary";
 import { FlowChart, type FlowProject } from "../components/flow-chart";
@@ -25,7 +25,7 @@ import { Icon } from "../components/icon";
 import { useLiveRefreshData, useLiveRefreshEvent } from "../components/live-refresh";
 import { SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
-import { formatBytes } from "../lib/format";
+import { formatBytes, formatCompact } from "../lib/format";
 import { useFetch } from "../lib/use-fetch";
 
 interface WatcherEvent {
@@ -117,6 +117,7 @@ export function StatusPage() {
               total={projects.length}
             />
             <div className="tiles">
+              <ValueTile value={status.value} />
               <DetailsTile status={status} />
               <ActivityTile events={events} />
               <McpTile baseUrl={baseUrl} />
@@ -126,6 +127,7 @@ export function StatusPage() {
                 { id: "dash-flow", label: "Flow" },
                 { id: "dash-daemon", label: "Daemon" },
                 { id: "dash-coverage", label: "Coverage" },
+                { id: "dash-value", label: "Value" },
                 { id: "dash-details", label: "Details" },
                 { id: "dash-activity", label: "Activity" },
                 { id: "dash-mcp", label: "MCP" },
@@ -307,6 +309,40 @@ function CoverageGauge({
 }
 
 // ---- tile row ----------------------------------------------------------
+
+/**
+ * Estimated value loctx has served: tokens the agent didn't spend by
+ * getting ranked snippets instead of grep + read-whole-file (#value-metrics).
+ * Every figure is an estimate — the "≈" and the footnote say so plainly.
+ */
+function ValueTile({ value }: { value: ValueMetrics }) {
+  const served = value.queries > 0;
+  return (
+    <article id="dash-value" className="card">
+      <p className="card-section-title">Value served</p>
+      {served ? (
+        <>
+          <div className="value-headline">
+            <span className="value-headline-num">≈{formatCompact(value.tokensSaved)}</span>
+            <span className="value-headline-unit">tokens saved</span>
+          </div>
+          <div className="tile-grid">
+            <Metric label="Reduction" value={`${value.reductionPct}%`} />
+            <Metric label="Queries" value={value.queries.toLocaleString()} />
+            <Metric label="Reads avoided" value={value.filesReadAvoided.toLocaleString()} />
+            <Metric label="Zero-hit" value={`${value.zeroHitPct}%`} />
+            <Metric label="Avg latency" value={`${value.avgLatencyMs}ms`} />
+          </div>
+          <p className="value-foot">
+            Estimated vs. grep + reading whole matched files. Snippets vs. full-file content.
+          </p>
+        </>
+      ) : (
+        <p className="activity-empty">No retrieval queries logged yet.</p>
+      )}
+    </article>
+  );
+}
 
 function DetailsTile({ status }: { status: StatusPayload }) {
   const r = status.runtime;

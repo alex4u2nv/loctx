@@ -16,14 +16,19 @@ import { join } from "node:path";
 import {
   CONFIG_SCHEMA,
   type DuplicateGroup,
+  estimateQueryValue,
   findSymbolUsages,
   inventoryProjects,
+  isValueTool,
   type ProjectId,
   type Runtime,
   readActiveDaemon,
   resolveProjectScope,
   type SearchResponse,
   type SymbolRefHit,
+  summarizeUsage,
+  toUsageDeltas,
+  type UsageSummary,
   Validator,
   writeConfigPatch,
 } from "@loctx/core";
@@ -122,6 +127,13 @@ export interface StatusOutput {
    * and conclude "if my target is in one of these, I need grep."
    */
   readonly exclusions: ExclusionRules;
+  /**
+   * Estimated "value served" so far (#value-metrics): tokens the agent
+   * saved by getting ranked snippets from loctx instead of grep +
+   * read-whole-file, plus file reads avoided. An estimate — figures are
+   * approximate. Lets an agent see its own retrieval efficiency.
+   */
+  readonly value: UsageSummary;
 }
 
 export interface ExclusionRules {
@@ -430,6 +442,7 @@ export const tools = {
       workspaceRoots: runtime.config.workspaceRoots,
       projects: entries,
       indexHealth,
+      value: summarizeUsage(runtime.state.readUsageStats()).workspace,
       exclusions: Object.freeze({
         // Sets aren't JSON-serializable on the wire; emit as a sorted
         // array so the response stays stable across runs.
@@ -976,12 +989,14 @@ export function registerTools(server: Server, runtime: Runtime, options: AdminOp
           ? { ...handlerResult, processFaults: options.processFaults() }
           : handlerResult;
       const text = JSON.stringify(result, null, 2);
+      const elapsedMs = Date.now() - startedAt;
       recordMcpRequest(runtime, name, args, {
         responseJson: text,
         error: null,
         ok: true,
-        elapsedMs: Date.now() - startedAt,
+        elapsedMs,
       });
+      recordUsageValue(runtime, name, result, elapsedMs);
       return { content: [{ type: "text" as const, text }] };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1038,6 +1053,33 @@ function recordMcpRequest(
     } catch {
       // Logging is observability, not correctness — never fail a tool call
       // because the request couldn't be recorded.
+    }
+  });
+}
+
+/**
+ * Estimate and persist the "value served" of a retrieval response
+ * (#value-metrics) — tokens saved vs. a grep+read baseline, reads avoided.
+ * Only the file-backed retrieval tools have a baseline. Fire-and-forget on
+ * the next tick so it never adds latency, and fully swallowed: a value
+ * metric must never break a tool call.
+ */
+function recordUsageValue(
+  runtime: Runtime,
+  tool: string,
+  result: unknown,
+  elapsedMs: number,
+): void {
+  if (!isValueTool(tool)) return;
+  setImmediate(() => {
+    try {
+      const value = estimateQueryValue(tool, result, (projectId, relPath) => {
+        const file = runtime.state.getFile(projectId as ProjectId, relPath);
+        return file?.size ?? null;
+      });
+      runtime.state.applyUsageDeltas(toUsageDeltas(value, elapsedMs));
+    } catch {
+      // Accounting is observability, not correctness.
     }
   });
 }

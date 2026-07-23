@@ -50,6 +50,9 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
       listProjects: () => [],
       findDuplicateGroups: () => [],
       findLiteralMatches: () => [],
+      readUsageStats: () => [],
+      getFile: () => null,
+      applyUsageDeltas: () => {},
     },
     searcher: {
       search: async () =>
