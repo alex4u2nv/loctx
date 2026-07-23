@@ -55,6 +55,18 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(decimals)} ${units[exp]}`;
 }
 
+/**
+ * Compact count for big, approximate figures: 812 → "812", 5_400 →
+ * "5.4k", 1_240_000 → "1.2M". Used for the estimated tokens-saved tile,
+ * where exact digits would imply false precision.
+ */
+export function formatCompact(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "0";
+  if (n < 1000) return String(Math.round(n));
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
 export function applyHomeAbbrev(path: string, homeDir: string): string {
   if (homeDir === "") return path;
   if (path === homeDir) return "~";

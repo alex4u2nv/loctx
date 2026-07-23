@@ -1398,3 +1398,88 @@ describe("file stats aggregates (#455)", () => {
     store.close();
   });
 });
+
+describe("StateStore usage_stats (value-served accounting)", () => {
+  it("accumulates deltas per project and rolls up under ''", () => {
+    const store = new StateStore(join(tmp, "state.db"));
+
+    store.applyUsageDeltas([
+      {
+        projectId: "",
+        queries: 1,
+        resultsBytes: 50,
+        baselineBytes: 2000,
+        filesReadAvoided: 2,
+        zeroHitQueries: 0,
+        elapsedMs: 12,
+      },
+      {
+        projectId: "p1",
+        queries: 1,
+        resultsBytes: 50,
+        baselineBytes: 2000,
+        filesReadAvoided: 2,
+        zeroHitQueries: 0,
+        elapsedMs: 0,
+      },
+    ]);
+    // A second query adds onto the same rows.
+    store.applyUsageDeltas([
+      {
+        projectId: "",
+        queries: 1,
+        resultsBytes: 10,
+        baselineBytes: 1000,
+        filesReadAvoided: 1,
+        zeroHitQueries: 1,
+        elapsedMs: 8,
+      },
+      {
+        projectId: "p1",
+        queries: 1,
+        resultsBytes: 10,
+        baselineBytes: 1000,
+        filesReadAvoided: 1,
+        zeroHitQueries: 0,
+        elapsedMs: 0,
+      },
+    ]);
+
+    const rows = store.readUsageStats();
+    const roll = rows.find((r) => r.projectId === "");
+    const p1 = rows.find((r) => r.projectId === "p1");
+    expect(roll).toEqual({
+      projectId: "",
+      queries: 2,
+      resultsBytes: 60,
+      baselineBytes: 3000,
+      filesReadAvoided: 3,
+      zeroHitQueries: 1,
+      elapsedMs: 20,
+    });
+    expect(p1?.queries).toBe(2);
+    expect(p1?.baselineBytes).toBe(3000);
+    store.close();
+  });
+
+  it("clearUsageStats empties the table; applyUsageDeltas([]) is a no-op", () => {
+    const store = new StateStore(join(tmp, "state.db"));
+    store.applyUsageDeltas([]);
+    expect(store.readUsageStats()).toHaveLength(0);
+    store.applyUsageDeltas([
+      {
+        projectId: "p1",
+        queries: 1,
+        resultsBytes: 1,
+        baselineBytes: 2,
+        filesReadAvoided: 1,
+        zeroHitQueries: 0,
+        elapsedMs: 0,
+      },
+    ]);
+    expect(store.readUsageStats()).toHaveLength(1);
+    store.clearUsageStats();
+    expect(store.readUsageStats()).toHaveLength(0);
+    store.close();
+  });
+});

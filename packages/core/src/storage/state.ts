@@ -21,8 +21,9 @@ import {
   projectId as toProjectId,
 } from "../models.js";
 import { loadQueries } from "../sql/loader.js";
+import type { UsageDelta, UsageStatRow } from "../usage.js";
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 /**
  * Raised when the on-disk schema version is newer than this build's
@@ -388,6 +389,14 @@ export class StateStore {
       // schema_v9 adds the file_links table + indices (doc cross-link graph).
       // All IF NOT EXISTS, safe to re-run.
       this.db.exec(schemaV9);
+    }
+
+    if (current < 10) {
+      const schemaV10 = QUERIES["schema_v10"];
+      if (schemaV10 === undefined) throw new Error("Missing schema_v10 in state.sql");
+      // schema_v10 adds the usage_stats table (value-served accounting).
+      // IF NOT EXISTS, safe to re-run.
+      this.db.exec(schemaV10);
     }
 
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -1113,6 +1122,50 @@ export class StateStore {
     this.write("delete_all_mcp_requests");
   }
 
+  // ---- value-served accounting (#value-metrics) -----------------------
+
+  /**
+   * Accumulate the value of one retrieval query into `usage_stats`. Each
+   * delta is added to its project's running totals (`""` = workspace
+   * roll-up). Best-effort and cheap; called off the hot path.
+   */
+  applyUsageDeltas(deltas: ReadonlyArray<UsageDelta>): void {
+    if (deltas.length === 0) return;
+    const now = new Date().toISOString();
+    const tx = this.db.transaction(() => {
+      for (const d of deltas) {
+        this.write("upsert_usage", [
+          d.projectId,
+          d.queries,
+          d.resultsBytes,
+          d.baselineBytes,
+          d.filesReadAvoided,
+          d.zeroHitQueries,
+          d.elapsedMs,
+          now,
+        ]);
+      }
+    });
+    tx();
+  }
+
+  /** All accumulated usage rows (the `""` roll-up plus one per project). */
+  readUsageStats(): UsageStatRow[] {
+    return this.readAll<UsageStatDbRow>("list_usage_stats").map((r) => ({
+      projectId: r.project_id,
+      queries: Number(r.queries),
+      resultsBytes: Number(r.results_bytes),
+      baselineBytes: Number(r.baseline_bytes),
+      filesReadAvoided: Number(r.files_read_avoided),
+      zeroHitQueries: Number(r.zero_hit_queries),
+      elapsedMs: Number(r.elapsed_ms),
+    }));
+  }
+
+  clearUsageStats(): void {
+    this.write("delete_all_usage_stats");
+  }
+
   // ---- collections ----------------------------------------------------
 
   registerCollection(name: string, identity: EmbeddingIdentity): void {
@@ -1232,6 +1285,16 @@ interface McpRequestRow {
   response_json: string | null;
   error: string | null;
   ok: number;
+  elapsed_ms: number;
+}
+
+interface UsageStatDbRow {
+  project_id: string;
+  queries: number;
+  results_bytes: number;
+  baseline_bytes: number;
+  files_read_avoided: number;
+  zero_hit_queries: number;
   elapsed_ms: number;
 }
 

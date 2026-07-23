@@ -87,6 +87,37 @@ export interface StatusPayload {
     readonly name: string;
     readonly root: string;
   }>;
+  /**
+   * "Value served" estimate across every retrieval call the daemon has
+   * logged (#value-metrics) — tokens the agent didn't spend by getting
+   * ranked snippets instead of grep + read-whole-file. An estimate, shown
+   * with "≈". Zeroed until the first retrieval query lands.
+   */
+  readonly value: ValueMetrics;
+}
+
+/**
+ * Estimated value of loctx's retrieval vs. a grep + read-whole-file
+ * baseline. All token figures are estimates (fixed chars-per-token).
+ */
+export interface ValueMetrics {
+  readonly queries: number;
+  readonly tokensSaved: number;
+  readonly baselineTokens: number;
+  /** Saved as a share of baseline, 0–100. */
+  readonly reductionPct: number;
+  readonly filesReadAvoided: number;
+  readonly zeroHitQueries: number;
+  /** Zero-hit queries as a share of all queries, 0–100. */
+  readonly zeroHitPct: number;
+  readonly avgLatencyMs: number;
+}
+
+/** Per-project slice of {@link ValueMetrics} for the projects table. */
+export interface ProjectValue {
+  readonly tokensSaved: number;
+  readonly queriesServed: number;
+  readonly filesReadAvoided: number;
 }
 
 export type WatcherState = "active" | "paused" | "failed";
@@ -178,6 +209,12 @@ export interface ProjectsRow {
     readonly indexed: number | null;
     readonly total: number | null;
   } | null;
+  /**
+   * Estimated value loctx has served for this project (#value-metrics):
+   * tokens saved, queries served, file reads avoided. `null` until a
+   * retrieval query has touched the project.
+   */
+  readonly value: ProjectValue | null;
 }
 
 export interface AbsorbedMarkerRow {

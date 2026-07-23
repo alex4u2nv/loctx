@@ -3,6 +3,7 @@ import type {
   OrphanRow,
   ProjectHealth,
   ProjectsRow,
+  ProjectValue,
   StatusPayload,
 } from "@shared/contracts";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
@@ -15,7 +16,7 @@ import { OverflowMenu, type OverflowItem } from "../components/overflow-menu";
 import { useLiveRefreshEvent } from "../components/live-refresh";
 import { type NavSection, SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
-import { applyHomeAbbrev, compressPath, relativeTime } from "../lib/format";
+import { applyHomeAbbrev, compressPath, formatCompact, relativeTime } from "../lib/format";
 import { useFetch } from "../lib/use-fetch";
 import { useOpRunner } from "../lib/use-op-runner";
 
@@ -377,7 +378,7 @@ const ProjectsTable = memo(function ProjectsTable({
   busy?: string | null;
   purgingRoots?: ReadonlySet<string>;
 }) {
-  const cols = ["project", "status", "indexed", "activity"];
+  const cols = ["project", "status", "indexed", "value", "activity"];
   if (showReason) cols.push("reason");
   if (actions !== undefined) cols.push("actions");
 
@@ -420,6 +421,9 @@ const ProjectsTable = memo(function ProjectsTable({
                   {row.chunks} chunks
                   {row.errors > 0 ? <span className="err"> · {row.errors} errors</span> : null}
                 </div>
+              </td>
+              <td>
+                <ValueCell value={row.value} />
               </td>
               <td className="dim" style={{ fontSize: "0.9em" }}>
                 <IndexStatusCell row={row} />
@@ -465,6 +469,25 @@ const ProjectsTable = memo(function ProjectsTable({
  *   Mid-reconcile here:  "reconciling… N/M files"
  *   Not mid-reconcile:   "reconciled Xs ago" or "reconciled —"
  */
+/**
+ * Estimated value loctx has served for this project (#value-metrics):
+ * tokens saved vs. grep + read-whole-file, plus queries served. `—` when
+ * no retrieval query has touched the project yet.
+ */
+function ValueCell({ value }: { value: ProjectValue | null }) {
+  if (value === null || value.queriesServed === 0) {
+    return <span className="dim">—</span>;
+  }
+  return (
+    <div title={`${value.filesReadAvoided.toLocaleString()} file reads avoided (estimate)`}>
+      <div className="num">≈{formatCompact(value.tokensSaved)} tok</div>
+      <div className="num dim" style={{ fontSize: "0.85em" }}>
+        {value.queriesServed.toLocaleString()} {value.queriesServed === 1 ? "query" : "queries"}
+      </div>
+    </div>
+  );
+}
+
 function IndexStatusCell({ row }: { row: AnyRow }) {
   // The /api/rebuild path uses RebuildProgress; if a rebuild is running,
   // the indexer is actively writing rows for this project.

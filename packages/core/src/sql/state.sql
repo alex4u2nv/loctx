@@ -191,6 +191,33 @@ CREATE TABLE IF NOT EXISTS file_links (
 CREATE INDEX IF NOT EXISTS idx_file_links_from ON file_links(from_file_id);
 CREATE INDEX IF NOT EXISTS idx_file_links_to ON file_links(to_path);
 
+-- :name schema_v10
+-- "Value served" accounting (#value-metrics). One row per project plus a
+-- '' roll-up row for the whole workspace. Accumulated at query time in the
+-- MCP record path so the numbers survive the rolling mcp_requests log.
+--
+--   project_id        — '' for the workspace roll-up (authoritative for
+--                       total queries / zero-hit / latency), else a project.
+--   queries           — retrieval calls that touched this project.
+--   results_bytes     — snippet content loctx returned for it.
+--   baseline_bytes    — full size of the matched files (grep+read baseline).
+--   files_read_avoided— unique files surfaced, i.e. reads not made.
+--   zero_hit_queries  — queries that returned nothing (roll-up row only).
+--   elapsed_ms        — summed response time (roll-up row only).
+--
+-- Tokens saved ≈ (baseline_bytes − results_bytes) / chars-per-token, floored
+-- at 0, computed at read time. IF NOT EXISTS so it's safe to re-run.
+CREATE TABLE IF NOT EXISTS usage_stats (
+    project_id TEXT NOT NULL PRIMARY KEY,
+    queries INTEGER NOT NULL DEFAULT 0,
+    results_bytes INTEGER NOT NULL DEFAULT 0,
+    baseline_bytes INTEGER NOT NULL DEFAULT 0,
+    files_read_avoided INTEGER NOT NULL DEFAULT 0,
+    zero_hit_queries INTEGER NOT NULL DEFAULT 0,
+    elapsed_ms INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+
 -- :name pragma_enable_foreign_keys
 PRAGMA foreign_keys = ON;
 
@@ -647,6 +674,30 @@ SELECT COUNT(*) AS n FROM mcp_requests;
 
 -- :name delete_all_mcp_requests
 DELETE FROM mcp_requests;
+
+-- :name upsert_usage
+-- Accumulate one project's (or the '' roll-up's) share of a query's value.
+INSERT INTO usage_stats (
+    project_id, queries, results_bytes, baseline_bytes,
+    files_read_avoided, zero_hit_queries, elapsed_ms, updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(project_id) DO UPDATE SET
+    queries = queries + excluded.queries,
+    results_bytes = results_bytes + excluded.results_bytes,
+    baseline_bytes = baseline_bytes + excluded.baseline_bytes,
+    files_read_avoided = files_read_avoided + excluded.files_read_avoided,
+    zero_hit_queries = zero_hit_queries + excluded.zero_hit_queries,
+    elapsed_ms = elapsed_ms + excluded.elapsed_ms,
+    updated_at = excluded.updated_at;
+
+-- :name list_usage_stats
+SELECT project_id, queries, results_bytes, baseline_bytes,
+       files_read_avoided, zero_hit_queries, elapsed_ms
+FROM usage_stats;
+
+-- :name delete_all_usage_stats
+DELETE FROM usage_stats;
 
 -- :name delete_file_links_for_file
 DELETE FROM file_links WHERE from_file_id = ?;

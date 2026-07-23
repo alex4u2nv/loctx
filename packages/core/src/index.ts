@@ -28,4 +28,5 @@ export * from "./storage/index.js";
 export * from "./tools.js";
 export * from "./trusted-models.js";
 export * from "./ulimit.js";
+export * from "./usage.js";
 export * from "./watcher/index.js";

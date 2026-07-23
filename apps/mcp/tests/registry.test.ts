@@ -57,6 +57,11 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
       // #357: literal-substring audit tool. Default stub returns
       // empty; individual tests override with `state: { ... }`.
       findLiteralMatches: () => [],
+      // #value-metrics: value-served accounting. Status reads it; the
+      // retrieval-value recorder writes it via getFile + applyUsageDeltas.
+      readUsageStats: () => [],
+      getFile: () => null,
+      applyUsageDeltas: () => {},
     },
     searcher: {
       search: async () => ({
