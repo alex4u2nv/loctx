@@ -277,6 +277,15 @@ function ScopedSearchPanel({ projectRoot }: { projectRoot: string }) {
           find-literal
         </TabButton>
       </div>
+      {/* Rendered once, outside the tab switch: both the search and
+          find-literal panels reference this datalist by id, and only one
+          panel exists in the DOM at a time — a panel-local datalist
+          silently breaks the other tab's suggestions (WEB-5). */}
+      <datalist id="scoped-subtree-suggestions">
+        {["src", "apps", "packages", "lib", "tests", "docs"].map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
       {tab === "search" ? (
         <ScopedSearch projectRoot={projectRoot} />
       ) : tab === "find-usages" ? (
@@ -377,11 +386,6 @@ function ScopedSearch({ projectRoot }: { projectRoot: string }) {
             placeholder="e.g. apps/cli or src"
             style={{ width: "16rem" }}
           />
-          <datalist id="scoped-subtree-suggestions">
-            {["src", "apps", "packages", "lib", "tests", "docs"].map((s) => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
         </div>
         <div className="field">
           <label

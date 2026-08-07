@@ -11,6 +11,12 @@ import type { Hono } from "hono";
 export function mountEvents(app: Hono): void {
   app.get("/api/events", () => {
     const encoder = new TextEncoder();
+    // Shared between start() and cancel(): `cancel` receives the
+    // cancellation *reason*, not the controller, so the cleanup closure
+    // must live at request scope for cancel() to reach it (SRV-7 —
+    // the old controller-property stash meant client disconnects only
+    // cleaned up when the next heartbeat ping threw, up to 15s later).
+    let cleanup: () => void = () => undefined;
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         let closed = false;
@@ -36,7 +42,7 @@ export function mountEvents(app: Hono): void {
 
         const unsubscribe = watcherBus.subscribe(send);
 
-        const cleanup = (): void => {
+        cleanup = (): void => {
           if (closed) return;
           closed = true;
           clearInterval(heartbeat);
@@ -44,12 +50,9 @@ export function mountEvents(app: Hono): void {
         };
 
         safeEnqueue(encoder.encode(": connected\n\n"));
-
-        (controller as unknown as { _cleanup: () => void })._cleanup = cleanup;
       },
-      cancel(controller) {
-        const cleanup = (controller as unknown as { _cleanup?: () => void })._cleanup;
-        cleanup?.();
+      cancel() {
+        cleanup();
       },
     });
 

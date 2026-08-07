@@ -156,6 +156,20 @@ export function spansOverlap(
 }
 
 /**
+ * THE matching rule between a qrel and a retrieved span: same file,
+ * inclusive line ranges sharing at least one line. Every metric
+ * function and the gold-set validator must route through this — an
+ * inlined copy means a future rule change (half-open ranges, a
+ * tolerance window) silently applies to some metrics and not others.
+ */
+export function qrelMatchesDoc(
+  q: Qrel,
+  doc: { readonly relPath: string; readonly startLine: number; readonly endLine: number },
+): boolean {
+  return q.relPath === doc.relPath && spansOverlap(doc, q);
+}
+
+/**
  * For one query, walk a ranked doc list and tag each ranked entry with
  * the highest relevance grade it overlaps in the per-query qrels. Docs
  * that overlap nothing get relevance 0. Used by every metric function
@@ -168,8 +182,7 @@ export function judgeRanked(
   return ranked.map((doc) => {
     let best: Relevance = 0;
     for (const q of qrels) {
-      if (q.relPath !== doc.relPath) continue;
-      if (!spansOverlap(doc, q)) continue;
+      if (!qrelMatchesDoc(q, doc)) continue;
       if (q.relevance > best) best = q.relevance;
     }
     return best;

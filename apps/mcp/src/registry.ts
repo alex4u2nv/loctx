@@ -14,6 +14,7 @@
 
 import { join } from "node:path";
 import {
+  assertNotReconciling,
   CONFIG_SCHEMA,
   type DuplicateGroup,
   estimateQueryValue,
@@ -21,9 +22,11 @@ import {
   inventoryProjects,
   isValueTool,
   type ProjectId,
+  ReconcileInFlightError,
   type Runtime,
   readActiveDaemon,
   resolveProjectScope,
+  resolveUnderWorkspaceRoots,
   type SearchResponse,
   type SymbolRefHit,
   summarizeUsage,
@@ -328,6 +331,31 @@ export interface AdminOptions {
 export class ToolError extends Error {}
 
 /**
+ * Enforce the documented input contract for `path` arguments: anything
+ * outside the configured `workspace_roots` is rejected, mirroring the
+ * HTTP layer's 403. Returns the canonicalized path (or undefined when
+ * no path was given) so handlers scope against the resolved form.
+ */
+function confinedPath(runtime: Runtime, path: string | undefined): string | undefined {
+  if (path === undefined || path === "") return undefined;
+  const confined = resolveUnderWorkspaceRoots(path, runtime.config.workspaceRoots);
+  if (confined === null) {
+    throw new ToolError(`path ${path} is not under any configured workspace_root`);
+  }
+  return confined;
+}
+
+/** Core's write-safety gate (#207), surfaced as a tool error. */
+function guardReconcile(runtime: Runtime, opName: string): void {
+  try {
+    assertNotReconciling(runtime.reconciler, opName);
+  } catch (err) {
+    if (err instanceof ReconcileInFlightError) throw new ToolError(err.message);
+    throw err;
+  }
+}
+
+/**
  * Resolve the tri-state `reconciling` value (#453). Pure so it can be
  * unit-tested without touching the lock file.
  *
@@ -379,13 +407,13 @@ export const tools = {
     const rawLimit = v.getInt(data, "limit", { nonNegative: true }) ?? 10;
     const limit = Math.min(Math.max(1, rawLimit), 1000);
 
+    const path = confinedPath(runtime, v.getStr(data, "path"));
+    const language = v.getStr(data, "language");
     const response = await runtime.searcher.search({
       query,
-      ...(v.getStr(data, "path") !== undefined ? { path: v.getStr(data, "path") as string } : {}),
+      ...(path !== undefined ? { path } : {}),
       limit,
-      ...(v.getStr(data, "language") !== undefined
-        ? { language: v.getStr(data, "language") as string }
-        : {}),
+      ...(language !== undefined ? { language } : {}),
       ...(v.getBool(data, "coverage") === true ? { coverage: true } : {}),
     });
     return Object.freeze({ ...response, indexHealth: currentIndexHealth(runtime) });
@@ -469,7 +497,7 @@ export const tools = {
     const data = v.requireRecord(input ?? {}, "arguments");
     const symbol = v.getStr(data, "symbol");
     if (!symbol) throw new ToolError("symbol is required and must be a non-empty string");
-    const path = v.getStr(data, "path");
+    const path = confinedPath(runtime, v.getStr(data, "path"));
 
     // Shared resolve-scope → findSymbol sweep (#449). findSymbolUsages
     // prefers the deepest *indexed* ancestor over an unindexed inner
@@ -520,7 +548,7 @@ export const tools = {
     // Optional project scope. Unscoped find_duplicates over a workspace
     // with a large project is expensive (the analyzer emits a 50-token
     // window per line); pass `path` to narrow to one project.
-    const path = v.getStr(data, "path");
+    const path = confinedPath(runtime, v.getStr(data, "path"));
     const warnings: string[] = [];
     let projectId: string | null = null;
     if (path !== undefined) {
@@ -552,7 +580,7 @@ export const tools = {
     if (pattern.length > 1024) {
       throw new ToolError("pattern exceeds 1024-char limit");
     }
-    const path = v.getStr(data, "path");
+    const path = confinedPath(runtime, v.getStr(data, "path"));
 
     // resolveProjectScope prefers the deepest *indexed* ancestor over an
     // unindexed inner marker and derives the subtree prefix, so a path
@@ -603,7 +631,12 @@ export const tools = {
   async refresh(runtime: Runtime, input: unknown): Promise<RefreshOutputWithHealth> {
     const v = new Validator(ToolError, "refresh_workspace");
     const data = v.requireRecord(input ?? {}, "arguments");
-    const path = v.getStr(data, "path");
+    const path = confinedPath(runtime, v.getStr(data, "path"));
+
+    // Mirror POST /api/index: a concurrent indexer pass against a
+    // project the reconciler is also walking races on the same LanceDB
+    // table (#207).
+    guardReconcile(runtime, "refresh");
 
     // A refresh exists to pick up new/changed projects — never serve it
     // from the discovery cache (#443).
@@ -707,9 +740,7 @@ export const tools = {
       case "compact": {
         // Mirror /api/compact: refuse during a reconcile so we don't fight
         // the indexer for the LanceDB writer lock.
-        if (runtime.reconciler.status().running) {
-          throw new ToolError("a reconcile is in flight; try compact again after it finishes");
-        }
+        guardReconcile(runtime, "compact");
         const { beforeBytes, afterBytes } = await runtime.compactVectors();
         return Object.freeze({
           action,

@@ -73,6 +73,34 @@ export interface ReconciliationStatus {
   readonly currentProjectTotal: number | null;
 }
 
+/**
+ * Thrown by {@link assertNotReconciling} when a write-path operation
+ * would race an in-flight reconcile. Carries the live status snapshot
+ * so transports can surface progress (HTTP 409 body, MCP tool error).
+ */
+export class ReconcileInFlightError extends Error {
+  constructor(
+    readonly opName: string,
+    readonly status: ReconciliationStatus,
+  ) {
+    super(`a reconcile is already in flight; ${opName} would race the in-flight pass`);
+    this.name = "ReconcileInFlightError";
+  }
+}
+
+/**
+ * Single write-safety gate for operations that take the LanceDB writer
+ * (index, refresh, rebuild, compact): a concurrent pass against a
+ * project the reconciler is also walking races on the same table
+ * (#207). Every transport (HTTP ops, MCP tools) must call this instead
+ * of re-implementing the `status().running` check so the rule and its
+ * message can't drift per call site.
+ */
+export function assertNotReconciling(reconciler: Pick<Reconciler, "status">, opName: string): void {
+  const status = reconciler.status();
+  if (status.running) throw new ReconcileInFlightError(opName, status);
+}
+
 export class Reconciler {
   private _running = false;
   private _startedAt: string | null = null;

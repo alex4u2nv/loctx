@@ -272,9 +272,11 @@ describe("indexHealth surfacing", () => {
     expect(out.indexHealth.reconciling).toBe(true);
   });
 
+  // Refresh can't run against a mid-reconcile runtime anymore (#207
+  // write guard), so indexHealth is asserted on the idle path.
   it("refresh response carries indexHealth", async () => {
-    const out = await tools.refresh(reconcilingRuntime(), {});
-    expect(out.indexHealth.reconciling).toBe(true);
+    const out = await tools.refresh(stubRuntime(), {});
+    expect(out.indexHealth.reconciling).toBe(false);
   });
 
   it("idle reconciler reports reconciling=false", async () => {
@@ -346,6 +348,13 @@ describe("tools.search", () => {
       limit: 3,
     });
     expect(captured).toMatchObject({ query: "hello", path: "/ws/alpha/src", limit: 3 });
+  });
+
+  it("rejects a path outside every workspace root", async () => {
+    const runtime = stubRuntime();
+    await expect(
+      tools.search(runtime, { query: "hello", path: "/elsewhere/secrets" }),
+    ).rejects.toBeInstanceOf(ToolError);
   });
 
   it("clamps an out-of-range limit to [1, 1000] (#344)", async () => {
@@ -433,10 +442,32 @@ describe("tools.refresh", () => {
     expect(out.summaries[0]?.projectId).toBe("proj-a");
   });
 
-  it("returns no summaries when the path does not match any project", async () => {
+  it("returns no summaries when an in-root path matches no project", async () => {
     const runtime = stubRuntime();
-    const out = await tools.refresh(runtime, { path: "/elsewhere/x" });
+    const out = await tools.refresh(runtime, { path: "/ws/gamma/x" });
     expect(out.summaries).toEqual([]);
+  });
+
+  it("rejects a path outside every workspace root", async () => {
+    const runtime = stubRuntime();
+    await expect(tools.refresh(runtime, { path: "/elsewhere/x" })).rejects.toBeInstanceOf(
+      ToolError,
+    );
+  });
+
+  it("refuses while a reconcile is in flight (#207)", async () => {
+    const runtime = stubRuntime({
+      reconciler: {
+        status: () => ({
+          running: true,
+          startedAt: "2026-08-06T00:00:00.000Z",
+          currentProjectName: "alpha",
+          completed: 0,
+          total: 1,
+        }),
+      } as Runtime["reconciler"],
+    });
+    await expect(tools.refresh(runtime, {})).rejects.toBeInstanceOf(ToolError);
   });
 });
 
