@@ -35,6 +35,67 @@ export class SchemaTooNewError extends Error {}
 
 const QUERIES = loadQueries("../sql/state.sql", import.meta.url);
 
+/**
+ * One rung of the schema ladder. Applied in order by
+ * {@link StateStore.migrate}; each section lives in `sql/state.sql`
+ * (CORE-2 — the ladder used to be ten hand-written if-blocks with the
+ * v3 CREATE TABLE SQL inlined in TypeScript).
+ */
+interface Migration {
+  readonly version: number;
+  /** Named section in state.sql to exec. */
+  readonly section: string;
+  /**
+   * Columns this migration ALTER-adds. When all of them already exist
+   * (user_version walked backwards — see #196), the section is skipped
+   * and `alreadyAppliedSection` (if any) runs instead.
+   */
+  readonly addsColumns?: ReadonlyArray<{ readonly table: string; readonly column: string }>;
+  /** Idempotent (IF NOT EXISTS) subset to run when the ALTERs already applied. */
+  readonly alreadyAppliedSection?: string;
+}
+
+const MIGRATIONS: ReadonlyArray<Migration> = [
+  { version: 1, section: "schema_v1" },
+  // BM25 / FTS5 lexical index over chunks.
+  { version: 2, section: "schema_v2" },
+  // Analyzer metadata + symbol cross-reference graph (#58). ALTERs
+  // chunks and CREATEs symbol_refs; when the columns already exist the
+  // IF NOT EXISTS CREATEs still need to run — schema_v3_tables is that
+  // subset.
+  {
+    version: 3,
+    section: "schema_v3",
+    addsColumns: [
+      { table: "chunks", column: "metadata_json" },
+      { table: "chunks", column: "symbol_def" },
+    ],
+    alreadyAppliedSection: "schema_v3_tables",
+  },
+  // Reconciliation tracking (#14).
+  {
+    version: 4,
+    section: "schema_v4",
+    addsColumns: [{ table: "projects", column: "last_reconciled_at" }],
+  },
+  // Background analyzer enrichments (#61).
+  { version: 5, section: "schema_v5" },
+  // Project activation.
+  { version: 6, section: "schema_v6", addsColumns: [{ table: "projects", column: "active" }] },
+  // Rebuild-pending flag (#299).
+  {
+    version: 7,
+    section: "schema_v7",
+    addsColumns: [{ table: "projects", column: "rebuild_pending_at" }],
+  },
+  // mcp_requests log table + index (IF NOT EXISTS, safe to re-run).
+  { version: 8, section: "schema_v8" },
+  // file_links doc cross-link graph (#427; IF NOT EXISTS, safe to re-run).
+  { version: 9, section: "schema_v9" },
+  // usage_stats value-served accounting (IF NOT EXISTS, safe to re-run).
+  { version: 10, section: "schema_v10" },
+];
+
 export class CollectionIdentityMismatch extends Error {}
 
 export interface FileState {
@@ -288,115 +349,30 @@ export class StateStore {
     }
     if (current === SCHEMA_VERSION) return;
 
-    if (current < 1) {
-      const schemaV1 = QUERIES["schema_v1"];
-      if (schemaV1 === undefined) throw new Error("Missing schema_v1 in state.sql");
-      this.db.exec(schemaV1);
-    }
-    if (current < 2) {
-      const schemaV2 = QUERIES["schema_v2"];
-      if (schemaV2 === undefined) throw new Error("Missing schema_v2 in state.sql");
-      this.db.exec(schemaV2);
-    }
-    if (current < 3) {
-      const schemaV3 = QUERIES["schema_v3"];
-      if (schemaV3 === undefined) throw new Error("Missing schema_v3 in state.sql");
-      // schema_v3 ALTERs `chunks` to add `metadata_json` + `symbol_def`,
-      // and CREATEs `symbol_refs` + indices. The CREATEs use
-      // `IF NOT EXISTS`, but the ALTERs don't have that option in
-      // SQLite. Guard them the same way v4 and v6 already do so a
-      // downgrade-then-reupgrade scenario (or test sandbox that
-      // walks user_version backwards) doesn't trip "duplicate
-      // column" errors. See #196.
-      if (
-        !this.columnExists("chunks", "metadata_json") ||
-        !this.columnExists("chunks", "symbol_def")
-      ) {
-        this.db.exec(schemaV3);
-      } else {
-        // Columns already present; still need to (re-)create
-        // symbol_refs + indices. Those use IF NOT EXISTS so it's
-        // safe to run the whole block — but we can't run it without
-        // the ALTERs failing. Split: run only the CREATEs.
-        this.db.exec(`
-          CREATE TABLE IF NOT EXISTS symbol_refs (
-            symbol TEXT NOT NULL,
-            project_id TEXT NOT NULL,
-            file_id TEXT NOT NULL,
-            chunk_id TEXT NOT NULL,
-            line INTEGER NOT NULL,
-            kind TEXT NOT NULL
-          );
-          CREATE INDEX IF NOT EXISTS idx_symbol_refs_lookup
-              ON symbol_refs(project_id, symbol, kind);
-          CREATE INDEX IF NOT EXISTS idx_symbol_refs_chunk ON symbol_refs(chunk_id);
-          CREATE INDEX IF NOT EXISTS idx_chunks_symbol_def ON chunks(symbol_def);
-        `);
+    for (const m of MIGRATIONS) {
+      if (current >= m.version) continue;
+      const sql = QUERIES[m.section];
+      if (sql === undefined) throw new Error(`Missing ${m.section} in state.sql`);
+      // SQLite has no `ADD COLUMN IF NOT EXISTS`, and a column may
+      // already exist when the DB was opened by a newer build then
+      // walked back via PRAGMA user_version (test-suite scenario, plus
+      // possible downgrade). Migrations that ALTER-add columns declare
+      // them in `addsColumns`; when every declared column is present we
+      // skip the section (running the optional `alreadyAppliedSection`
+      // instead — v3 still needs its IF NOT EXISTS CREATEs). See #196.
+      const alreadyApplied =
+        m.addsColumns?.every((c) => this.columnExists(c.table, c.column)) ?? false;
+      if (!alreadyApplied) {
+        this.db.exec(sql);
+        continue;
       }
-    }
-    if (current < 4) {
-      const schemaV4 = QUERIES["schema_v4"];
-      if (schemaV4 === undefined) throw new Error("Missing schema_v4 in state.sql");
-      // schema_v4 ADDs `projects.last_reconciled_at`. SQLite has no
-      // `ADD COLUMN IF NOT EXISTS`, and the column may already exist if
-      // the DB was opened by a newer build then walked back via PRAGMA
-      // user_version (test-suite scenario, plus possible downgrade).
-      // Skip the ALTER when the column is present.
-      if (!this.columnExists("projects", "last_reconciled_at")) {
-        this.db.exec(schemaV4);
+      if (m.alreadyAppliedSection !== undefined) {
+        const fallback = QUERIES[m.alreadyAppliedSection];
+        if (fallback === undefined) {
+          throw new Error(`Missing ${m.alreadyAppliedSection} in state.sql`);
+        }
+        this.db.exec(fallback);
       }
-    }
-
-    if (current < 5) {
-      const schemaV5 = QUERIES["schema_v5"];
-      if (schemaV5 === undefined) throw new Error("Missing schema_v5 in state.sql");
-      this.db.exec(schemaV5);
-    }
-
-    if (current < 6) {
-      const schemaV6 = QUERIES["schema_v6"];
-      if (schemaV6 === undefined) throw new Error("Missing schema_v6 in state.sql");
-      // schema_v6 adds `projects.active`. Same SQLite gotcha as v4:
-      // skip the ALTER when the column already exists (test sandbox
-      // walks user_version backwards between cases).
-      if (!this.columnExists("projects", "active")) {
-        this.db.exec(schemaV6);
-      }
-    }
-
-    if (current < 7) {
-      const schemaV7 = QUERIES["schema_v7"];
-      if (schemaV7 === undefined) throw new Error("Missing schema_v7 in state.sql");
-      // schema_v7 adds `projects.rebuild_pending_at`. Same SQLite gotcha:
-      // skip when the column already exists.
-      if (!this.columnExists("projects", "rebuild_pending_at")) {
-        this.db.exec(schemaV7);
-      }
-    }
-
-    if (current < 8) {
-      const schemaV8 = QUERIES["schema_v8"];
-      if (schemaV8 === undefined) throw new Error("Missing schema_v8 in state.sql");
-      // schema_v8 adds the mcp_requests table + index. Both use
-      // IF NOT EXISTS, so the block is safe to re-run on a sandbox that
-      // walks user_version backwards between cases.
-      this.db.exec(schemaV8);
-    }
-
-    if (current < 9) {
-      const schemaV9 = QUERIES["schema_v9"];
-      if (schemaV9 === undefined) throw new Error("Missing schema_v9 in state.sql");
-      // schema_v9 adds the file_links table + indices (doc cross-link graph).
-      // All IF NOT EXISTS, safe to re-run.
-      this.db.exec(schemaV9);
-    }
-
-    if (current < 10) {
-      const schemaV10 = QUERIES["schema_v10"];
-      if (schemaV10 === undefined) throw new Error("Missing schema_v10 in state.sql");
-      // schema_v10 adds the usage_stats table (value-served accounting).
-      // IF NOT EXISTS, safe to re-run.
-      this.db.exec(schemaV10);
     }
 
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -511,7 +487,7 @@ export class StateStore {
       rebuild_pending_at: string;
     }>("list_projects_with_rebuild_pending");
     return rows.map((r) => ({
-      id: r.id as ProjectId,
+      id: toProjectId(r.id),
       name: r.name,
       root: r.root,
       rebuildPendingAt: r.rebuild_pending_at,
@@ -674,7 +650,7 @@ export class StateStore {
    */
   chunkCountsByProject(): Map<ProjectId, number> {
     const rows = this.readAll<{ project_id: string; n: number }>("count_chunks_by_project");
-    return new Map(rows.map((r) => [r.project_id as ProjectId, Number(r.n)]));
+    return new Map(rows.map((r) => [toProjectId(r.project_id), Number(r.n)]));
   }
 
   /**
@@ -687,7 +663,7 @@ export class StateStore {
    */
   fileStatsByProject(): Map<ProjectId, ProjectFileStats> {
     const rows = this.readAll<FileStatsRow>("file_stats_by_project");
-    return new Map(rows.map((r) => [r.project_id as ProjectId, fileStatsFromRow(r)]));
+    return new Map(rows.map((r) => [toProjectId(r.project_id), fileStatsFromRow(r)]));
   }
 
   /** Single-project variant of {@link fileStatsByProject} for detail views. */
@@ -793,7 +769,7 @@ export class StateStore {
       }
       for (const m of extractLineMatches(r.document, pattern, r.start_line)) {
         out.push({
-          projectId: r.project_id as ProjectId,
+          projectId: toProjectId(r.project_id),
           projectName: r.project_name,
           relPath: r.rel_path,
           chunkId: r.chunk_id,
@@ -1016,7 +992,7 @@ export class StateStore {
       const list = byHash.get(row.hash) ?? [];
       if (list.length < MAX_MEMBERS_PER_GROUP) {
         list.push({
-          fileId: row.file_id as FileId,
+          fileId: toFileId(row.file_id),
           startLine: row.start_line,
           endLine: row.end_line,
         });
@@ -1314,8 +1290,8 @@ function mcpRequestEntryFromRow(row: McpRequestRow): McpRequestLogEntry {
 function lexicalMatchFromRow(row: LexicalRow): LexicalMatch {
   return {
     chunkId: row.chunk_id,
-    fileId: row.file_id as FileId,
-    projectId: row.project_id as ProjectId,
+    fileId: toFileId(row.file_id),
+    projectId: toProjectId(row.project_id),
     relPath: row.rel_path,
     startLine: row.start_line,
     endLine: row.end_line,
@@ -1331,8 +1307,8 @@ function lexicalMatchFromRow(row: LexicalRow): LexicalMatch {
 
 function fileStateFromRow(row: FileRow): FileState {
   return {
-    fileId: row.file_id as FileId,
-    projectId: row.project_id as ProjectId,
+    fileId: toFileId(row.file_id),
+    projectId: toProjectId(row.project_id),
     relPath: row.rel_path,
     size: row.size,
     mtime: row.mtime,
@@ -1346,7 +1322,7 @@ function fileStateFromRow(row: FileRow): FileState {
 function chunkStateFromRow(row: ChunkRow): ChunkState {
   return {
     chunkId: row.chunk_id,
-    fileId: row.file_id as FileId,
+    fileId: toFileId(row.file_id),
     startLine: row.start_line,
     endLine: row.end_line,
     kind: row.kind,

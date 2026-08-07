@@ -12,7 +12,7 @@
  */
 
 import { createRequire } from "node:module";
-import { extractAnalyzer, extractSymbolRefs } from "./analyzer.js";
+import { dedupeStrings, extractAnalyzer, extractSymbolRefs, importTargetText } from "./analyzer.js";
 import { type Chunker, type CodeChunk, chunkShaFor, type SourceDocument } from "./base.js";
 import { LineWindowChunker } from "./prose.js";
 
@@ -502,7 +502,7 @@ function extractFileLevelImports(root: TreeSitterNode, language: string): FileIm
   for (const node of root.namedChildren) {
     if (!importNodes.has(node.type)) continue;
     const line = node.startPosition.row + 1;
-    const target = importModuleText(node);
+    const target = importTargetText(node);
     if (target !== null && target !== "") modules.push(target);
     for (const name of extractNamedImports(node)) {
       refs.push({ symbol: name, kind: "import", line });
@@ -510,28 +510,6 @@ function extractFileLevelImports(root: TreeSitterNode, language: string): FileIm
   }
 
   return { modules: dedupeStrings(modules), refs };
-}
-
-/**
- * Pull the module specifier out of an import-shape node. Matches the
- * heuristics in analyzer.ts's importTargetText, but kept local so this
- * file owns its imports surface end-to-end.
- */
-function importModuleText(node: TreeSitterNode): string | null {
-  for (const field of ["source", "module", "argument", "name"]) {
-    const child = node.childForFieldName(field);
-    if (child !== null && child.text.length > 0) return stripImportQuotes(child.text);
-  }
-  for (const child of node.namedChildren) {
-    if (
-      child.type === "string" ||
-      child.type === "string_literal" ||
-      child.type === "raw_string_literal"
-    ) {
-      return stripImportQuotes(child.text);
-    }
-  }
-  return null;
 }
 
 /**
@@ -599,16 +577,9 @@ function collectIdentifiers(node: TreeSitterNode, out: string[]): void {
   }
 }
 
-function stripImportQuotes(s: string): string {
-  if (s.length >= 2 && (s[0] === '"' || s[0] === "'") && s[s.length - 1] === s[0]) {
-    return s.slice(1, -1);
-  }
-  return s;
-}
-
-function dedupeStrings(items: ReadonlyArray<string>): string[] {
-  return [...new Set(items)];
-}
+// importTargetText / stripImportQuotes / dedupeStrings are imported from
+// analyzer.ts (CORE-7) — the byte-identical local copies fed the same
+// symbol_refs table, so drift was a correctness risk.
 
 /**
  * Merge file-level import data into the chunk we picked (the first

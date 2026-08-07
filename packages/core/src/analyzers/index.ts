@@ -48,6 +48,7 @@ export {
 } from "./queue.js";
 export {
   capFindings,
+  detectCommand,
   normalizeSeverity,
   type RulePackFileResult,
   type RulePackFinding,

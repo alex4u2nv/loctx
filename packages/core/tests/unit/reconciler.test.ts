@@ -1,52 +1,30 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FakeEmbeddingProvider } from "../../src/embeddings/index.js";
-import { loadFilteringRules, ProjectFilter } from "../../src/filtering.js";
-import { combinedGitignore } from "../../src/gitignore.js";
-import { ProjectIndexer } from "../../src/indexing/indexer.js";
+import type { ProjectIndexer } from "../../src/indexing/indexer.js";
 import { Reconciler } from "../../src/indexing/reconciler.js";
 import { type Project, projectId } from "../../src/models.js";
-import { createVectorStore, StateStore } from "../../src/storage/index.js";
-import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
+import type { StateStore } from "../../src/storage/index.js";
+import { type IndexerFixture, makeIndexerFixture } from "../helpers/indexer-fixture.js";
 
-let tmp: string;
+let f: IndexerFixture;
 let projectRoot: string;
-let dataDir: string;
 let state: StateStore;
 let reconciler: Reconciler;
 let indexer: ProjectIndexer;
 
 beforeEach(async () => {
-  tmp = mkTmpDir("loctx-recon-");
-  projectRoot = join(tmp, "demo");
-  dataDir = join(tmp, ".data");
-  mkdirSync(join(projectRoot, "src"), { recursive: true });
-  mkdirSync(join(projectRoot, ".git"), { recursive: true });
-  writeFileSync(join(projectRoot, ".git", "HEAD"), "ref: refs/heads/main\n");
-  mkdirSync(dataDir, { recursive: true });
-
-  state = new StateStore(join(dataDir, "state.sqlite3"));
-  const embeddings = new FakeEmbeddingProvider({ dimension: 8, normalize: true });
-  await embeddings.ensureReady?.();
-  const vectors = createVectorStore(join(dataDir, "vectors"), embeddings.identity, state);
-  const rules = loadFilteringRules();
-  indexer = new ProjectIndexer(
-    state,
-    vectors,
-    embeddings,
-    (p: Project) => new ProjectFilter(p, rules, combinedGitignore(p.root)),
-  );
+  f = await makeIndexerFixture("loctx-recon-");
+  ({ projectRoot, state, indexer } = f);
   reconciler = new Reconciler(state, indexer);
 });
 
 afterEach(() => {
-  state.close();
-  rmTmpDir(tmp);
+  f.cleanup();
 });
 
 function makeProject(): Project {
-  return Object.freeze({ id: projectId("demo-1"), name: "demo", root: projectRoot });
+  return f.project();
 }
 
 describe("Reconciler (#14)", () => {
@@ -212,7 +190,7 @@ describe("Reconciler (#14)", () => {
 
   it("reconcileAll handles multiple projects and stamps each one", async () => {
     writeFileSync(join(projectRoot, "src", "auth.ts"), "export function authenticate() {}\n");
-    const otherRoot = join(tmp, "other");
+    const otherRoot = join(f.tmp, "other");
     mkdirSync(join(otherRoot, ".git"), { recursive: true });
     mkdirSync(join(otherRoot, "src"), { recursive: true });
     writeFileSync(join(otherRoot, ".git", "HEAD"), "ref: refs/heads/main\n");

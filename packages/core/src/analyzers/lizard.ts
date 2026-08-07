@@ -20,6 +20,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { detectCommand } from "./rule-pack.js";
 
 export const LIZARD_VERSION = 1;
 
@@ -46,15 +47,10 @@ const exec = promisify(execFile);
  * paths. Returns null when the binary is not reachable.
  */
 export async function detectLizard(command = "lizard"): Promise<string | null> {
-  try {
-    // Python cold start can spike past 2s on a loaded machine; give the
-    // detection path headroom so a working install isn't misreported as
-    // missing (see detectSemgrep).
-    await exec(command, ["--version"], { timeout: 8000 });
-    return command;
-  } catch {
-    return null;
-  }
+  // Python cold start can spike past 2s on a loaded machine; give the
+  // detection path headroom so a working install isn't misreported as
+  // missing (see detectSemgrep).
+  return detectCommand(command, 8000);
 }
 
 /**

@@ -98,6 +98,27 @@ CREATE INDEX IF NOT EXISTS idx_symbol_refs_lookup
     ON symbol_refs(project_id, symbol, kind);
 CREATE INDEX IF NOT EXISTS idx_symbol_refs_chunk ON symbol_refs(chunk_id);
 
+-- :name schema_v3_tables
+-- The CREATE-only half of schema_v3, run when the `chunks` ALTERs have
+-- already been applied (downgrade-then-reupgrade, or a test sandbox that
+-- walks user_version backwards — see #196). Everything here is
+-- IF NOT EXISTS so it is safe to re-run; it exists as a separate section
+-- because the ALTERs above would fail on re-run and SQLite has no
+-- ALTER ... IF NOT EXISTS. Keep in sync with schema_v3.
+-- (Previously inline TypeScript in state.ts:migrate — CORE-2.)
+CREATE TABLE IF NOT EXISTS symbol_refs (
+    symbol TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    chunk_id TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    kind TEXT NOT NULL  -- 'def' | 'call' | 'import' | 'reference'
+);
+CREATE INDEX IF NOT EXISTS idx_symbol_refs_lookup
+    ON symbol_refs(project_id, symbol, kind);
+CREATE INDEX IF NOT EXISTS idx_symbol_refs_chunk ON symbol_refs(chunk_id);
+CREATE INDEX IF NOT EXISTS idx_chunks_symbol_def ON chunks(symbol_def);
+
 -- :name schema_v4
 -- Reconciliation tracking (#14). One column on `projects`; null until
 -- the first reconciliation pass writes a timestamp. Surfaced in

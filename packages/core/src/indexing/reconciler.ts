@@ -24,6 +24,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Project } from "../models.js";
 import type { StateStore } from "../storage/state.js";
+import { mapWithConcurrency } from "./concurrency.js";
 import type { ProjectIndexer } from "./indexer.js";
 
 export interface ReconciliationSummary {
@@ -211,14 +212,12 @@ export class Reconciler {
     // `options.concurrency` once they've verified their workload
     // doesn't trip the same race. See #207.
     const concurrency = Math.max(1, options.concurrency ?? 1);
-    let cursor = 0;
-    const worker = async (): Promise<void> => {
-      while (true) {
-        const i = cursor;
-        cursor += 1;
-        if (i >= projects.length) return;
-        const project = projects[i];
-        if (project === undefined) return;
+    try {
+      // No abort signal: a reconcile pass runs to completion (unlike
+      // indexProject's #217 cancellation). Positional output is kept by
+      // assigning `out[i]` here rather than using the pool's
+      // completion-order results (CORE-9).
+      await mapWithConcurrency(projects, concurrency, async (project, i) => {
         // currentProjectName only tracks "one of the in-flight
         // projects" when concurrency > 1; useful for the UI banner
         // even if not strictly ordered.
@@ -226,10 +225,7 @@ export class Reconciler {
         this._currentProjectId = project.id;
         out[i] = await this.reconcileProject(project);
         this._completed += 1;
-      }
-    };
-    try {
-      await Promise.all(Array.from({ length: concurrency }, () => worker()));
+      });
     } finally {
       this._running = false;
       this._currentProjectName = null;

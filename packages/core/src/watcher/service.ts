@@ -15,6 +15,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { ProjectFilter } from "../filtering.js";
+import { IGNORED_DIR_NAMES } from "../filtering-defaults.js";
 import { RULE_FILENAMES } from "../gitignore.js";
 import type { ProjectIndexer } from "../indexing/index.js";
 import { safeLog } from "../log.js";
@@ -81,18 +82,15 @@ const PENDING_CAP = 5_000;
 /**
  * @parcel/watcher's `ignore` accepts glob patterns or absolute paths.
  * We feed it directory names; the matcher handles them as path components.
+ *
+ * Derived from the canonical filtering-defaults name list (CORE-12 —
+ * this used to be a hand-maintained subset that had drifted), plus the
+ * watcher-specific extra `vendor` (huge Go/PHP dependency trees whose
+ * event storms the filter would only drop after the kernel already
+ * delivered them). Every derived name is a directory the ProjectFilter
+ * refuses to index anyway, so not watching it is pure noise reduction.
  */
-const DEFAULT_IGNORED = [
-  "**/.git/**",
-  "**/node_modules/**",
-  "**/.venv/**",
-  "**/__pycache__/**",
-  "**/dist/**",
-  "**/build/**",
-  "**/.next/**",
-  "**/target/**",
-  "**/vendor/**",
-];
+const DEFAULT_IGNORED = [...IGNORED_DIR_NAMES, "vendor"].map((name) => `**/${name}/**`);
 
 export class WatcherService {
   private mainSub: ParcelSubscription | null = null;

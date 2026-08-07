@@ -7,6 +7,26 @@
  * binary produced a hit.
  */
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const exec = promisify(execFile);
+
+/**
+ * Probe an external analyzer binary by running `<command> --version`
+ * (CORE-8 — the lizard/semgrep/ast-grep detectors were three copies of
+ * this differing only in timeout). Returns the command when it responds
+ * within `timeoutMs`, null when it is missing or unresponsive.
+ */
+export async function detectCommand(command: string, timeoutMs: number): Promise<string | null> {
+  try {
+    await exec(command, ["--version"], { timeout: timeoutMs });
+    return command;
+  } catch {
+    return null;
+  }
+}
+
 export interface RulePackFinding {
   /** Stable rule identifier as reported by the tool (e.g. `python.lang.security.audit.exec-detected`). */
   readonly ruleId: string;

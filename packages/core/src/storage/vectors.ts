@@ -21,6 +21,7 @@ import {
   type FileId,
   type ProjectId,
 } from "../models.js";
+import { quoteSql as quote } from "./quote.js";
 import type { StateStore } from "./state.js";
 
 const TABLE_PREFIX = "loctx_";
@@ -342,11 +343,6 @@ function toMatch(row: Record<string, unknown>): VectorMatch {
     metadata: Object.freeze(rest),
     document: typeof document === "string" ? document : "",
   };
-}
-
-function quote(s: string): string {
-  // Single quote per ANSI SQL; escape embedded quotes by doubling.
-  return `'${s.replace(/'/g, "''")}'`;
 }
 
 function stringOrNull(v: unknown): string | null {
