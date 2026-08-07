@@ -7,12 +7,14 @@ on:
       - "**.md"
       - "docs/**"
       - "LICENSE"
+  # No paths-ignore on the PR trigger: the `verify` job is a REQUIRED
+  # status check on main, and a path-filtered required check never
+  # reports on a docs-only PR — GitHub then waits on it forever and
+  # the PR can't merge. Docs-only PRs pay one (mostly cached) CI run;
+  # that's the price of the merge gate actually gating. Pushes to main
+  # keep the filter — nothing gates on those runs.
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "LICENSE"
 
 permissions:
   contents: read
