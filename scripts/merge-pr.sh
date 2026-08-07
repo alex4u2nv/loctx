@@ -21,7 +21,20 @@ set -euo pipefail
 
 pr="${1:?usage: merge-pr.sh <pr-number>}"
 
-echo "[merge-pr] waiting for checks on PR #${pr}..."
+# Check runs are registered asynchronously after a push — polling too
+# early yields "no checks reported", which must fail closed (it is NOT
+# green), but deserves a grace period rather than an instant refusal.
+echo "[merge-pr] waiting for checks to be reported on PR #${pr}..."
+for _ in $(seq 1 30); do
+  if gh pr checks "$pr" 2>&1 | grep -vq "no checks reported"; then break; fi
+  sleep 10
+done
+if gh pr checks "$pr" 2>&1 | grep -qi "no checks reported"; then
+  echo "[merge-pr] no CI checks appeared within 5 minutes — refusing to merge." >&2
+  exit 1
+fi
+
+echo "[merge-pr] checks reported — watching until they settle..."
 gh pr checks "$pr" --watch --fail-fast
 
 echo "[merge-pr] checks green — merging."
