@@ -115,6 +115,14 @@ is a separate PR — never edit `golden/v1/` in place.
 
 This repo uses pnpm (>= 9) — npm/yarn aren't tested. `corepack enable && corepack prepare pnpm@9.15.9 --activate` is enough.
 
+**Merging PRs: always go through `pnpm run merge:pr -- <number>`**
+(`scripts/merge-pr.sh`). It waits for the PR's CI checks and refuses
+to merge on any failure. Never `gh pr merge` directly — GitHub-side
+required checks aren't available on this private repo, so the script
+IS the merge gate. When the repo goes public, apply
+`.github/rulesets/main-requires-verify.json` to move the gate
+server-side.
+
 ```
 pnpm run verify       # build + lint + typecheck + test, all workspaces
 pnpm run build        # build only
