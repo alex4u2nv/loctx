@@ -1,0 +1,21 @@
+loctx
+Copyright 2026 Alex Mahabir
+
+Licensed under the Apache License, Version 2.0.
+
+This product bundles or derives from the following third-party works:
+
+Font Awesome Free icons
+  The inline SVG icon path data in apps/web/client/components/icon.tsx
+  derives from Font Awesome Free, (c) Fonticons, Inc., used under the
+  CC BY 4.0 license (https://creativecommons.org/licenses/by/4.0/).
+  https://fontawesome.com
+
+libvips (release artifacts only)
+  Prebuilt release tarballs include the unmodified libvips shared
+  library via the sharp npm package (a transitive dependency of
+  @huggingface/transformers), licensed under LGPL-3.0-or-later
+  (https://www.gnu.org/licenses/lgpl-3.0.html). loctx links it
+  dynamically and does not modify it; source is available at
+  https://github.com/libvips/libvips, and the library may be replaced
+  by the user. loctx itself performs no image processing.
