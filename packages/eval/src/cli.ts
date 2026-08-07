@@ -11,6 +11,7 @@ import { indexCommand } from "./cmd/index.js";
 import { reportCommand } from "./cmd/report.js";
 import { runCommand } from "./cmd/run.js";
 import { validateCommand } from "./cmd/validate.js";
+import { errorMessage } from "./errors.js";
 
 const program = new Command()
   .name("loctx-eval")
@@ -83,7 +84,7 @@ program
   });
 
 program.parseAsync(process.argv).catch((err: unknown) => {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorMessage(err);
   console.error(`[loctx-eval] ${message}`);
   if (process.env["LOCTX_LOG"] === "debug" && err instanceof Error) {
     console.error(err.stack ?? message);

@@ -4,7 +4,7 @@
 
 import { readActiveDaemon } from "@loctx/core";
 import type { Command } from "commander";
-import { confirm, getCtx, loadConfigOrFail } from "../lib/context.js";
+import { confirm, EXIT, getCtx, loadConfigOrFail } from "../lib/context.js";
 
 /**
  * Persist the model switch through core's comment-preserving writer:
@@ -77,7 +77,7 @@ export function registerModelCommands(program: Command): void {
       const info = findModel(name);
       if (info === null) {
         console.error(`Unknown model '${name}'. Run 'loctx model list' to see available options.`);
-        process.exit(1);
+        process.exit(EXIT.error);
       }
       // Mirror the /models web confirm (#315). A model switch silently
       // invalidates the existing index: LanceDB throws
@@ -89,11 +89,11 @@ export function registerModelCommands(program: Command): void {
         );
         if (!ok) {
           console.error("[loctx model use] cancelled.");
-          process.exit(1);
+          process.exit(EXIT.error);
         }
       }
       if (!(await writeModelChoice(info.name, info.normalize))) {
-        process.exitCode = 1;
+        process.exitCode = EXIT.error;
         return;
       }
       console.error(`[loctx model use] switched embedding.model to ${info.name}.`);
@@ -126,7 +126,7 @@ export function registerModelCommands(program: Command): void {
       const info = findModel(name);
       if (info === null) {
         console.error(`Unknown model '${name}'. Run 'loctx model list' to see options.`);
-        process.exit(1);
+        process.exit(EXIT.error);
       }
       const ctx = getCtx();
       const config = loadConfigOrFail(ctx);
@@ -147,7 +147,7 @@ export function registerModelCommands(program: Command): void {
       if (opts.use) {
         const previous = config.embedding.model;
         if (!(await writeModelChoice(info.name, info.normalize))) {
-          process.exitCode = 1;
+          process.exitCode = EXIT.error;
           return;
         }
         console.error(`[loctx model download] embedding.model: ${previous} → ${info.name}`);

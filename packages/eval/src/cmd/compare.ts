@@ -4,9 +4,10 @@
  * redirect or pipe).
  */
 
-import { readFileSync } from "node:fs";
 import { renderCompare } from "../report.js";
-import type { RunResultJson } from "../types.js";
+// Validated at the read boundary (CLI-11) — a truncated or hand-edited
+// run file fails with a pointed message, not a silently 0-filled delta.
+import { readRun } from "../run-json.js";
 import { resolveRunJson } from "./report.js";
 
 export interface CompareCommandOptions {
@@ -18,8 +19,4 @@ export function compareCommand(options: CompareCommandOptions): string {
   const a = readRun(resolveRunJson(options.a));
   const b = readRun(resolveRunJson(options.b));
   return renderCompare(a, b);
-}
-
-function readRun(path: string): RunResultJson {
-  return JSON.parse(readFileSync(path, "utf-8")) as RunResultJson;
 }

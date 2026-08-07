@@ -9,23 +9,19 @@
 
 import { execSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 import { identityToString } from "@loctx/core";
-import { buildSandboxedRuntime, indexCorpus, loadCorpusConfig, snapshotCorpus } from "../corpus.js";
+import type { GoldenSetOptions } from "../corpus.js";
+import { goldenSetDir, withCorpusRuntime } from "../corpus.js";
 import { scoreRun } from "../metrics.js";
 import { loadQrels } from "../qrels.js";
 import { runQueries } from "../runner.js";
 import { writeTrec } from "../trec.js";
 import type { QueryId, QueryType, RankedDoc, RunResultJson } from "../types.js";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_GOLDEN_ROOT = resolve(HERE, "..", "..", "golden");
 const DEFAULT_RUNS_ROOT = resolve(process.cwd(), "runs");
 
-export interface RunCommandOptions {
-  readonly goldenSet: string;
-  readonly goldenRoot?: string;
+export interface RunCommandOptions extends GoldenSetOptions {
   readonly runsRoot?: string;
 }
 
@@ -34,24 +30,13 @@ export async function runCommand(options: RunCommandOptions): Promise<{
   readonly jsonPath: string;
   readonly runId: string;
 }> {
-  const goldenRoot = options.goldenRoot ?? DEFAULT_GOLDEN_ROOT;
   const runsRoot = options.runsRoot ?? DEFAULT_RUNS_ROOT;
-  const setDir = join(goldenRoot, options.goldenSet);
-  const corpus = loadCorpusConfig(join(setDir, "corpus.toml"));
-  const qrels = loadQrels(join(setDir, "qrels.jsonl"));
-
+  // Load qrels before the (expensive) snapshot + index so an authoring
+  // error in the gold set fails fast.
+  const qrels = loadQrels(join(goldenSetDir(options), "qrels.jsonl"));
   const startedAt = new Date();
-  // Search-roots probe: the worktree we're running in, plus its parent
-  // (the parent loctx clone). Either may be a usable local git source
-  // even when corpus.repo points to a public URL.
-  const searchRoots = [process.cwd(), resolve(process.cwd(), "..")];
-  const snap = await snapshotCorpus(corpus, searchRoots);
-  let runtimeBox: Awaited<ReturnType<typeof buildSandboxedRuntime>> | undefined;
-  try {
-    runtimeBox = await buildSandboxedRuntime(corpus);
-    const { runtime } = runtimeBox;
-    const { project, chunkBoundaryHash } = await indexCorpus(runtime, snap.root);
 
+  return withCorpusRuntime(options, async ({ corpus, runtime, project, chunkBoundaryHash }) => {
     const results = await runQueries(runtime.searcher, qrels, { project });
     const perQueryRanked = new Map<QueryId, ReadonlyArray<RankedDoc>>();
     const queryTypes = new Map<QueryId, QueryType>();
@@ -91,10 +76,7 @@ export async function runCommand(options: RunCommandOptions): Promise<{
     writeFileSync(jsonPath, `${JSON.stringify(runJson, null, 2)}\n`, "utf-8");
 
     return Object.freeze({ trecPath, jsonPath, runId });
-  } finally {
-    if (runtimeBox !== undefined) await runtimeBox.close();
-    snap.cleanup();
-  }
+  });
 }
 
 function formatRunId(startedAt: Date, loctxSha: string): string {

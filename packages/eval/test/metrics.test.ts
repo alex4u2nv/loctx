@@ -16,7 +16,14 @@ import {
   scoreRun,
 } from "../src/metrics.js";
 import { parseQrels } from "../src/qrels.js";
-import type { PerQueryMetrics, Qrel, QueryType, RankedDoc, Relevance } from "../src/types.js";
+import type {
+  PerQueryMetrics,
+  Qrel,
+  QueryId,
+  QueryType,
+  RankedDoc,
+  Relevance,
+} from "../src/types.js";
 import { queryId } from "../src/types.js";
 
 describe("hitAtK", () => {
@@ -161,13 +168,13 @@ describe("scoreRun", () => {
 {"query_id":"q1","query":"x","query_type":"literal","rel_path":"a","start_line":1,"end_line":5,"relevance":2,"provenance":"manual"}
 {"query_id":"q2","query":"y","query_type":"concept","rel_path":"b","start_line":1,"end_line":5,"relevance":1,"provenance":"manual"}
 `) as Qrel[];
-    const ranked = new Map<string, RankedDoc[]>([
-      ["q1", [{ relPath: "a", startLine: 1, endLine: 5, score: 1, rank: 1 }]],
-      ["q2", [{ relPath: "z", startLine: 1, endLine: 5, score: 1, rank: 1 }]],
+    const ranked = new Map<QueryId, RankedDoc[]>([
+      [queryId("q1"), [{ relPath: "a", startLine: 1, endLine: 5, score: 1, rank: 1 }]],
+      [queryId("q2"), [{ relPath: "z", startLine: 1, endLine: 5, score: 1, rank: 1 }]],
     ]);
-    const types = new Map<string, QueryType>([
-      ["q1", "literal"],
-      ["q2", "concept"],
+    const types = new Map<QueryId, QueryType>([
+      [queryId("q1"), "literal"],
+      [queryId("q2"), "concept"],
     ]);
     const scored = scoreRun(ranked, qrels, types);
     expect(scored.overall.hitAt1).toBe(0.5);
@@ -175,5 +182,15 @@ describe("scoreRun", () => {
     expect(scored.byQueryType["concept"]?.hitAt1).toBe(0);
     const literalRow = scored.perQuery.find((p: PerQueryMetrics) => p.queryId === queryId("q1"));
     expect(literalRow?.queryType).toBe("literal");
+  });
+
+  it("throws when a qrels query has no recorded query type", () => {
+    // The runner derives queryTypes from the same grouped qrels it
+    // executes, so a miss means mismatched inputs — surfaced loudly
+    // instead of silently defaulting to "concept" (2026-08-06 audit).
+    const qrels: Qrel[] = parseQrels(`
+{"query_id":"q1","query":"x","query_type":"literal","rel_path":"a","start_line":1,"end_line":5,"relevance":2,"provenance":"manual"}
+`) as Qrel[];
+    expect(() => scoreRun(new Map(), qrels, new Map())).toThrow(/no query type recorded/);
   });
 });

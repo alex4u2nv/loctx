@@ -8,10 +8,10 @@
  * lands next to the source JSON for easy pairing.
  */
 
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderReport } from "../report.js";
-import type { RunResultJson } from "../types.js";
+import { readRun } from "../run-json.js";
 
 export interface ReportCommandOptions {
   readonly target: string;
@@ -24,7 +24,9 @@ export interface ReportCommandResult {
 
 export function reportCommand(options: ReportCommandOptions): ReportCommandResult {
   const jsonPath = resolveRunJson(options.target);
-  const run = JSON.parse(readFileSync(jsonPath, "utf-8")) as RunResultJson;
+  // Validated at the read boundary (CLI-11) — a truncated or
+  // hand-edited run file fails with a pointed message, not NaN cells.
+  const run = readRun(jsonPath);
   const markdown = renderReport(run);
   const markdownPath = jsonPath.replace(/\.json$/, ".report.md");
   writeFileSync(markdownPath, markdown, "utf-8");

@@ -14,7 +14,7 @@ import {
   resolveMcpStdioSpec,
   WorkspaceDiscovery,
 } from "@loctx/core";
-import { confirm, getCtx, loadConfigOrFail } from "./context.js";
+import { confirm, EXIT, getCtx, loadConfigOrFail } from "./context.js";
 
 export interface AgentSetupOpts {
   readonly requested: ReadonlyArray<string>;
@@ -35,7 +35,7 @@ export async function runAgentSetup(projectRoot: string, opts: AgentSetupOpts): 
     console.error(
       `[setup-agent] unknown agent(s): ${unknown.join(", ")} (expected ${[...validIds].join(", ")})`,
     );
-    process.exitCode = 1;
+    process.exitCode = EXIT.error;
     return;
   }
 

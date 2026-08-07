@@ -8,17 +8,10 @@
  * without paying for the embedder pass on every query.
  */
 
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { buildSandboxedRuntime, indexCorpus, loadCorpusConfig, snapshotCorpus } from "../corpus.js";
+import type { GoldenSetOptions } from "../corpus.js";
+import { withCorpusRuntime } from "../corpus.js";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_GOLDEN_ROOT = resolve(HERE, "..", "..", "golden");
-
-export interface IndexCommandOptions {
-  readonly goldenSet: string;
-  readonly goldenRoot?: string;
-}
+export type IndexCommandOptions = GoldenSetOptions;
 
 export interface IndexCommandResult {
   readonly chunkBoundaryHash: string;
@@ -27,16 +20,7 @@ export interface IndexCommandResult {
 }
 
 export async function indexCommand(options: IndexCommandOptions): Promise<IndexCommandResult> {
-  const goldenRoot = options.goldenRoot ?? DEFAULT_GOLDEN_ROOT;
-  const setDir = join(goldenRoot, options.goldenSet);
-  const corpus = loadCorpusConfig(join(setDir, "corpus.toml"));
-  const searchRoots = [process.cwd(), resolve(process.cwd(), "..")];
-  const snap = await snapshotCorpus(corpus, searchRoots);
-  let runtimeBox: Awaited<ReturnType<typeof buildSandboxedRuntime>> | undefined;
-  try {
-    runtimeBox = await buildSandboxedRuntime(corpus);
-    const { runtime } = runtimeBox;
-    const { project, chunkBoundaryHash } = await indexCorpus(runtime, snap.root);
+  return withCorpusRuntime(options, async ({ runtime, project, chunkBoundaryHash }) => {
     const files = runtime.state.listFiles(project.id);
     let chunkCount = 0;
     for (const f of files) {
@@ -47,8 +31,5 @@ export async function indexCommand(options: IndexCommandOptions): Promise<IndexC
       indexedFiles: files.length,
       chunkCount,
     });
-  } finally {
-    if (runtimeBox !== undefined) await runtimeBox.close();
-    snap.cleanup();
-  }
+  });
 }

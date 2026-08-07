@@ -6,18 +6,11 @@
  * function returning a string array, joined at the end.
  */
 
-import type { MetricSummary, RunResultJson } from "./types.js";
-
-const METRIC_KEYS = [
-  "hitAt1",
-  "hitAt3",
-  "hitAt10",
-  "mrrAt10",
-  "ndcgAt10",
-  "recallAt20",
-  "recallAt50",
-] as const;
-type MetricKey = (typeof METRIC_KEYS)[number];
+import type { MetricKey, MetricSummary, RunResultJson } from "./types.js";
+// Shared key order (CLI-5, 2026-08-06 audit): the same array drives
+// averageMetrics and the run-JSON validator, so the report columns
+// can't drift from the summary type.
+import { METRIC_KEYS } from "./types.js";
 
 const METRIC_LABELS: Readonly<Record<MetricKey, string>> = {
   hitAt1: "Hit@1",
@@ -131,11 +124,12 @@ export function renderCompare(a: RunResultJson, b: RunResultJson): string {
       // A query type present in only one run must NOT be 0-filled on the
       // other side — that faked a full-magnitude delta (e.g. -1.000) for
       // what is really "absent, not comparable". Render n/a and suppress
-      // the delta unless the type is in both runs (#471).
-      const aCell = am === undefined ? "n/a" : fmt(am[k] ?? 0);
-      const bCell = bm === undefined ? "n/a" : fmt(bm[k] ?? 0);
-      const deltaCell =
-        am === undefined || bm === undefined ? "—" : fmtDelta((bm[k] ?? 0) - (am[k] ?? 0));
+      // the delta unless the type is in both runs (#471). Per-key `?? 0`
+      // fallbacks are gone: validateRunJson (CLI-11) guarantees every
+      // METRIC_KEYS entry is a number before a run reaches this table.
+      const aCell = am === undefined ? "n/a" : fmt(am[k]);
+      const bCell = bm === undefined ? "n/a" : fmt(bm[k]);
+      const deltaCell = am === undefined || bm === undefined ? "—" : fmtDelta(bm[k] - am[k]);
       sections.push(`| ${t} | ${METRIC_LABELS[k]} | ${aCell} | ${bCell} | ${deltaCell} |`);
     }
   }

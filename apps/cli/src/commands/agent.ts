@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { AGENTS, loadConfig } from "@loctx/core";
 import type { Command } from "commander";
 import { runAgentRefresh, runAgentSetup } from "../lib/agent-setup.js";
-import { getCtx } from "../lib/context.js";
+import { EXIT, errorMessage, getCtx } from "../lib/context.js";
 
 export function registerAgentCommands(program: Command): void {
   program
@@ -21,8 +21,8 @@ export function registerAgentCommands(program: Command): void {
       try {
         await runInitWizard({ target: ctx.configPath, force: opts.force });
       } catch (err) {
-        console.error(`[loctx init] ${(err as Error).message}`);
-        process.exit(1);
+        console.error(`[loctx init] ${errorMessage(err)}`);
+        process.exit(EXIT.error);
       }
     });
 
@@ -56,7 +56,7 @@ export function registerAgentCommands(program: Command): void {
             port = loadConfig(getCtx().configPath).daemon.port;
           } catch {
             console.error("[setup-agent] --http needs a readable config for the daemon port.");
-            process.exitCode = 1;
+            process.exitCode = EXIT.error;
             return;
           }
         }

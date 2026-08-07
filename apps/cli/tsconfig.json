@@ -1,6 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    // Map.groupBy (CLI-8) is ES2024; runtime floor is Node 22, which ships it.
+    "lib": ["ES2024"],
     "outDir": "./dist",
     "rootDir": "./src",
     "composite": true,

@@ -6,7 +6,7 @@
 
 import { readActiveDaemon } from "@loctx/core";
 import type { Command } from "commander";
-import { getCtx, loadConfigOrFail } from "../lib/context.js";
+import { EXIT, getCtx, loadConfigOrFail } from "../lib/context.js";
 import { printConfig } from "../lib/print.js";
 
 export function registerConfigCommands(program: Command): void {
@@ -38,7 +38,7 @@ export function registerConfigCommands(program: Command): void {
         console.error(
           `[loctx config init] refused: ${target} already exists. Pass --force to overwrite.`,
         );
-        process.exit(1);
+        process.exit(EXIT.error);
       }
       writeFileSync(target, CONFIG_TEMPLATE, "utf-8");
       console.error(`[loctx config init] wrote ${target}`);
@@ -67,7 +67,7 @@ export function registerResetCommands(program: Command): void {
             "  This deletes every chunk, vector, and file row for the configured\n" +
             "  data dir. Source files are untouched. Pass --force to proceed.",
         );
-        process.exit(1);
+        process.exit(EXIT.error);
       }
       const ctx = getCtx();
       const config = loadConfigOrFail(ctx);
@@ -77,7 +77,7 @@ export function registerResetCommands(program: Command): void {
         console.error(
           `[loctx reset index] daemon is running (PID ${lock.pid}). Stop it first with 'loctx stop'.`,
         );
-        process.exit(1);
+        process.exit(EXIT.error);
       }
 
       const { rmSync } = await import("node:fs");

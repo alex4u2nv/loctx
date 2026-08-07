@@ -16,7 +16,7 @@ import { registerProjectActivation, registerProjectMaintenance } from "./command
 import { registerSearchCommands } from "./commands/search.js";
 import { registerSystemCommands } from "./commands/system.js";
 import { registerToolsCommands } from "./commands/tools.js";
-import { program } from "./lib/context.js";
+import { EXIT, errorMessage, program } from "./lib/context.js";
 import { handleDaemonError } from "./lib/daemon-io.js";
 
 // Real package version (#451) — resolves from src/ (tsx dev) and dist/
@@ -58,7 +58,7 @@ program.parseAsync(process.argv).catch((err: unknown) => {
   if (process.env["LOCTX_LOG"] === "debug" && err instanceof Error) {
     console.error(err.stack ?? err.message);
   } else {
-    console.error(err instanceof Error ? err.message : String(err));
+    console.error(errorMessage(err));
   }
-  process.exit(1);
+  process.exit(EXIT.error);
 });

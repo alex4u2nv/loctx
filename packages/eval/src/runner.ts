@@ -7,7 +7,6 @@
 import type { Project, Runtime, WorkspaceSearcher } from "@loctx/core";
 import { groupQrelsByQuery } from "./qrels.js";
 import type { Qrel, QueryRunResult, RankedDoc } from "./types.js";
-import { queryId } from "./types.js";
 
 /** How many candidates the runner fetches per query. */
 export const DEFAULT_FETCH_K = 50;
@@ -58,7 +57,8 @@ export async function runQueries(
     );
     results.push(
       Object.freeze<QueryRunResult>({
-        queryId: queryId(qid),
+        // grouped is keyed by the branded QueryId — no re-brand needed.
+        queryId: qid,
         query: first.query,
         queryType: first.queryType,
         ranked: Object.freeze(ranked),

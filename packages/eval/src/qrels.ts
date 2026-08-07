@@ -11,12 +11,14 @@
  */
 
 import { readFileSync } from "node:fs";
-import type { Qrel, QueryType, RankedDoc, Relevance } from "./types.js";
+import { errorMessage } from "./errors.js";
+import type { Qrel, QueryId, QueryType, RankedDoc, Relevance } from "./types.js";
 import { queryId } from "./types.js";
 
 export class QrelsLoadError extends Error {}
 
-const VALID_QUERY_TYPES: ReadonlySet<QueryType> = new Set([
+/** Exported for the run-JSON validator (CLI-11), which shares the enum. */
+export const VALID_QUERY_TYPES: ReadonlySet<QueryType> = new Set([
   "literal",
   "symbol",
   "concept",
@@ -59,7 +61,7 @@ export function parseQrels(text: string, source = "<inline>"): ReadonlyArray<Qre
     try {
       parsed = JSON.parse(trimmed) as unknown;
     } catch (err) {
-      throw new QrelsLoadError(`${source}:${i + 1}: invalid JSON: ${(err as Error).message}`);
+      throw new QrelsLoadError(`${source}:${i + 1}: invalid JSON: ${errorMessage(err)}`);
     }
     out.push(validateQrel(parsed, source, i + 1));
   }
@@ -130,15 +132,15 @@ function requireInt(v: unknown, field: string, source: string, lineNo: number): 
  */
 export function groupQrelsByQuery(
   qrels: ReadonlyArray<Qrel>,
-): ReadonlyMap<string, ReadonlyArray<Qrel>> {
-  const out = new Map<string, Qrel[]>();
+): ReadonlyMap<QueryId, ReadonlyArray<Qrel>> {
+  const out = new Map<QueryId, Qrel[]>();
   for (const q of qrels) {
     const bucket = out.get(q.queryId) ?? [];
     bucket.push(q);
     out.set(q.queryId, bucket);
   }
   // Freeze each bucket so callers can't mutate one mid-iteration.
-  const frozen = new Map<string, ReadonlyArray<Qrel>>();
+  const frozen = new Map<QueryId, ReadonlyArray<Qrel>>();
   for (const [k, v] of out) frozen.set(k, Object.freeze(v));
   return frozen;
 }
