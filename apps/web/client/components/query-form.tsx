@@ -1,32 +1,47 @@
 /**
  * Tiny form primitive for "labeled input(s) + a submit button" queries:
- * the /find-usages page, the scoped search panel on /projects/:id, and
- * the scoped find-usages panel on the same page (#255 entry 6).
+ * /search, /find-usages, /find-literal, and the scoped panels on
+ * /projects/:id (#255 entry 6; 2026-08-06 audit WEB-4).
  *
  * Renders the existing `.search-form` + `.field` + `.input` CSS so the
  * visual rhythm is unchanged — this is purely about pulling repeated
- * JSX out of three route files.
+ * JSX out of the route files.
  *
- * Each field is a controlled name+label+input triple. The form
- * collects values by name on submit and hands them to the caller as a
- * `Record<string, string>`. Trimming + empty-handling stays with the
- * caller since different surfaces want different validation
- * semantics (find-usages requires the symbol but allows blank path;
- * scoped panels skip the path field entirely).
+ * Each field is a name+label+input triple with a `type` union
+ * (text / checkbox / number). The form collects values by name on
+ * submit and hands them to the caller as a `Record<string, string>`
+ * (checkboxes report `"on"` when checked, `""` otherwise, matching
+ * FormData). Trimming + empty-handling stays with the caller since
+ * different surfaces want different validation semantics.
  */
 
 import type { FormEvent } from "react";
+
+export type QueryFieldType = "text" | "checkbox" | "number";
 
 export interface QueryFormField {
   readonly id: string;
   readonly name: string;
   readonly label: string;
+  /** Input type; defaults to "text". */
+  readonly type?: QueryFieldType;
   readonly placeholder?: string;
   /** Helpful text shown after the label when this field can be left blank. */
   readonly optional?: boolean;
   readonly autoFocus?: boolean;
   /** Initial value (e.g. from URL params on first render). Uncontrolled. */
   readonly defaultValue?: string;
+  /** Checkbox only: initial checked state. Uncontrolled. */
+  readonly defaultChecked?: boolean;
+  /** id of a `<datalist>` the page renders (suggestions). */
+  readonly datalist?: string;
+  /** Number only. */
+  readonly min?: number;
+  readonly max?: number;
+  /** Inline width override (e.g. "5rem" for the limit field). */
+  readonly width?: string;
+  /** Tooltip on the label (e.g. the coverage explainer). */
+  readonly title?: string;
 }
 
 export interface QueryFormProps {
@@ -55,23 +70,42 @@ export function QueryForm({
   };
   return (
     <form className="search-form" onSubmit={handle}>
-      {fields.map((f) => (
-        <div className="field" key={f.id}>
-          <label htmlFor={f.id}>
-            {f.label}
-            {f.optional === true ? <span className="dim"> (optional)</span> : null}
-          </label>
-          <input
-            id={f.id}
-            name={f.name}
-            type="text"
-            className="input"
-            {...(f.placeholder !== undefined ? { placeholder: f.placeholder } : {})}
-            {...(f.autoFocus === true ? { autoFocus: true } : {})}
-            {...(f.defaultValue !== undefined ? { defaultValue: f.defaultValue } : {})}
-          />
-        </div>
-      ))}
+      {fields.map((f) =>
+        f.type === "checkbox" ? (
+          <div className="field" key={f.id}>
+            <label htmlFor={f.id} {...(f.title !== undefined ? { title: f.title } : {})}>
+              <input
+                id={f.id}
+                type="checkbox"
+                name={f.name}
+                {...(f.defaultChecked === true ? { defaultChecked: true } : {})}
+                style={{ marginRight: "0.4rem" }}
+              />
+              {f.label}
+            </label>
+          </div>
+        ) : (
+          <div className="field" key={f.id}>
+            <label htmlFor={f.id} {...(f.title !== undefined ? { title: f.title } : {})}>
+              {f.label}
+              {f.optional === true ? <span className="dim"> (optional)</span> : null}
+            </label>
+            <input
+              id={f.id}
+              name={f.name}
+              type={f.type ?? "text"}
+              className="input"
+              {...(f.placeholder !== undefined ? { placeholder: f.placeholder } : {})}
+              {...(f.autoFocus === true ? { autoFocus: true } : {})}
+              {...(f.defaultValue !== undefined ? { defaultValue: f.defaultValue } : {})}
+              {...(f.datalist !== undefined ? { list: f.datalist } : {})}
+              {...(f.min !== undefined ? { min: f.min } : {})}
+              {...(f.max !== undefined ? { max: f.max } : {})}
+              {...(f.width !== undefined ? { style: { width: f.width } } : {})}
+            />
+          </div>
+        ),
+      )}
       <button type="submit" className="btn btn-primary field-submit" disabled={busy}>
         {busy ? busyLabel : submitLabel}
       </button>

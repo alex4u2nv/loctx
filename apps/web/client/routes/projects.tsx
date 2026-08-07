@@ -8,8 +8,10 @@ import type {
 } from "@shared/contracts";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { AsyncBoundary } from "../components/async-boundary";
+import { Banner } from "../components/banner";
 import { confirm } from "../components/confirm";
 import { ConnectEditorModal } from "../components/connect-editor-modal";
+import { type Column, DataTable } from "../components/data-table";
 import { Icon, type IconName } from "../components/icon";
 import { IconButton } from "../components/icon-button";
 import { OverflowMenu, type OverflowItem } from "../components/overflow-menu";
@@ -222,9 +224,9 @@ export function ProjectsPage() {
               </p>
             ) : null}
             {ops.message ? (
-              <p className="pullquote" style={{ borderLeftColor: "var(--warn)" }}>
+              <Banner tone="warn" soft>
                 {ops.message}
-              </p>
+              </Banner>
             ) : null}
 
             {analyzers !== null ? <AnalyzerActivity queue={analyzers} /> : null}
@@ -314,7 +316,7 @@ export function ProjectsPage() {
 function AnalyzerActivity({ queue }: { queue: StatusPayload["analyzers"] }) {
   if (queue.depth > 0) {
     return (
-      <p className="pullquote" style={{ borderLeftColor: "var(--warn)" }}>
+      <Banner tone="warn" soft>
         <Icon name="rebuild" animate /> Analyzing {queue.depth.toLocaleString()}{" "}
         {queue.depth === 1 ? "file" : "files"}
         {queue.running > 0 ? ` (${queue.running} running)` : ""} — lizard / semgrep / ast-grep
@@ -322,7 +324,7 @@ function AnalyzerActivity({ queue }: { queue: StatusPayload["analyzers"] }) {
         {queue.failures > 0 ? (
           <span className="err"> · {queue.failures.toLocaleString()} failed</span>
         ) : null}
-      </p>
+      </Banner>
     );
   }
   if (queue.completed === 0 && queue.failures === 0) return null;
@@ -378,84 +380,100 @@ const ProjectsTable = memo(function ProjectsTable({
   busy?: string | null;
   purgingRoots?: ReadonlySet<string>;
 }) {
-  const cols = ["project", "status", "indexed", "value", "activity"];
-  if (showReason) cols.push("reason");
-  if (actions !== undefined) cols.push("actions");
+  // Column definitions instead of hand-rolled <thead>/<tbody> (audit
+  // WEB-1) — the conditional reason/actions columns are conditional
+  // array pushes, so header and cell counts can't drift apart the way
+  // the string-header version let them (orphan rows used to render one
+  // fewer cell than headers).
+  const columns: Column<AnyRow>[] = [
+    {
+      key: "project",
+      header: "project",
+      cell: (row) => {
+        const orphan = "rootExists" in row ? row : null;
+        return (
+          <>
+            <div title={`${row.id} · ${row.root}`}>
+              <strong>{row.name}</strong>
+              <span className="dim">{row.marker !== null ? ` [${row.marker}]` : ""}</span>
+              {row.absorbedMarkers.length > 0 ? (
+                <AbsorbedMarkersPill markers={row.absorbedMarkers} />
+              ) : null}
+            </div>
+            <div
+              className={orphan?.rootExists === false ? "err" : "dim"}
+              style={{ fontSize: "0.85em" }}
+            >
+              {compressPath(row.root, homeDir, commonRoot)}
+            </div>
+          </>
+        );
+      },
+    },
+    {
+      key: "status",
+      header: "status",
+      cell: (row) => <HealthBadge health={row.health} hint={row.healthHint} />,
+    },
+    {
+      key: "indexed",
+      header: "indexed",
+      cell: (row) => (
+        <>
+          <div className="num">{row.files} files</div>
+          <div className="num dim" style={{ fontSize: "0.85em" }}>
+            {row.chunks} chunks
+            {row.errors > 0 ? <span className="err"> · {row.errors} errors</span> : null}
+          </div>
+        </>
+      ),
+    },
+    { key: "value", header: "value", cell: (row) => <ValueCell value={row.value} /> },
+    {
+      key: "activity",
+      header: "activity",
+      dim: true,
+      cell: (row) => (
+        <div style={{ fontSize: "0.9em" }}>
+          <IndexStatusCell row={row} />
+        </div>
+      ),
+    },
+  ];
+  if (showReason) {
+    columns.push({
+      key: "reason",
+      header: "reason",
+      cell: (row) => {
+        const orphan = "rootExists" in row ? row : null;
+        return orphan !== null ? (
+          <span className={orphan.rootExists === false ? "err" : "warn"}>{orphan.reason}</span>
+        ) : null;
+      },
+    });
+  }
+  if (actions !== undefined) {
+    columns.push({
+      key: "actions",
+      header: "actions",
+      cell: (row) => (
+        <RowActionButtons
+          row={row}
+          actions={actions}
+          busy={busy ?? null}
+          isPurging={purgingRoots?.has(row.root) ?? false}
+        />
+      ),
+    });
+  }
 
   return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          {cols.map((c) => (
-            <th key={c}>{c}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => {
-          const orphan = "rootExists" in row ? row : null;
-          const displayPath = compressPath(row.root, homeDir, commonRoot);
-          return (
-            <tr key={row.id}>
-              <td>
-                <div title={`${row.id} · ${row.root}`}>
-                  <strong>{row.name}</strong>
-                  <span className="dim">{row.marker !== null ? ` [${row.marker}]` : ""}</span>
-                  {row.absorbedMarkers.length > 0 ? (
-                    <AbsorbedMarkersPill markers={row.absorbedMarkers} />
-                  ) : null}
-                </div>
-                <div
-                  className={orphan?.rootExists === false ? "err" : "dim"}
-                  style={{ fontSize: "0.85em" }}
-                >
-                  {displayPath}
-                </div>
-              </td>
-              <td>
-                <HealthBadge health={row.health} hint={row.healthHint} />
-              </td>
-              <td>
-                <div className="num">{row.files} files</div>
-                <div className="num dim" style={{ fontSize: "0.85em" }}>
-                  {row.chunks} chunks
-                  {row.errors > 0 ? <span className="err"> · {row.errors} errors</span> : null}
-                </div>
-              </td>
-              <td>
-                <ValueCell value={row.value} />
-              </td>
-              <td className="dim" style={{ fontSize: "0.9em" }}>
-                <IndexStatusCell row={row} />
-              </td>
-              {showReason && orphan ? (
-                <td className={orphan.rootExists === false ? "err" : "warn"}>{orphan.reason}</td>
-              ) : null}
-              {actions !== undefined ? (
-                <td>
-                  <RowActionButtons
-                    row={row}
-                    actions={actions}
-                    busy={busy ?? null}
-                    isPurging={purgingRoots?.has(row.root) ?? false}
-                  />
-                </td>
-              ) : null}
-            </tr>
-          );
-        })}
-        {rows.length === 0 && emptyMessage !== "" ? (
-          <tr>
-            <td
-              colSpan={cols.length}
-              style={{ color: "var(--subtle)", textAlign: "center", padding: "var(--space-5)" }}
-            >
-              {emptyMessage}
-            </td>
-          </tr>
-        ) : null}
-      </tbody>
-    </table>
+    <DataTable
+      columns={columns}
+      rows={rows}
+      rowKey={(row) => row.id}
+      {...(emptyMessage !== "" ? { emptyMessage } : {})}
+    />
   );
 });
 
@@ -708,47 +726,53 @@ const InactiveTable = memo(function InactiveTable({
 }) {
   const isBusy = busy !== null;
   return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th>project</th>
-          <th>marker</th>
-          <th>state</th>
-          <th>actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => {
-          const displayPath = compressPath(row.root, homeDir, commonRoot);
-          return (
-            <tr key={row.id}>
-              <td>
-                <div title={`${row.id} · ${row.root}`}>
-                  <strong>{row.name}</strong>
-                </div>
-                <div className="dim" style={{ fontSize: "0.85em" }}>
-                  {displayPath}
-                </div>
-              </td>
-              <td className="dim">
-                {row.marker !== null
-                  ? `${row.marker}${row.markerKind !== null ? ` (${row.markerKind})` : ""}`
-                  : "—"}
-              </td>
-              <td className="dim">{row.known ? "deactivated" : "never activated"}</td>
-              <td>
-                <IconButton
-                  icon="play"
-                  label="activate"
-                  onClick={() => void onActivate(row.root, row.name)}
-                  disabled={isBusy}
-                />
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <DataTable
+      rows={rows}
+      rowKey={(row) => row.id}
+      columns={[
+        {
+          key: "project",
+          header: "project",
+          cell: (row) => (
+            <>
+              <div title={`${row.id} · ${row.root}`}>
+                <strong>{row.name}</strong>
+              </div>
+              <div className="dim" style={{ fontSize: "0.85em" }}>
+                {compressPath(row.root, homeDir, commonRoot)}
+              </div>
+            </>
+          ),
+        },
+        {
+          key: "marker",
+          header: "marker",
+          dim: true,
+          cell: (row) =>
+            row.marker !== null
+              ? `${row.marker}${row.markerKind !== null ? ` (${row.markerKind})` : ""}`
+              : "—",
+        },
+        {
+          key: "state",
+          header: "state",
+          dim: true,
+          cell: (row) => (row.known ? "deactivated" : "never activated"),
+        },
+        {
+          key: "actions",
+          header: "actions",
+          cell: (row) => (
+            <IconButton
+              icon="play"
+              label="activate"
+              onClick={() => void onActivate(row.root, row.name)}
+              disabled={isBusy}
+            />
+          ),
+        },
+      ]}
+    />
   );
 });
 

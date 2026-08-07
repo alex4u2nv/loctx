@@ -5,24 +5,55 @@
  * separate Admin install card, so configuring an analyzer never means
  * jumping between screens.
  *
- * Three groups:
- *   - Engine: master background switch + scheduling (concurrency, timeout).
- *   - Tools: lizard / semgrep / ast-grep — install & enable (downloads the
+ * Four cards (2026-08-06 audit, WEB-3):
+ *   - EngineCard: master background switch + scheduling (concurrency, timeout).
+ *   - ToolsCard: lizard / semgrep / ast-grep — install & enable (downloads the
  *     binary, enables it, backfills), enable/disable, reindex, rule dirs,
  *     max findings.
- *   - Duplicate detection: a binary-free analyzer with its own params.
+ *   - DuplicatesCard: a binary-free analyzer with its own params.
+ *   - DefinitionsCard: agent / skill / knowledge schema validation.
+ *
+ * A save disables only its own card's controls (per-card busy) instead of
+ * greying out the whole page; the message banner stays page-level. Config
+ * access goes through the typed `CFG` / `TOOL_KEYS` constants (WEB-10) and
+ * the busy/message runner is the shared `useOpRunner` (WEB-6).
  */
 
-import type { ToolStatus } from "@shared/contracts";
-import { type ReactNode, useState } from "react";
+import type { AnalyzerToolName, ToolStatus } from "@shared/contracts";
+import { useCallback, useState } from "react";
 import { AdminTabs } from "../components/admin-tabs";
-import { Icon } from "../components/icon";
+import { Banner } from "../components/banner";
+import { IconButton } from "../components/icon-button";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
+import { type OpRunner, useOpRunner } from "../lib/use-op-runner";
 
-/** Config dot-paths per rule-pack tool. */
-const TOOL_KEYS: Record<string, { enabled: string; ruleDirs?: string; maxFindings?: string }> = {
-  lizard: { enabled: "analyzers.lizard.enabled" },
+// ---- typed config keys (WEB-10) ----------------------------------------
+
+/** Non-tool config dot-paths, hoisted out of the JSX. */
+const CFG = {
+  engineEnabled: "analyzers.backgroundEnabled",
+  concurrency: "analyzers.concurrency",
+  perTaskTimeoutMs: "analyzers.perTaskTimeoutMs",
+  dupEnabled: "analyzers.duplicates.enabled",
+  dupWindowSize: "analyzers.duplicates.windowSize",
+  dupMinUniqueTokens: "analyzers.duplicates.minUniqueTokens",
+  defEnabled: "analyzers.definitions.enabled",
+  defOkfDefault: "analyzers.definitions.okfDefault",
+  defRequireFrontmatter: "analyzers.definitions.requireFrontmatter",
+  defCheckLinks: "analyzers.definitions.checkLinks",
+  defGlobs: "analyzers.definitions.globs",
+  defSchemas: "analyzers.definitions.schemas",
+  defMaxFindings: "analyzers.definitions.maxFindingsPerFile",
+} as const;
+
+/**
+ * Config dot-paths per tool, keyed off the shared contracts' tool union
+ * so a new tool can't ship without its key set. Uniform shape (null for
+ * N/A) keeps indexed access typed.
+ */
+const TOOL_KEYS = {
+  lizard: { enabled: "analyzers.lizard.enabled", ruleDirs: null, maxFindings: null },
   semgrep: {
     enabled: "analyzers.semgrep.enabled",
     ruleDirs: "analyzers.semgrep.ruleDirs",
@@ -33,152 +64,96 @@ const TOOL_KEYS: Record<string, { enabled: string; ruleDirs?: string; maxFinding
     ruleDirs: "analyzers.astGrep.ruleDirs",
     maxFindings: "analyzers.astGrep.maxFindingsPerFile",
   },
-};
+} as const satisfies Record<
+  AnalyzerToolName,
+  { enabled: string; ruleDirs: string | null; maxFindings: string | null }
+>;
+
+type ToolKeySet = (typeof TOOL_KEYS)[AnalyzerToolName];
+type ConfigKey =
+  | (typeof CFG)[keyof typeof CFG]
+  | Exclude<ToolKeySet["enabled" | "ruleDirs" | "maxFindings"], null>;
+
+// ---- typed config reads (WEB-10) ---------------------------------------
+
+interface ConfigReader {
+  num(key: ConfigKey, dflt: number): number;
+  bool(key: ConfigKey): boolean;
+  strList(key: ConfigKey): ReadonlyArray<string>;
+}
+
+function makeReader(effective: Readonly<Record<string, unknown>> | undefined): ConfigReader {
+  return {
+    num: (key, dflt) => {
+      const v = effective?.[key];
+      return typeof v === "number" ? v : dflt;
+    },
+    bool: (key) => effective?.[key] === true,
+    strList: (key) => {
+      const v = effective?.[key];
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+    },
+  };
+}
+
+/** Parse a comma/newline-separated field into a clean string[]. */
+function parseList(raw: string): string[] {
+  return raw
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// ---- config writer (WEB-3 / WEB-6) -------------------------------------
+
+interface ConfigWriter {
+  /** Key / tool name of the op in flight — cards match it to their own keys. */
+  readonly busy: string | null;
+  readonly message: string | null;
+  readonly run: OpRunner["run"];
+  readonly notify: OpRunner["notify"];
+  save(key: ConfigKey, value: unknown, note?: string): Promise<void>;
+}
+
+function useConfigWriter(reload: () => void): ConfigWriter {
+  const ops = useOpRunner(reload);
+  const save = useCallback(
+    async (key: ConfigKey, value: unknown, note?: string): Promise<void> => {
+      await ops.run(key, () => api.configWrite({ patch: { [key]: value } }), {
+        success: () => note ?? "Saved.",
+      });
+    },
+    [ops.run],
+  );
+  return { busy: ops.busy, message: ops.message, run: ops.run, notify: ops.notify, save };
+}
+
+/** True when `busy` is one of this card's keys (per-card disable). */
+function busyIn(busy: string | null, keys: ReadonlyArray<string | null>): boolean {
+  return busy !== null && keys.includes(busy);
+}
 
 export function AnalyzersPage() {
   const cfg = useFetch(() => api.config(), []);
   const tools = useFetch(() => api.toolsStatus(), []);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [log, setLog] = useState<{ tool: string; ok: boolean; text: string } | null>(null);
-  const [dirEdits, setDirEdits] = useState<Record<string, string>>({});
-  const [listEdits, setListEdits] = useState<Record<string, string>>({});
-  const [schemaUrl, setSchemaUrl] = useState("");
+  const reloadAll = useCallback(() => {
+    cfg.reload();
+    tools.reload();
+  }, [cfg.reload, tools.reload]);
+  const writer = useConfigWriter(reloadAll);
+  const reader = makeReader(cfg.data?.effective);
 
-  const num = (key: string, dflt: number): number => {
-    const v = cfg.data?.effective?.[key];
-    return typeof v === "number" ? v : dflt;
-  };
-  const bool = (key: string): boolean => cfg.data?.effective?.[key] === true;
-  const strList = (key: string): string[] => {
-    const v = cfg.data?.effective?.[key];
-    return Array.isArray(v) ? (v as string[]) : [];
-  };
-  // Save a comma/newline-separated list field as a string[] config value.
-  const saveList = (key: string, note?: string): void => {
-    const items = (listEdits[key] ?? "")
-      .split(/[\n,]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    void save(key, items, note);
-  };
-
-  // Write one config field, then refresh. Used by every toggle / number.
-  const save = async (key: string, value: unknown, note?: string): Promise<void> => {
-    setBusy(key);
-    setMsg(null);
-    try {
-      await api.configWrite({ patch: { [key]: value } });
-      setMsg(note ?? "Saved.");
-      cfg.reload();
-      tools.reload();
-    } catch (e) {
-      setMsg(`Error: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const install = async (name: string): Promise<void> => {
-    setBusy(name);
-    setLog(null);
-    setMsg(null);
-    try {
-      const r = await api.toolsInstall(name);
-      setLog({
-        tool: name,
-        ok: r.ok,
-        text: r.ok ? (r.log ?? "(no output)") : r.log ? `${r.error}\n\n${r.log}` : r.error,
-      });
-      if (r.ok) setMsg(`${name} installed & enabled · backfill enqueued ${r.backfilled}`);
-    } finally {
-      setBusy(null);
-      tools.reload();
-      cfg.reload();
-    }
-  };
-
-  const reindex = async (name: string): Promise<void> => {
-    setBusy(name);
-    setMsg(null);
-    try {
-      const r = await api.toolsBackfill(name);
-      setMsg(r.ok ? `${name} · reindex enqueued ${r.backfilled}` : `${name}: ${r.error}`);
-    } catch (e) {
-      setMsg(`${name}: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  // Append a stored schema path to analyzers.definitions.schemas + save.
-  const addSchemaPath = (path: string): void => {
-    const current = strList("analyzers.definitions.schemas");
-    if (current.includes(path)) {
-      setMsg("Schema already added.");
-      return;
-    }
-    void save("analyzers.definitions.schemas", [...current, path], `Added schema: ${path}`);
-  };
-
-  const generateSchema = async (): Promise<void> => {
-    setBusy("definitions");
-    setMsg(null);
-    try {
-      const r = await api.definitionsGenerateSchema();
-      if (r.ok) {
-        setMsg(`Generated a schema from ${r.scanned ?? 0} definition file(s).`);
-        addSchemaPath(r.path);
-      } else {
-        setMsg(`Generate: ${r.error}`);
-      }
-    } catch (e) {
-      setMsg(`Generate: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const addSchemaFrom = async (body: { url?: string; content?: string; name?: string }): Promise<void> => {
-    setBusy("definitions");
-    setMsg(null);
-    try {
-      const r = await api.definitionsAddSchema(body);
-      if (r.ok) addSchemaPath(r.path);
-      else setMsg(`Schema: ${r.error}`);
-    } catch (e) {
-      setMsg(`Schema: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const saveDirs = async (name: string): Promise<void> => {
-    const key = TOOL_KEYS[name]?.ruleDirs;
-    if (key === undefined) return;
-    const dirs = (dirEdits[name] ?? "")
-      .split(/[\n,]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    setBusy(name);
-    setMsg(null);
-    try {
-      await api.configWrite({ patch: { [key]: dirs } });
-      const r = await api.toolsBackfill(name);
-      setMsg(
-        `${name} · saved ${dirs.length} rule dir(s)${r.ok ? `, reindex enqueued ${r.backfilled}` : ""}`,
-      );
-      cfg.reload();
-      tools.reload();
-    } catch (e) {
-      setMsg(`${name}: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const toolList = (tools.data?.tools ?? []) as ReadonlyArray<ToolStatus>;
-  const engineOn = bool("analyzers.backgroundEnabled");
+  // Re-run an installed analyzer over the existing index. Shared by the
+  // tool blocks and the definitions card ("definitions" is a virtual
+  // tool name on the backfill endpoint).
+  const reindex = useCallback(
+    (name: string): Promise<unknown> =>
+      writer.run(name, () => api.toolsBackfill(name), {
+        success: (r) =>
+          r.ok ? `${name} · reindex enqueued ${r.backfilled}` : `${name}: ${r.error}`,
+      }),
+    [writer.run],
+  );
 
   return (
     <section>
@@ -191,282 +166,411 @@ export function AnalyzersPage() {
 
       <AdminTabs />
 
-      {msg !== null ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--primary)" }}>
-          {msg}
-        </p>
-      ) : null}
+      {writer.message !== null ? <Banner tone="info">{writer.message}</Banner> : null}
 
       <div className="card-stack">
-        {/* Engine */}
-        <div className="card">
-          <p className="card-section-title">Engine</p>
-          <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
-            Master switch and scheduling for the background analyzer queue. Tools below only run
-            while this is on.
-          </p>
-          <SettingRow label="Background analysis" help="Master switch for the analyzer queue.">
-            <Switch
-              checked={engineOn}
-              disabled={busy !== null}
-              onChange={(v) =>
-                void save("analyzers.backgroundEnabled", v, v ? "Analysis on." : "Analysis off.")
-              }
-            />
-          </SettingRow>
-          <SettingRow label="Concurrency" help="How many analyzer tasks run in parallel.">
-            <NumField
-              value={num("analyzers.concurrency", 2)}
-              min={1}
-              max={16}
-              disabled={busy !== null}
-              onSave={(v) => void save("analyzers.concurrency", v)}
-            />
-          </SettingRow>
-          <SettingRow label="Per-task timeout (ms)" help="Per-task wall-clock timeout.">
-            <NumField
-              value={num("analyzers.perTaskTimeoutMs", 60000)}
-              min={1000}
-              max={600000}
-              disabled={busy !== null}
-              onSave={(v) => void save("analyzers.perTaskTimeoutMs", v)}
-            />
-          </SettingRow>
-        </div>
-
-        {/* Tools */}
-        <div className="card">
-          <p className="card-section-title">Tools</p>
-          <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
-            <strong>Install &amp; enable</strong> downloads the tool into a loctx-managed location
-            (no system changes), enables it, and backfills your index in one step. semgrep and
-            ast-grep also need rule directories before they produce findings.
-          </p>
-          {toolList.map((t) => (
-            <ToolBlock
-              key={t.name}
-              tool={t}
-              busy={busy === t.name}
-              dirValue={dirEdits[t.name] ?? (t.ruleDirs ?? []).join(", ")}
-              maxFindings={
-                TOOL_KEYS[t.name]?.maxFindings !== undefined
-                  ? num(TOOL_KEYS[t.name]?.maxFindings as string, 50)
-                  : null
-              }
-              onInstall={() => void install(t.name)}
-              onReindex={() => void reindex(t.name)}
-              onToggle={(v) => {
-                const key = TOOL_KEYS[t.name]?.enabled;
-                if (key) void save(key, v, `${t.name} ${v ? "enabled" : "disabled"}.`);
-              }}
-              onDirChange={(v) => setDirEdits((p) => ({ ...p, [t.name]: v }))}
-              onSaveDirs={() => void saveDirs(t.name)}
-              onMaxFindings={(v) => {
-                const key = TOOL_KEYS[t.name]?.maxFindings;
-                if (key) void save(key, v);
-              }}
-            />
-          ))}
-          {log !== null ? (
-            <details open style={{ marginTop: "var(--space-3)" }}>
-              <summary>
-                <span className={`daemon-status ${log.ok ? "ok" : "bad"}`}>
-                  <span className="dot-mark" />
-                  {log.tool} install {log.ok ? "log" : "failed"}
-                </span>{" "}
-                <button
-                  type="button"
-                  className="btn btn-small"
-                  onClick={() => setLog(null)}
-                  style={{ marginLeft: "var(--space-2)" }}
-                >
-                  dismiss
-                </button>
-              </summary>
-              <pre className="log-output">{log.text}</pre>
-            </details>
-          ) : null}
-        </div>
-
-        {/* Duplicate detection */}
-        <div className="card">
-          <p className="card-section-title">Duplicate detection</p>
-          <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
-            Token-window near-duplicate finder. No binary to install — just enable and tune.
-          </p>
-          <SettingRow label="Enabled" help="Run the duplicate detector during analysis.">
-            <Switch
-              checked={bool("analyzers.duplicates.enabled")}
-              disabled={busy !== null}
-              onChange={(v) =>
-                void save(
-                  "analyzers.duplicates.enabled",
-                  v,
-                  v ? "Duplicate detection on." : "Duplicate detection off.",
-                )
-              }
-            />
-          </SettingRow>
-          <SettingRow label="Window size" help="Sliding-window size in tokens.">
-            <NumField
-              value={num("analyzers.duplicates.windowSize", 50)}
-              min={5}
-              max={1000}
-              disabled={busy !== null}
-              onSave={(v) => void save("analyzers.duplicates.windowSize", v)}
-            />
-          </SettingRow>
-          <SettingRow label="Min unique tokens" help="Skip windows with fewer unique tokens.">
-            <NumField
-              value={num("analyzers.duplicates.minUniqueTokens", 15)}
-              min={1}
-              max={1000}
-              disabled={busy !== null}
-              onSave={(v) => void save("analyzers.duplicates.minUniqueTokens", v)}
-            />
-          </SettingRow>
-        </div>
-
-        {/* Definitions (agent / skill / knowledge schema validation) */}
-        <div className="card">
-          <p className="card-section-title">Definitions</p>
-          <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
-            Validates agent / skill / knowledge markdown frontmatter against a schema. Ships with{" "}
-            <strong>Open Knowledge Format (OKF) v0.1</strong> as the zero-config default; layer your
-            own schemas by path or GitHub URL. No binary to install.
-          </p>
-          <SettingRow label="Enabled" help="Validate matching .md files during analysis.">
-            <Switch
-              checked={bool("analyzers.definitions.enabled")}
-              disabled={busy !== null}
-              onChange={(v) =>
-                void save("analyzers.definitions.enabled", v, v ? "Definitions on." : "Definitions off.")
-              }
-            />
-          </SettingRow>
-          <SettingRow label="OKF v0.1 default" help="Apply the bundled Open Knowledge Format schema.">
-            <Switch
-              checked={bool("analyzers.definitions.okfDefault")}
-              disabled={busy !== null}
-              onChange={(v) => void save("analyzers.definitions.okfDefault", v)}
-            />
-          </SettingRow>
-          <SettingRow
-            label="Require frontmatter"
-            help="Flag matched files that have no frontmatter block at all."
-          >
-            <Switch
-              checked={bool("analyzers.definitions.requireFrontmatter")}
-              disabled={busy !== null}
-              onChange={(v) => void save("analyzers.definitions.requireFrontmatter", v)}
-            />
-          </SettingRow>
-          <SettingRow
-            label="Check cross-links"
-            help="Flag relative markdown links that don't resolve to a file."
-          >
-            <Switch
-              checked={bool("analyzers.definitions.checkLinks")}
-              disabled={busy !== null}
-              onChange={(v) => void save("analyzers.definitions.checkLinks", v)}
-            />
-          </SettingRow>
-          <ListField
-            label="File globs"
-            help="Project-relative globs selecting which .md files are definitions."
-            placeholder=".claude/skills/**/*.md, AGENTS.md, **/SKILL.md"
-            value={listEdits["analyzers.definitions.globs"] ?? strList("analyzers.definitions.globs").join(", ")}
-            disabled={busy !== null}
-            onChange={(v) => setListEdits((p) => ({ ...p, "analyzers.definitions.globs": v }))}
-            onSave={() => saveList("analyzers.definitions.globs", "Globs saved.")}
-          />
-          <ListField
-            label="Custom schemas"
-            help="Extra JSON Schemas, by local path or GitHub URL (layered on top of OKF). URLs are fetched server-side."
-            placeholder="./schemas/agent.json, https://raw.githubusercontent.com/org/repo/main/skill.schema.json"
-            value={
-              listEdits["analyzers.definitions.schemas"] ?? strList("analyzers.definitions.schemas").join(", ")
-            }
-            disabled={busy !== null}
-            onChange={(v) => setListEdits((p) => ({ ...p, "analyzers.definitions.schemas": v }))}
-            onSave={() => saveList("analyzers.definitions.schemas", "Schemas saved.")}
-          />
-          {/* Add a schema from URL / upload / generate — each stores a managed
-              file and appends its path to the list above. */}
-          <div
-            style={{
-              display: "flex",
-              gap: "var(--space-2)",
-              flexWrap: "wrap",
-              alignItems: "center",
-              padding: "var(--space-2) 0",
-            }}
-          >
-            <input
-              className="input"
-              placeholder="https://…/schema.json"
-              value={schemaUrl}
-              disabled={busy !== null}
-              onChange={(e) => setSchemaUrl(e.target.value)}
-              style={{ fontSize: "0.8125rem", flex: "1 1 16rem" }}
-            />
-            <button
-              type="button"
-              className="btn"
-              disabled={busy !== null || schemaUrl.trim() === ""}
-              onClick={() => {
-                void addSchemaFrom({ url: schemaUrl.trim() });
-                setSchemaUrl("");
-              }}
-            >
-              add from URL
-            </button>
-            <label className="btn" style={{ cursor: "pointer" }}>
-              upload schema
-              <input
-                type="file"
-                accept=".json,.yaml,.yml"
-                hidden
-                disabled={busy !== null}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file)
-                    void file.text().then((content) => addSchemaFrom({ content, name: file.name }));
-                  e.target.value = "";
-                }}
-              />
-            </label>
-            <button
-              type="button"
-              className="btn"
-              disabled={busy !== null}
-              onClick={() => void generateSchema()}
-            >
-              <Icon name="index" /> generate from my files
-            </button>
-          </div>
-          <SettingRow label="Max findings/file" help="Cap findings persisted per file.">
-            <NumField
-              value={num("analyzers.definitions.maxFindingsPerFile", 50)}
-              min={1}
-              max={10000}
-              disabled={busy !== null}
-              onSave={(v) => void save("analyzers.definitions.maxFindingsPerFile", v)}
-            />
-          </SettingRow>
-          <p style={{ marginTop: "var(--space-3)" }}>
-            <button
-              type="button"
-              className="btn"
-              disabled={busy !== null}
-              onClick={() => void reindex("definitions")}
-            >
-              <Icon name="refresh" animate={busy === "definitions"} /> reindex definitions
-            </button>
-          </p>
-        </div>
+        <EngineCard reader={reader} writer={writer} />
+        <ToolsCard
+          tools={tools.data?.tools ?? []}
+          reader={reader}
+          writer={writer}
+          onReindex={reindex}
+        />
+        <DuplicatesCard reader={reader} writer={writer} />
+        <DefinitionsCard reader={reader} writer={writer} onReindex={reindex} />
       </div>
     </section>
+  );
+}
+
+// ---- cards -------------------------------------------------------------
+
+interface CardProps {
+  readonly reader: ConfigReader;
+  readonly writer: ConfigWriter;
+}
+
+const ENGINE_KEYS: ReadonlyArray<string> = [
+  CFG.engineEnabled,
+  CFG.concurrency,
+  CFG.perTaskTimeoutMs,
+];
+
+function EngineCard({ reader, writer }: CardProps) {
+  const disabled = busyIn(writer.busy, ENGINE_KEYS);
+  return (
+    <div className="card">
+      <p className="card-section-title">Engine</p>
+      <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
+        Master switch and scheduling for the background analyzer queue. Tools below only run
+        while this is on.
+      </p>
+      <SettingRow label="Background analysis" help="Master switch for the analyzer queue.">
+        <Switch
+          checked={reader.bool(CFG.engineEnabled)}
+          disabled={disabled}
+          onChange={(v) =>
+            void writer.save(CFG.engineEnabled, v, v ? "Analysis on." : "Analysis off.")
+          }
+        />
+      </SettingRow>
+      <SettingRow label="Concurrency" help="How many analyzer tasks run in parallel.">
+        <NumField
+          value={reader.num(CFG.concurrency, 2)}
+          min={1}
+          max={16}
+          disabled={disabled}
+          onSave={(v) => void writer.save(CFG.concurrency, v)}
+        />
+      </SettingRow>
+      <SettingRow label="Per-task timeout (ms)" help="Per-task wall-clock timeout.">
+        <NumField
+          value={reader.num(CFG.perTaskTimeoutMs, 60000)}
+          min={1000}
+          max={600000}
+          disabled={disabled}
+          onSave={(v) => void writer.save(CFG.perTaskTimeoutMs, v)}
+        />
+      </SettingRow>
+    </div>
+  );
+}
+
+function ToolsCard({
+  tools,
+  reader,
+  writer,
+  onReindex,
+}: CardProps & {
+  readonly tools: ReadonlyArray<ToolStatus>;
+  readonly onReindex: (name: string) => Promise<unknown>;
+}) {
+  const [dirEdits, setDirEdits] = useState<Partial<Record<AnalyzerToolName, string>>>({});
+  const [log, setLog] = useState<{ tool: string; ok: boolean; text: string } | null>(null);
+
+  const install = (name: AnalyzerToolName): Promise<unknown> =>
+    writer.run(
+      name,
+      async () => {
+        setLog(null);
+        const r = await api.toolsInstall(name);
+        setLog({
+          tool: name,
+          ok: r.ok,
+          text: r.ok ? (r.log ?? "(no output)") : r.log ? `${r.error}\n\n${r.log}` : r.error,
+        });
+        return r;
+      },
+      {
+        success: (r) =>
+          r.ok ? `${name} installed & enabled · backfill enqueued ${r.backfilled}` : null,
+      },
+    );
+
+  const saveDirs = (tool: ToolStatus, dirValue: string): void => {
+    const key = TOOL_KEYS[tool.name].ruleDirs;
+    if (key === null) return;
+    const dirs = parseList(dirValue);
+    void writer.run(
+      tool.name,
+      async () => {
+        await api.configWrite({ patch: { [key]: dirs } });
+        return api.toolsBackfill(tool.name);
+      },
+      {
+        success: (r) =>
+          `${tool.name} · saved ${dirs.length} rule dir(s)${
+            r.ok ? `, reindex enqueued ${r.backfilled}` : ""
+          }`,
+      },
+    );
+  };
+
+  return (
+    <div className="card">
+      <p className="card-section-title">Tools</p>
+      <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
+        <strong>Install &amp; enable</strong> downloads the tool into a loctx-managed location
+        (no system changes), enables it, and backfills your index in one step. semgrep and
+        ast-grep also need rule directories before they produce findings.
+      </p>
+      {tools.map((t) => {
+        const keys = TOOL_KEYS[t.name];
+        const busy = busyIn(writer.busy, [t.name, keys.enabled, keys.ruleDirs, keys.maxFindings]);
+        const dirValue = dirEdits[t.name] ?? (t.ruleDirs ?? []).join(", ");
+        return (
+          <ToolBlock
+            key={t.name}
+            tool={t}
+            busy={busy}
+            dirValue={dirValue}
+            maxFindings={keys.maxFindings !== null ? reader.num(keys.maxFindings, 50) : null}
+            onInstall={() => void install(t.name)}
+            onReindex={() => void onReindex(t.name)}
+            onToggle={(v) =>
+              void writer.save(keys.enabled, v, `${t.name} ${v ? "enabled" : "disabled"}.`)
+            }
+            onDirChange={(v) => setDirEdits((p) => ({ ...p, [t.name]: v }))}
+            onSaveDirs={() => saveDirs(t, dirValue)}
+            onMaxFindings={(v) => {
+              if (keys.maxFindings !== null) void writer.save(keys.maxFindings, v);
+            }}
+          />
+        );
+      })}
+      {log !== null ? (
+        <details open style={{ marginTop: "var(--space-3)" }}>
+          <summary>
+            <span className={`daemon-status ${log.ok ? "ok" : "bad"}`}>
+              <span className="dot-mark" />
+              {log.tool} install {log.ok ? "log" : "failed"}
+            </span>{" "}
+            <IconButton
+              className="btn-small ml-[var(--space-2)]"
+              label="dismiss"
+              onClick={() => setLog(null)}
+            />
+          </summary>
+          <pre className="log-output">{log.text}</pre>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+const DUPLICATES_KEYS: ReadonlyArray<string> = [
+  CFG.dupEnabled,
+  CFG.dupWindowSize,
+  CFG.dupMinUniqueTokens,
+];
+
+function DuplicatesCard({ reader, writer }: CardProps) {
+  const disabled = busyIn(writer.busy, DUPLICATES_KEYS);
+  return (
+    <div className="card">
+      <p className="card-section-title">Duplicate detection</p>
+      <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
+        Token-window near-duplicate finder. No binary to install — just enable and tune.
+      </p>
+      <SettingRow label="Enabled" help="Run the duplicate detector during analysis.">
+        <Switch
+          checked={reader.bool(CFG.dupEnabled)}
+          disabled={disabled}
+          onChange={(v) =>
+            void writer.save(
+              CFG.dupEnabled,
+              v,
+              v ? "Duplicate detection on." : "Duplicate detection off.",
+            )
+          }
+        />
+      </SettingRow>
+      <SettingRow label="Window size" help="Sliding-window size in tokens.">
+        <NumField
+          value={reader.num(CFG.dupWindowSize, 50)}
+          min={5}
+          max={1000}
+          disabled={disabled}
+          onSave={(v) => void writer.save(CFG.dupWindowSize, v)}
+        />
+      </SettingRow>
+      <SettingRow label="Min unique tokens" help="Skip windows with fewer unique tokens.">
+        <NumField
+          value={reader.num(CFG.dupMinUniqueTokens, 15)}
+          min={1}
+          max={1000}
+          disabled={disabled}
+          onSave={(v) => void writer.save(CFG.dupMinUniqueTokens, v)}
+        />
+      </SettingRow>
+    </div>
+  );
+}
+
+/** Busy label used by the definitions schema/reindex flows. */
+const DEFINITIONS_OP = "definitions";
+const DEFINITIONS_KEY_PREFIX = "analyzers.definitions.";
+
+function DefinitionsCard({
+  reader,
+  writer,
+  onReindex,
+}: CardProps & { readonly onReindex: (name: string) => Promise<unknown> }) {
+  const [listEdits, setListEdits] = useState<Record<string, string>>({});
+  const [schemaUrl, setSchemaUrl] = useState("");
+  const disabled =
+    writer.busy !== null &&
+    (writer.busy === DEFINITIONS_OP || writer.busy.startsWith(DEFINITIONS_KEY_PREFIX));
+
+  // Save a comma/newline-separated list field as a string[] config value.
+  const saveList = (key: ConfigKey, raw: string, note?: string): void => {
+    void writer.save(key, parseList(raw), note);
+  };
+
+  // Append a stored schema path to analyzers.definitions.schemas + save.
+  const addSchemaPath = (path: string): void => {
+    const current = reader.strList(CFG.defSchemas);
+    if (current.includes(path)) {
+      writer.notify("Schema already added.");
+      return;
+    }
+    void writer.save(CFG.defSchemas, [...current, path], `Added schema: ${path}`);
+  };
+
+  const generateSchema = async (): Promise<void> => {
+    const r = await writer.run(DEFINITIONS_OP, () => api.definitionsGenerateSchema(), {
+      success: (res) =>
+        res.ok
+          ? `Generated a schema from ${res.scanned ?? 0} definition file(s).`
+          : `Generate: ${res.error}`,
+    });
+    if (r !== undefined && r.ok) addSchemaPath(r.path);
+  };
+
+  const addSchemaFrom = async (body: {
+    url?: string;
+    content?: string;
+    name?: string;
+  }): Promise<void> => {
+    const r = await writer.run(DEFINITIONS_OP, () => api.definitionsAddSchema(body), {
+      success: (res) => (res.ok ? null : `Schema: ${res.error}`),
+    });
+    if (r !== undefined && r.ok) addSchemaPath(r.path);
+  };
+
+  const globsValue = listEdits[CFG.defGlobs] ?? reader.strList(CFG.defGlobs).join(", ");
+  const schemasValue = listEdits[CFG.defSchemas] ?? reader.strList(CFG.defSchemas).join(", ");
+
+  return (
+    <div className="card">
+      <p className="card-section-title">Definitions</p>
+      <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
+        Validates agent / skill / knowledge markdown frontmatter against a schema. Ships with{" "}
+        <strong>Open Knowledge Format (OKF) v0.1</strong> as the zero-config default; layer your
+        own schemas by path or GitHub URL. No binary to install.
+      </p>
+      <SettingRow label="Enabled" help="Validate matching .md files during analysis.">
+        <Switch
+          checked={reader.bool(CFG.defEnabled)}
+          disabled={disabled}
+          onChange={(v) =>
+            void writer.save(CFG.defEnabled, v, v ? "Definitions on." : "Definitions off.")
+          }
+        />
+      </SettingRow>
+      <SettingRow label="OKF v0.1 default" help="Apply the bundled Open Knowledge Format schema.">
+        <Switch
+          checked={reader.bool(CFG.defOkfDefault)}
+          disabled={disabled}
+          onChange={(v) => void writer.save(CFG.defOkfDefault, v)}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Require frontmatter"
+        help="Flag matched files that have no frontmatter block at all."
+      >
+        <Switch
+          checked={reader.bool(CFG.defRequireFrontmatter)}
+          disabled={disabled}
+          onChange={(v) => void writer.save(CFG.defRequireFrontmatter, v)}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Check cross-links"
+        help="Flag relative markdown links that don't resolve to a file."
+      >
+        <Switch
+          checked={reader.bool(CFG.defCheckLinks)}
+          disabled={disabled}
+          onChange={(v) => void writer.save(CFG.defCheckLinks, v)}
+        />
+      </SettingRow>
+      <ListField
+        label="File globs"
+        help="Project-relative globs selecting which .md files are definitions."
+        placeholder=".claude/skills/**/*.md, AGENTS.md, **/SKILL.md"
+        value={globsValue}
+        disabled={disabled}
+        onChange={(v) => setListEdits((p) => ({ ...p, [CFG.defGlobs]: v }))}
+        onSave={(v) => saveList(CFG.defGlobs, v, "Globs saved.")}
+      />
+      <ListField
+        label="Custom schemas"
+        help="Extra JSON Schemas, by local path or GitHub URL (layered on top of OKF). URLs are fetched server-side."
+        placeholder="./schemas/agent.json, https://raw.githubusercontent.com/org/repo/main/skill.schema.json"
+        value={schemasValue}
+        disabled={disabled}
+        onChange={(v) => setListEdits((p) => ({ ...p, [CFG.defSchemas]: v }))}
+        onSave={(v) => saveList(CFG.defSchemas, v, "Schemas saved.")}
+      />
+      {/* Add a schema from URL / upload / generate — each stores a managed
+          file and appends its path to the list above. */}
+      <div
+        style={{
+          display: "flex",
+          gap: "var(--space-2)",
+          flexWrap: "wrap",
+          alignItems: "center",
+          padding: "var(--space-2) 0",
+        }}
+      >
+        <input
+          className="input"
+          placeholder="https://…/schema.json"
+          value={schemaUrl}
+          disabled={disabled}
+          onChange={(e) => setSchemaUrl(e.target.value)}
+          style={{ fontSize: "0.8125rem", flex: "1 1 16rem" }}
+        />
+        <IconButton
+          label="add from URL"
+          disabled={disabled || schemaUrl.trim() === ""}
+          onClick={() => {
+            void addSchemaFrom({ url: schemaUrl.trim() });
+            setSchemaUrl("");
+          }}
+        />
+        <label className="btn" style={{ cursor: "pointer" }}>
+          upload schema
+          <input
+            type="file"
+            accept=".json,.yaml,.yml"
+            hidden
+            disabled={disabled}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file)
+                void file.text().then((content) => addSchemaFrom({ content, name: file.name }));
+              e.target.value = "";
+            }}
+          />
+        </label>
+        <IconButton
+          icon="index"
+          label="generate from my files"
+          disabled={disabled}
+          onClick={() => void generateSchema()}
+        />
+      </div>
+      <SettingRow label="Max findings/file" help="Cap findings persisted per file.">
+        <NumField
+          value={reader.num(CFG.defMaxFindings, 50)}
+          min={1}
+          max={10000}
+          disabled={disabled}
+          onSave={(v) => void writer.save(CFG.defMaxFindings, v)}
+        />
+      </SettingRow>
+      <p style={{ marginTop: "var(--space-3)" }}>
+        <IconButton
+          icon="refresh"
+          animate={writer.busy === DEFINITIONS_OP}
+          label="reindex definitions"
+          disabled={disabled}
+          onClick={() => void onReindex(DEFINITIONS_OP)}
+        />
+      </p>
+    </div>
   );
 }
 
@@ -568,14 +672,22 @@ function ToolBlock({
           {tool.installed ? (
             <>
               <Switch checked={tool.enabled} disabled={busy} onChange={onToggle} />
-              <button type="button" className="btn" disabled={busy} onClick={onReindex}>
-                <Icon name="refresh" animate={busy} /> reindex
-              </button>
+              <IconButton
+                icon="refresh"
+                animate={busy}
+                label="reindex"
+                disabled={busy}
+                onClick={onReindex}
+              />
             </>
           ) : (
-            <button type="button" className="btn btn-primary" disabled={busy} onClick={onInstall}>
-              <Icon name="index" /> install &amp; enable
-            </button>
+            <IconButton
+              icon="index"
+              className="btn-primary"
+              label={<>install &amp; enable</>}
+              disabled={busy}
+              onClick={onInstall}
+            />
           )}
         </span>
       </div>
@@ -597,15 +709,12 @@ function ToolBlock({
               onChange={(e) => onDirChange(e.target.value)}
               style={{ fontSize: "0.8125rem", flex: "1 1 18rem" }}
             />
-            <button
-              type="button"
-              className="btn"
+            <IconButton
+              className="whitespace-nowrap"
+              label={<>save &amp; reindex</>}
               disabled={busy}
               onClick={onSaveDirs}
-              style={{ whiteSpace: "nowrap" }}
-            >
-              save &amp; reindex
-            </button>
+            />
             {maxFindings !== null ? (
               <label
                 className="dim"
@@ -641,7 +750,8 @@ function ListField({
   value: string;
   disabled: boolean;
   onChange: (v: string) => void;
-  onSave: () => void;
+  /** Receives the current field value so an untouched field saves what it shows. */
+  onSave: (value: string) => void;
 }) {
   return (
     <div className="setting-row" style={{ alignItems: "flex-start", flexWrap: "wrap" }}>
@@ -658,15 +768,12 @@ function ListField({
           onChange={(e) => onChange(e.target.value)}
           style={{ fontSize: "0.8125rem" }}
         />
-        <button
-          type="button"
-          className="btn"
+        <IconButton
+          className="whitespace-nowrap"
+          label="save"
           disabled={disabled}
-          onClick={onSave}
-          style={{ whiteSpace: "nowrap" }}
-        >
-          save
-        </button>
+          onClick={() => onSave(value)}
+        />
       </div>
     </div>
   );
@@ -679,7 +786,7 @@ function SettingRow({
 }: {
   label: string;
   help: string;
-  children: ReactNode;
+  children: React.ReactNode;
 }) {
   return (
     <div className="setting-row">

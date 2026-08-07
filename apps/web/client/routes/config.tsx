@@ -25,6 +25,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AdminTabs } from "../components/admin-tabs";
 import { AsyncBoundary } from "../components/async-boundary";
+import { Banner } from "../components/banner";
 import { confirm } from "../components/confirm";
 import { Icon } from "../components/icon";
 import { api } from "../lib/api";
@@ -299,9 +300,9 @@ function RestartBanner({
 }) {
   if (state === "done") {
     return (
-      <p className="pullquote" style={{ borderLeftColor: "var(--ok)", color: "var(--ok)" }}>
+      <Banner tone="ok">
         Daemon restart issued — reconnect from the launcher to pick up the new config.
-      </p>
+      </Banner>
     );
   }
   // Hot-reloaded: the change is already live. Only a few settings (daemon
@@ -309,7 +310,7 @@ function RestartBanner({
   // button stays available but the framing flips from "needed" to "only if
   // you changed one of those".
   return (
-    <p className="pullquote" style={{ borderLeftColor: "var(--ok)" }}>
+    <Banner tone="ok" soft>
       Saved to <code>{path}</code>.{" "}
       {reloaded
         ? "Applied live — analyzer toggles and the reconciliation interval took effect. Retrieval mode, watcher debounce, daemon port/hostname, and the embedding model still need a restart."
@@ -323,7 +324,7 @@ function RestartBanner({
       >
         {state === "restarting" ? "Restarting…" : "Restart daemon"}
       </button>
-    </p>
+    </Banner>
   );
 }
 

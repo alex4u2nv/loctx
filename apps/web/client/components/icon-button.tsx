@@ -21,11 +21,17 @@ import { Link } from "react-router-dom";
 import { Icon, type IconName } from "./icon";
 
 interface CommonProps {
-  readonly icon: IconName;
+  /**
+   * Optional so icon-less `.btn` actions (e.g. /models use/download)
+   * share the same primitive without gaining a glyph.
+   */
+  readonly icon?: IconName;
   readonly label: ReactNode;
   readonly disabled?: boolean;
   readonly title?: string;
   readonly animate?: boolean;
+  /** Extra classes merged after `btn` (e.g. "btn-primary", "btn-small"). */
+  readonly className?: string;
 }
 
 interface ButtonProps extends CommonProps {
@@ -41,9 +47,15 @@ interface LinkProps extends CommonProps {
 export type IconButtonProps = ButtonProps | LinkProps;
 
 export function IconButton(props: IconButtonProps) {
+  const cls = props.className !== undefined ? `btn ${props.className}` : "btn";
   const inner = (
     <>
-      <Icon name={props.icon} {...(props.animate === true ? { animate: true } : {})} /> {props.label}
+      {props.icon !== undefined ? (
+        <>
+          <Icon name={props.icon} {...(props.animate === true ? { animate: true } : {})} />{" "}
+        </>
+      ) : null}
+      {props.label}
     </>
   );
   if (props.href !== undefined) {
@@ -53,7 +65,7 @@ export function IconButton(props: IconButtonProps) {
     if (props.disabled === true) {
       return (
         <span
-          className="btn"
+          className={cls}
           aria-disabled="true"
           {...(props.title !== undefined ? { title: props.title } : {})}
         >
@@ -64,7 +76,7 @@ export function IconButton(props: IconButtonProps) {
     return (
       <Link
         to={props.href}
-        className="btn"
+        className={cls}
         {...(props.title !== undefined ? { title: props.title } : {})}
       >
         {inner}
@@ -74,7 +86,7 @@ export function IconButton(props: IconButtonProps) {
   return (
     <button
       type="button"
-      className="btn"
+      className={cls}
       onClick={props.onClick}
       disabled={props.disabled}
       {...(props.title !== undefined ? { title: props.title } : {})}

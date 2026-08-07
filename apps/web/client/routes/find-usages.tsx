@@ -1,56 +1,28 @@
 import type { FindUsagesPayload, UsageHit } from "@shared/contracts";
-import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import { AsyncError } from "../components/async-boundary";
+import { Banner } from "../components/banner";
 import { DataTable } from "../components/data-table";
 import { QueryForm } from "../components/query-form";
 import { SearchTabs } from "../components/search-tabs";
 import { SectionNav } from "../components/section-nav";
 import { SnippetModal } from "../components/snippet-modal";
 import { api } from "../lib/api";
+import { type FindUsagesQuery, findUsagesCodec } from "../lib/query-codecs";
+import { useUrlQuery } from "../lib/use-url-query";
 import { useSnippetSelection } from "../lib/use-snippet-selection";
 
 export function FindUsagesPage() {
-  const [params, setParams] = useSearchParams();
+  // URL-driven query state machine (audit WEB-2): submit mirrors into
+  // the URL so back/forward and deep-links from /search both work;
+  // arriving URLs auto-fire exactly once.
+  const { params, data, error, busy, submit } = useUrlQuery(
+    findUsagesCodec,
+    (req: FindUsagesQuery) =>
+      api.findUsages({ symbol: req.symbol, ...(req.path ? { path: req.path } : {}) }),
+  );
   const urlSymbol = params.get("symbol") ?? "";
   const urlPath = params.get("path") ?? "";
-  const [response, setResponse] = useState<FindUsagesPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const submit = useCallback(
-    async (symbol: string, path: string): Promise<void> => {
-      // Mirror submission into the URL so back/forward and deep-link from
-      // /search both work. Skip the URL push when nothing changed.
-      const next = new URLSearchParams();
-      if (symbol) next.set("symbol", symbol);
-      if (path) next.set("path", path);
-      if (next.toString() !== params.toString()) setParams(next);
-      if (!symbol) {
-        setResponse(null);
-        return;
-      }
-      setBusy(true);
-      setError(null);
-      try {
-        const r = await api.findUsages({ symbol, ...(path ? { path } : {}) });
-        setResponse(r);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        setResponse(null);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [params, setParams],
-  );
-
-  // Auto-fire when a deep-link arrives with ?symbol=... (e.g. clicking a
-  // symbol on /search). Only on the initial URL value to avoid loops.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — fire once per URL change
-  useEffect(() => {
-    if (urlSymbol) void submit(urlSymbol, urlPath);
-  }, [urlSymbol, urlPath]);
+  const response = data;
 
   return (
     <section>
@@ -89,7 +61,9 @@ export function FindUsagesPage() {
                 defaultValue: urlPath,
               },
             ]}
-            onSubmit={(values) => void submit(values["symbol"] ?? "", values["path"] ?? "")}
+            onSubmit={(values) =>
+              submit({ symbol: values["symbol"] ?? "", path: values["path"] ?? "" })
+            }
           />
         </div>
 
@@ -97,7 +71,11 @@ export function FindUsagesPage() {
           <AsyncError error={error} />
         ) : response === null ? null : (
           <div className="card" id="fu-results">
-            <Results r={response} scopedPath={urlPath} onClearScope={() => void submit(response.symbol, "")} />
+            <Results
+              r={response}
+              scopedPath={urlPath}
+              onClearScope={() => submit({ symbol: response.symbol, path: "" })}
+            />
           </div>
         )}
       </div>
@@ -127,13 +105,9 @@ function Results({
   return (
     <>
       {warnings.map((w) => (
-        <p
-          key={w}
-          className="pullquote"
-          style={{ borderLeftColor: "var(--warn)", color: "var(--warn)" }}
-        >
+        <Banner key={w} tone="warn">
           {w}
-        </p>
+        </Banner>
       ))}
       {empty ? (
         scopedPath !== "" ? (
