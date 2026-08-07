@@ -1,5 +1,15 @@
 # Code quality and architecture review — 2026-08-06
 
+> **Status (2026-08-06):** all seven batches shipped same-day.
+> Batch 1 → PR #511, batch 2 → #512, batches 3+4 → #515, batch 5 →
+> #516, batch 6 → #514, batch 7 + SRV-12 → #517. Side discovery:
+> issue #513 (test fixture escaping its tmpdir via hook-exported
+> GIT_DIR; fixed in #517). Still open, deliberately deferred:
+> CORE-6 (search() scoring extraction), SRV-11 (rebuild handler
+> split), the definitions.ts nested-loop + un-capped schema fetch
+> notes, the prior audit's CSS class migration, and a jsdom setup
+> for client component tests.
+
 Full-repo structural review at a principal-engineer bar: duplication,
 nesting, god functions, typing discipline, encapsulation, missing
 abstractions, and modern-language idioms. Follows the audit-first

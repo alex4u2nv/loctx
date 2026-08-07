@@ -16,12 +16,31 @@ import { hashBoundaries, resolveGitSource } from "../src/corpus.js";
 
 const tmpDirs: string[] = [];
 
+/**
+ * Env for spawned git: strip the repo-targeting variables git exports
+ * to hook processes (GIT_DIR & co). Without this, running this suite
+ * from a lefthook pre-push hook made every `git -C <tmpdir>` operate
+ * on the REAL repository — `-C` does not override GIT_DIR — which
+ * re-initialized it, rewrote its config identity, and committed the
+ * fixture tree onto the developer's branch (#513).
+ */
+function scrubbedGitEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key === "GIT_DIR" || key === "GIT_WORK_TREE" || key === "GIT_INDEX_FILE") {
+      delete env[key];
+    }
+  }
+  return env;
+}
+
 function makeRepo(): { dir: string; sha: string } {
   const dir = mkdtempSync(join(tmpdir(), "loctx-eval-repo-"));
   tmpDirs.push(dir);
+  const env = scrubbedGitEnv();
   const git = (args: string[]): string =>
-    execFileSync("git", ["-C", dir, ...args], { stdio: "pipe" }).toString();
-  execFileSync("git", ["init", "-q", dir]);
+    execFileSync("git", ["-C", dir, ...args], { stdio: "pipe", env }).toString();
+  execFileSync("git", ["init", "-q", dir], { env });
   git(["config", "user.email", "t@example.com"]);
   git(["config", "user.name", "Test"]);
   git(["config", "commit.gpgsign", "false"]);
