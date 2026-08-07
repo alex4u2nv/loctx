@@ -1,10 +1,10 @@
 /**
- * Light/dark mode (TailAdmin spike). A single `.dark` class on <html>
- * flips the token set; the choice persists to localStorage and is applied
- * before first paint (see initAppearance in main.tsx) so there's no flash.
+ * Light/dark mode. A single `.dark` class on <html> flips the token set;
+ * the choice persists to localStorage and is applied before first paint
+ * (see initAppearance in main.tsx) so there's no flash.
  *
- * (The previous multi-theme `data-theme` system was replaced by TailAdmin's
- * two-mode convention for this spike.)
+ * (The previous multi-theme `data-theme` system was replaced by this
+ * two-mode convention.)
  */
 
 export type ColorMode = "light" | "dark";

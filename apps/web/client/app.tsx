@@ -101,7 +101,7 @@ const ROUTE_LABELS: ReadonlyArray<{ readonly prefix: string; readonly label: str
 export function App() {
   const [mcpHelpOpen, setMcpHelpOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  // Apple-style scroll reveal for section cards across every route. Set up
+  // Scroll reveal for section cards across every route. Set up
   // once against the content <main>; the controller's MutationObserver picks
   // up lazily-mounted route content on its own (see lib/scroll-reveal).
   useEffect(() => {
@@ -201,7 +201,7 @@ function useCollapsedGroups(): {
   return { collapsed, toggle };
 }
 
-/** Fixed left rail — TailAdmin's signature chrome. */
+/** Fixed left rail — the app shell's primary navigation. */
 function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () => void }) {
   const { collapsed, toggle } = useCollapsedGroups();
   return (

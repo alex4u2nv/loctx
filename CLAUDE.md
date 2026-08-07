@@ -49,11 +49,13 @@ Concrete heuristics:
   name. Don't import FontAwesome icons elsewhere.
 - Imperative state APIs (e.g. `confirm()`) stay rare. When the only
   user-side API is a callback, prefer a declarative component.
-- Styling: the web UI uses **Tailwind v4** (`@tailwindcss/vite`) with a
-  TailAdmin-flavoured token set defined in `client/styles.css`
-  (`@theme` — brand `#465fff`, gray scale, Outfit font). The legacy
-  `--*` CSS custom properties are **kept and remapped** onto that
-  palette, so the shared component classes (`.card`, `.btn`,
+- Styling: the web UI uses **Tailwind v4** (`@tailwindcss/vite`) with
+  the loctx token set defined in `client/styles.css` (`@theme` — one
+  blue accent `#0071e3` light / `#2997ff` dark, neutral gray scale,
+  native system font stack, hairline borders, flat cards). Don't add
+  webfonts, second accent hues, or resting shadows on flat elements.
+  The legacy `--*` CSS custom properties are **kept and remapped** onto
+  that palette, so the shared component classes (`.card`, `.btn`,
   `.data-table`, …) and the inline `var(--…)` styles scattered through
   the routes all re-skin from one place. Light/dark is a `.dark` class
   on `<html>` (`lib/appearance.ts`), not multiple `data-theme`s. The

@@ -1,5 +1,5 @@
 /**
- * Apple-style scroll reveal. Structural section blocks (`.card`, plus any
+ * Scroll reveal. Structural section blocks (`.card`, plus any
  * element opting in with `data-reveal-target`) are tagged with `data-reveal`
  * — which CSS renders hidden + offset — then flipped to `.reveal-visible` as
  * they scroll into view, with a small per-batch stagger so above-the-fold
@@ -9,7 +9,7 @@
  * timelines which Safari still lacks) plus a MutationObserver so lazily
  * code-split route content is picked up automatically — no per-page wiring.
  * One-shot: a revealed element is unobserved and never re-hides on
- * scroll-up (matches apple.com, and avoids re-animation jank).
+ * scroll-up (avoids re-animation jank).
  *
  * Degrades safely: the hidden state only applies to the JS-added
  * `data-reveal` attribute, so if IntersectionObserver is missing (or JS
