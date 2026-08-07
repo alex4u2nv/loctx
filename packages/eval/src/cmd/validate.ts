@@ -23,7 +23,7 @@
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSandboxedRuntime, indexCorpus, loadCorpusConfig, snapshotCorpus } from "../corpus.js";
-import { loadQrels } from "../qrels.js";
+import { loadQrels, spansOverlap } from "../qrels.js";
 import type { Qrel } from "../types.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -121,8 +121,9 @@ export function classify(
   let overlap = false;
   for (const s of spans) {
     if (s.start === q.startLine && s.end === q.endLine) return { ...base, status: "exact" };
-    // Half-open overlap on inclusive line ranges.
-    if (s.start <= q.endLine && s.end >= q.startLine) overlap = true;
+    // Same inclusive span-overlap rule the metrics use — routed through
+    // the shared helper so validate and scoring can't drift apart.
+    if (spansOverlap({ startLine: s.start, endLine: s.end }, q)) overlap = true;
   }
   return { ...base, status: overlap ? "drift" : "no-overlap" };
 }

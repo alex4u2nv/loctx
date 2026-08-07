@@ -17,7 +17,7 @@ import { scoreRun } from "../metrics.js";
 import { loadQrels } from "../qrels.js";
 import { runQueries } from "../runner.js";
 import { writeTrec } from "../trec.js";
-import type { QueryType, RunResultJson } from "../types.js";
+import type { QueryId, QueryType, RankedDoc, RunResultJson } from "../types.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_GOLDEN_ROOT = resolve(HERE, "..", "..", "golden");
@@ -53,10 +53,10 @@ export async function runCommand(options: RunCommandOptions): Promise<{
     const { project, chunkBoundaryHash } = await indexCorpus(runtime, snap.root);
 
     const results = await runQueries(runtime.searcher, qrels, { project });
-    const perQueryRanked = new Map<string, ReturnType<typeof Array.prototype.slice>>();
-    const queryTypes = new Map<string, QueryType>();
+    const perQueryRanked = new Map<QueryId, ReadonlyArray<RankedDoc>>();
+    const queryTypes = new Map<QueryId, QueryType>();
     for (const r of results) {
-      perQueryRanked.set(r.queryId, [...r.ranked]);
+      perQueryRanked.set(r.queryId, r.ranked);
       queryTypes.set(r.queryId, r.queryType);
     }
     const scored = scoreRun(perQueryRanked, qrels, queryTypes);

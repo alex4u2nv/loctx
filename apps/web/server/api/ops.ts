@@ -30,15 +30,42 @@
 import { rmSync } from "node:fs";
 import {
   type Config,
+  ReconcileInFlightError,
   type Runtime,
+  assertNotReconciling,
   inventoryProjects,
   makeProject,
   readActiveDaemon,
   resolveUnderWorkspaceRoots,
   stopActiveDaemon,
 } from "@loctx/core";
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import type { RebuildTracker } from "../lib/rebuild-tracker.js";
+
+/**
+ * Map core's write-safety gate to the wire: 409 with the live progress
+ * so the caller knows why and what to wait on. Returns null when idle.
+ */
+function reconcileConflict(c: Context, rt: Runtime, opName: string): Response | null {
+  try {
+    assertNotReconciling(rt.reconciler, opName);
+    return null;
+  } catch (err) {
+    if (!(err instanceof ReconcileInFlightError)) throw err;
+    const s = err.status;
+    return c.json(
+      {
+        error: err.message,
+        currentProject: s.currentProjectName,
+        completed: s.completed,
+        total: s.total,
+        currentProjectIndexed: s.currentProjectIndexed,
+        currentProjectTotal: s.currentProjectTotal,
+      },
+      409,
+    );
+  }
+}
 
 export function mountOps(
   app: Hono,
@@ -49,21 +76,8 @@ export function mountOps(
   app.post("/api/index", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { path?: string };
     const rt = await getRuntime();
-    // Same reasoning as /api/refresh below: a concurrent indexer pass
-    // against a project the reconciler is also walking races on the
-    // same LanceDB table (#207). Refuse and surface what's in flight.
-    const status = rt.reconciler.status();
-    if (status.running) {
-      return c.json(
-        {
-          error: "a reconcile is already in flight; index would race the in-flight pass",
-          currentProject: status.currentProjectName,
-          completed: status.completed,
-          total: status.total,
-        },
-        409,
-      );
-    }
+    const conflict = reconcileConflict(c, rt, "index");
+    if (conflict !== null) return conflict;
     // An index request exists to pick up new/changed projects — never
     // serve the project list from the discovery cache (#443).
     rt.discovery.invalidate();
@@ -102,26 +116,8 @@ export function mountOps(
 
   app.post("/api/refresh", async (c) => {
     const rt = await getRuntime();
-    // Refuse a second concurrent reconcileAll. The Reconciler's
-    // reconcileProject path uses LanceDB writers that aren't safe
-    // for concurrent writers within a project (#207) — a click
-    // during the startup pass would race the in-flight indexer.
-    // Return 409 with the live progress so the caller knows why
-    // and what to wait on.
-    const status = rt.reconciler.status();
-    if (status.running) {
-      return c.json(
-        {
-          error: "a reconcile is already in flight",
-          currentProject: status.currentProjectName,
-          completed: status.completed,
-          total: status.total,
-          currentProjectIndexed: status.currentProjectIndexed,
-          currentProjectTotal: status.currentProjectTotal,
-        },
-        409,
-      );
-    }
+    const conflict = reconcileConflict(c, rt, "refresh");
+    if (conflict !== null) return conflict;
     rt.discovery.invalidate();
     const projects = rt.discovery.discoverProjects();
     const summaries = await rt.reconciler.reconcileAll(projects);
@@ -141,9 +137,8 @@ export function mountOps(
   // a reconcile so we don't fight the indexer for the writer lock.
   app.post("/api/compact", async (c) => {
     const rt = await getRuntime();
-    if (rt.reconciler.status().running) {
-      return c.json({ error: "a reconcile is in flight; try again after it finishes" }, 409);
-    }
+    const conflict = reconcileConflict(c, rt, "compact");
+    if (conflict !== null) return conflict;
     const { beforeBytes, afterBytes } = await rt.compactVectors();
     return c.json({
       ok: true,

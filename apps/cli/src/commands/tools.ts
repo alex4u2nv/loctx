@@ -138,11 +138,20 @@ export function registerToolsCommands(program: Command): void {
             continue;
           }
           const keys = toolConfigKeys(tool);
-          writeConfigPatch(config.source ?? resolve(config.paths.configDir, "config.yaml"), {
-            "analyzers.backgroundEnabled": true,
-            [keys.enabled]: true,
-            [keys.command]: result.command,
-          });
+          const write = writeConfigPatch(
+            config.source ?? resolve(config.paths.configDir, "config.yaml"),
+            {
+              "analyzers.backgroundEnabled": true,
+              [keys.enabled]: true,
+              [keys.command]: result.command,
+            },
+          );
+          if (!write.ok) {
+            const detail = write.errors.map((e) => `${e.key}: ${e.message}`).join("; ");
+            console.error(`[install-tools] ${tool}: installed but config update failed: ${detail}`);
+            process.exitCode = 1;
+            continue;
+          }
           console.error(
             `[install-tools] ${tool} installed (${result.command}) and enabled. Run \`loctx start\` (or restart) to backfill.`,
           );

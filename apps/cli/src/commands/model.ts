@@ -6,26 +6,25 @@ import { readActiveDaemon } from "@loctx/core";
 import type { Command } from "commander";
 import { confirm, getCtx, loadConfigOrFail } from "../lib/context.js";
 
-async function writeModelChoice(modelName: string, normalize: boolean): Promise<void> {
-  const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
-  const { parse: parseYaml, stringify: stringifyYaml } = await import("yaml");
-  const ctx = getCtx();
-  const target = ctx.configPath;
-
-  type Mutable = Record<string, unknown> & { embedding?: Record<string, unknown> };
-  const existing: Mutable = existsSync(target)
-    ? ((parseYaml(readFileSync(target, "utf-8"), {
-        merge: false,
-        maxAliasCount: 100,
-      }) as Mutable | null) ?? {})
-    : {};
-
-  const embedding: Record<string, unknown> = { ...(existing.embedding ?? {}) };
-  embedding["model"] = modelName;
-  embedding["normalize"] = normalize;
-  existing.embedding = embedding;
-
-  writeFileSync(target, stringifyYaml(existing), "utf-8");
+/**
+ * Persist the model switch through core's comment-preserving writer:
+ * it validates the patch, round-trips the YAML Document (user comments,
+ * blank lines, and key order survive), and stages through a tmp+rename
+ * so a crash can't half-write the file. Returns false (after printing
+ * the validation errors) when nothing was written.
+ */
+async function writeModelChoice(modelName: string, normalize: boolean): Promise<boolean> {
+  const { writeConfigPatch } = await import("@loctx/core");
+  const result = writeConfigPatch(getCtx().configPath, {
+    "embedding.model": modelName,
+    "embedding.normalize": normalize,
+  });
+  if (!result.ok) {
+    const detail = result.errors.map((e) => `${e.key}: ${e.message}`).join("; ");
+    console.error(`[loctx model] failed to update config: ${detail}`);
+    return false;
+  }
+  return true;
 }
 
 export function registerModelCommands(program: Command): void {
@@ -93,7 +92,10 @@ export function registerModelCommands(program: Command): void {
           process.exit(1);
         }
       }
-      await writeModelChoice(info.name, info.normalize);
+      if (!(await writeModelChoice(info.name, info.normalize))) {
+        process.exitCode = 1;
+        return;
+      }
       console.error(`[loctx model use] switched embedding.model to ${info.name}.`);
       console.error("[loctx model use] the existing index was built for the previous model;");
       console.error("                  run 'loctx reset index' then 'loctx index' to rebuild it,");
@@ -144,7 +146,10 @@ export function registerModelCommands(program: Command): void {
       console.error("[loctx model download] done.");
       if (opts.use) {
         const previous = config.embedding.model;
-        await writeModelChoice(info.name, info.normalize);
+        if (!(await writeModelChoice(info.name, info.normalize))) {
+          process.exitCode = 1;
+          return;
+        }
         console.error(`[loctx model download] embedding.model: ${previous} → ${info.name}`);
         console.error(
           "[loctx model download] the existing index was built for the previous model;",

@@ -12,7 +12,7 @@
  * is the standard formulation; matches what `pytrec_eval` defaults to).
  */
 
-import { groupQrelsByQuery, judgeRanked } from "./qrels.js";
+import { groupQrelsByQuery, judgeRanked, qrelMatchesDoc } from "./qrels.js";
 import type {
   MetricSummary,
   PerQueryMetrics,
@@ -61,14 +61,9 @@ export function recallAtK(
   const covered = new Set<number>();
   const topK = rankedDocs.slice(0, k);
   for (const doc of topK) {
-    for (let qi = 0; qi < relevantQrels.length; qi += 1) {
+    for (const [qi, q] of relevantQrels.entries()) {
       if (covered.has(qi)) continue;
-      const q = relevantQrels[qi];
-      if (q === undefined) continue;
-      if (q.relPath !== doc.relPath) continue;
-      if (q.startLine <= doc.endLine && doc.startLine <= q.endLine) {
-        covered.add(qi);
-      }
+      if (qrelMatchesDoc(q, doc)) covered.add(qi);
     }
   }
   return covered.size / relevantQrels.length;
@@ -105,29 +100,33 @@ export function ndcgAtK(
   const consumed = new Set<number>();
   let dcg = 0;
   const topK = rankedDocs.slice(0, k);
-  for (let r = 0; r < topK.length; r += 1) {
-    const doc = topK[r];
-    if (doc === undefined) continue;
-    let bestGrade = 0;
-    let bestQi = -1;
-    for (let qi = 0; qi < relevantQrels.length; qi += 1) {
-      if (consumed.has(qi)) continue;
-      const q = relevantQrels[qi];
-      if (q === undefined) continue;
-      if (q.relPath !== doc.relPath) continue;
-      if (q.startLine <= doc.endLine && doc.startLine <= q.endLine) {
-        if (q.relevance > bestGrade) {
-          bestGrade = q.relevance;
-          bestQi = qi;
-        }
-      }
-    }
-    if (bestQi >= 0) {
-      consumed.add(bestQi);
-      dcg += gain(bestGrade) / discount(r + 1);
+  for (const [r, doc] of topK.entries()) {
+    const best = bestUnconsumedMatch(doc, relevantQrels, consumed);
+    if (best !== null) {
+      consumed.add(best.index);
+      dcg += gain(best.grade) / discount(r + 1);
     }
   }
   return dcg / idcg;
+}
+
+/**
+ * The highest-grade still-unconsumed qrel this doc overlaps, or null.
+ * Separated from the rank walk so the interesting step of nDCG (pick
+ * the best match, consume it) reads on its own.
+ */
+function bestUnconsumedMatch(
+  doc: RankedDoc,
+  relevantQrels: ReadonlyArray<Qrel>,
+  consumed: ReadonlySet<number>,
+): { readonly index: number; readonly grade: number } | null {
+  return [...relevantQrels.entries()]
+    .filter(([index, q]) => !consumed.has(index) && qrelMatchesDoc(q, doc))
+    .reduce<{ readonly index: number; readonly grade: number } | null>(
+      (best, [index, q]) =>
+        best === null || q.relevance > best.grade ? { index, grade: q.relevance } : best,
+      null,
+    );
 }
 
 function gain(rel: number): number {
