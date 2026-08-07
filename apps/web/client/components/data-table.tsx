@@ -46,8 +46,11 @@ export interface DataTableProps<T> {
   /** Stable per-row key. */
   readonly rowKey: (row: T, index: number) => string;
   /**
-   * When set, rows become clickable: cursor + Enter/Space + role=button.
-   * Use for the result-row → modal pattern in #255 entry 3.
+   * When set, rows become clickable: cursor + tabIndex + Enter/Space.
+   * Use for the result-row → modal pattern in #255 entry 3. The row
+   * keeps its native `row` role (audit WEB-12) — a `role="button"` on
+   * `<tr>` used to strip row/cell semantics for assistive tech. The
+   * cursor affordance lives on `.row-clickable` in styles.css.
    */
   readonly onRowClick?: (row: T) => void;
   /** Rendered as a centered "no data" cell when `rows` is empty. */
@@ -129,8 +132,7 @@ export function DataTable<T>({
                       }
                     },
                     tabIndex: 0,
-                    role: "button",
-                    style: { cursor: "pointer" },
+                    className: "row-clickable",
                   }
                 : {})}
             >

@@ -1016,6 +1016,38 @@ h3 {
   margin: var(--space-5) 0;
 }
 
+/* Pull-quote tone modifiers (components/banner.tsx, audit WEB-7).
+   warn/ok/bad color border + text; info/muted color the border only.
+   `-soft` keeps the default muted text under any toned border — it is
+   declared last so it wins over the tone's text color. */
+.pullquote-warn {
+  border-left-color: var(--warn);
+  color: var(--warn);
+}
+.pullquote-ok {
+  border-left-color: var(--ok);
+  color: var(--ok);
+}
+.pullquote-bad {
+  border-left-color: var(--bad);
+  color: var(--bad);
+}
+.pullquote-info {
+  border-left-color: var(--primary);
+}
+.pullquote-muted {
+  border-left-color: var(--muted);
+}
+.pullquote-soft {
+  color: var(--muted);
+}
+
+/* Clickable data-table rows (components/data-table.tsx, audit WEB-12).
+   The affordance used to be an inline cursor style + role="button". */
+.data-table tr.row-clickable {
+  cursor: pointer;
+}
+
 /* ============================================================
  * Dashboard
  * ============================================================ */

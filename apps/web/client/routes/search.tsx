@@ -1,83 +1,44 @@
 import type { SearchHit, SearchPayload } from "@shared/contracts";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AsyncError } from "../components/async-boundary";
+import { Banner } from "../components/banner";
 import { CodeBlock } from "../components/code-block";
+import {
+  PROJECT_PATHS_DATALIST_ID,
+  ProjectPathsDatalist,
+} from "../components/project-paths-datalist";
+import { QueryForm } from "../components/query-form";
 import { SearchTabs } from "../components/search-tabs";
 import { SectionNav } from "../components/section-nav";
 import { SnippetModal } from "../components/snippet-modal";
 import { api } from "../lib/api";
+import { SEARCH_DEFAULT_LIMIT, type SearchQuery, searchCodec } from "../lib/query-codecs";
 import { useFetch } from "../lib/use-fetch";
+import { useUrlQuery } from "../lib/use-url-query";
 import { useSnippetSelection } from "../lib/use-snippet-selection";
 
 export function SearchPage() {
-  const [params, setParams] = useSearchParams();
+  // URL-driven query state machine (audit WEB-2): params→state, submit
+  // mirrors to the URL, deep-links/back-forward auto-fire exactly once.
+  const { params, data, error, busy, submit } = useUrlQuery(searchCodec, (req: SearchQuery) =>
+    api.search({
+      query: req.q,
+      ...(req.path ? { path: req.path } : {}),
+      limit: req.limit,
+      ...(req.language ? { language: req.language } : {}),
+      ...(req.coverage ? { coverage: true } : {}),
+    }),
+  );
   const query = params.get("q")?.trim() ?? "";
   const path = params.get("path") ?? "";
-  const limit = Number.parseInt(params.get("limit") ?? "10", 10) || 10;
+  const limit =
+    Number.parseInt(params.get("limit") ?? String(SEARCH_DEFAULT_LIMIT), 10) ||
+    SEARCH_DEFAULT_LIMIT;
   const language = params.get("language") ?? "";
   const coverage = params.get("coverage") === "1";
 
-  const [response, setResponse] = useState<SearchPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
   const projectsCall = useFetch(() => api.projects(), []);
-
-  const submit = useCallback(
-    async (next: {
-      q: string;
-      path: string;
-      limit: number;
-      language: string;
-      coverage: boolean;
-    }) => {
-      const newParams = new URLSearchParams();
-      if (next.q) newParams.set("q", next.q);
-      if (next.path) newParams.set("path", next.path);
-      if (next.limit !== 10) newParams.set("limit", String(next.limit));
-      if (next.language) newParams.set("language", next.language);
-      if (next.coverage) newParams.set("coverage", "1");
-      setParams(newParams);
-      if (!next.q) {
-        setResponse(null);
-        return;
-      }
-      setLoading(true);
-      try {
-        const r = await api.search({
-          query: next.q,
-          ...(next.path ? { path: next.path } : {}),
-          limit: next.limit,
-          ...(next.language ? { language: next.language } : {}),
-          ...(next.coverage ? { coverage: true } : {}),
-        });
-        setResponse(r);
-        setError(null);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        setResponse(null);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [setParams],
-  );
-
-  // Auto-fire when a URL deep-link arrives with ?q=... (e.g. landing
-  // from a bookmark, browser back/forward, or a link in another tab).
-  // Matches /find-usages's behavior from #296. lastFiredQuery tracks
-  // what we last submitted for so a same-URL re-render doesn't double-
-  // submit; setParams() inside submit() updates `query` and triggers
-  // this effect, but lastFiredQuery is already up to date by then.
-  const lastFired = useRef<string>("");
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — fire once per URL-derived state
-  useEffect(() => {
-    const key = `${query}|${path}|${limit}|${language}|${coverage}`;
-    if (!query || lastFired.current === key) return;
-    lastFired.current = key;
-    void submit({ q: query, path, limit, language, coverage });
-  }, [query, path, limit, language, coverage]);
 
   return (
     <section>
@@ -92,116 +53,85 @@ export function SearchPage() {
 
       <div className="card-stack">
       <div className="card" id="search-query">
-      <form
-        className="search-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const fd = new FormData(e.currentTarget);
-          void submit({
-            q: String(fd.get("q") ?? "").trim(),
-            path: String(fd.get("path") ?? "").trim(),
-            limit: Number.parseInt(String(fd.get("limit") ?? "10"), 10) || 10,
-            language: String(fd.get("language") ?? "").trim(),
-            coverage: fd.get("coverage") === "on",
-          });
-        }}
-      >
-        <div className="field">
-          <label htmlFor="q">query</label>
-          <input
-            id="q"
-            className="input"
-            type="text"
-            name="q"
-            defaultValue={query}
-            placeholder="natural language or code fragment"
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="path">path</label>
-          <input
-            id="path"
-            className="input"
-            type="text"
-            name="path"
-            list="loctx-project-paths"
-            defaultValue={path}
-            placeholder="project root or subtree"
-          />
-          <datalist id="loctx-project-paths">
-            {projectsCall.data?.active.flatMap((a) => [
-              // Project root — broadest reasonable scope.
-              <option key={a.id} value={a.root} label={a.name} />,
-              // Common subtrees inside each project. Browsers ignore
-              // duplicates, so this is harmless if a project happens
-              // to not contain one of these. Mirrors the conventions
-              // most JS/TS/Python workspaces follow.
-              ...["src", "apps", "packages", "lib", "tests"].map((sub) => (
-                <option
-                  key={`${a.id}:${sub}`}
-                  value={`${a.root}/${sub}`}
-                  label={`${a.name}/${sub}`}
-                />
-              )),
-            ])}
-          </datalist>
-        </div>
-        <div className="field">
-          <label htmlFor="limit">limit</label>
-          <input
-            id="limit"
-            className="input"
-            type="number"
-            name="limit"
-            min={1}
-            max={100}
-            defaultValue={limit}
-            style={{ width: "5rem" }}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="language">language</label>
-          <input
-            id="language"
-            className="input"
-            type="text"
-            name="language"
-            placeholder="any"
-            defaultValue={language}
-            style={{ width: "8rem" }}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="coverage" title="Expand top hits with their callers + importers via the symbol cross-reference graph. Useful for refactor planning ('what else touches X')">
-            <input
-              id="coverage"
-              type="checkbox"
-              name="coverage"
-              defaultChecked={coverage}
-              style={{ marginRight: "0.4rem" }}
-            />
-            coverage
-          </label>
-        </div>
-        <button type="submit" className="btn btn-primary field-submit" disabled={loading}>
-          {loading ? "Searching…" : "Search"}
-        </button>
-      </form>
+      <QueryForm
+        // Re-mount when URL params change so the uncontrolled inputs pick
+        // up fresh defaultValues (e.g. after "narrow to this subtree").
+        key={`${query}|${path}|${limit}|${language}|${coverage}`}
+        busy={busy}
+        submitLabel="Search"
+        busyLabel="Searching…"
+        fields={[
+          {
+            id: "q",
+            name: "q",
+            label: "query",
+            defaultValue: query,
+            placeholder: "natural language or code fragment",
+          },
+          {
+            id: "path",
+            name: "path",
+            label: "path",
+            datalist: PROJECT_PATHS_DATALIST_ID,
+            defaultValue: path,
+            placeholder: "project root or subtree",
+          },
+          {
+            id: "limit",
+            name: "limit",
+            label: "limit",
+            type: "number",
+            min: 1,
+            max: 100,
+            defaultValue: String(limit),
+            width: "5rem",
+          },
+          {
+            id: "language",
+            name: "language",
+            label: "language",
+            placeholder: "any",
+            defaultValue: language,
+            width: "8rem",
+          },
+          {
+            id: "coverage",
+            name: "coverage",
+            label: "coverage",
+            type: "checkbox",
+            defaultChecked: coverage,
+            title:
+              "Expand top hits with their callers + importers via the symbol cross-reference graph. Useful for refactor planning ('what else touches X')",
+          },
+        ]}
+        onSubmit={(values) =>
+          submit({
+            q: values["q"] ?? "",
+            path: values["path"] ?? "",
+            limit:
+              Number.parseInt(values["limit"] ?? String(SEARCH_DEFAULT_LIMIT), 10) ||
+              SEARCH_DEFAULT_LIMIT,
+            language: values["language"] ?? "",
+            coverage: values["coverage"] === "on",
+          })
+        }
+      />
+      <ProjectPathsDatalist projects={projectsCall.data?.active} />
       </div>
 
       {error !== null ? <AsyncError error={error} /> : null}
 
       <div className="card" id="search-results">
-      {error !== null ? null : response === null ? (
+      {error !== null ? null : data === null ? (
         query ? null /* URL-driven submit is in flight; brief blank is OK */ : (
           <p className="pullquote">Enter a query to search the locally-indexed workspace.</p>
         )
       ) : (
-        <Results response={response} />
+        <Results response={data} />
       )}
       </div>
       </div>
-      {response !== null ? (
+      {data !== null ? (
         <SectionNav
           sections={[
             { id: "search-query", label: "Query" },
@@ -237,13 +167,9 @@ function Results({ response }: { response: SearchPayload }) {
   const warnings = (
     <>
       {response.warnings.map((w) => (
-        <p
-          key={w}
-          className="pullquote"
-          style={{ borderLeftColor: "var(--warn)", color: "var(--warn)" }}
-        >
+        <Banner key={w} tone="warn">
           {w}
-        </p>
+        </Banner>
       ))}
     </>
   );

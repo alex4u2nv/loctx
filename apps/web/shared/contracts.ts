@@ -562,9 +562,17 @@ export type OpEvent =
   | { readonly type: "done"; readonly summary: string }
   | { readonly type: "error"; readonly error: string };
 
+/**
+ * Analyzer tool names. Mirrors `ToolName` in `@loctx/core`
+ * (`packages/core/src/tools.ts`) — duplicated because contracts stays
+ * import-free by design. `server/api/tools.ts` assigns core's `ToolName`
+ * into `ToolStatus.name`, so any drift fails the server typecheck.
+ */
+export type AnalyzerToolName = "lizard" | "semgrep" | "ast-grep";
+
 /** Optional analyzer tools the daemon can provision (lizard, semgrep, ast-grep). */
 export interface ToolStatus {
-  readonly name: string;
+  readonly name: AnalyzerToolName;
   readonly enabled: boolean;
   /** True when the configured `command` resolves to a runnable binary. */
   readonly installed: boolean;

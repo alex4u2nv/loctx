@@ -17,6 +17,7 @@
 
 import type { ReactNode } from "react";
 import type { UseFetchState } from "../lib/use-fetch";
+import { Banner } from "./banner";
 
 export function AsyncLoading(): ReactNode {
   return <p className="pullquote">Loading…</p>;
@@ -30,10 +31,10 @@ export function AsyncError({
   children?: ReactNode;
 }): ReactNode {
   return (
-    <p className="pullquote" style={{ borderLeftColor: "var(--bad)", color: "var(--bad)" }}>
+    <Banner tone="bad">
       {error}
       {children}
-    </p>
+    </Banner>
   );
 }
 

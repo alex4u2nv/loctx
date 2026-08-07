@@ -1,15 +1,17 @@
-import { useState } from "react";
 import { AdminTabs } from "../components/admin-tabs";
 import { AsyncBoundary } from "../components/async-boundary";
+import { Banner } from "../components/banner";
 import { confirm } from "../components/confirm";
 import { DataTable } from "../components/data-table";
+import { IconButton } from "../components/icon-button";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
+import { useOpRunner } from "../lib/use-op-runner";
 
 export function ModelsPage() {
   const { data, error, loading, reload } = useFetch(() => api.models(), []);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  // Busy/message runner shared with /admin and /projects (audit WEB-6).
+  const ops = useOpRunner(reload);
 
   const handleUse = async (name: string): Promise<void> => {
     // Switching embedding models invalidates the existing index. The
@@ -28,31 +30,15 @@ export function ModelsPage() {
       danger: true,
     });
     if (!ok) return;
-    setBusy(name);
-    setMessage(null);
-    try {
-      const r = await api.modelUse(name);
-      setMessage(`Switched to ${name}. ${r.message}`);
-      reload();
-    } catch (e) {
-      setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setBusy(null);
-    }
+    await ops.run(name, () => api.modelUse(name), {
+      success: (r) => `Switched to ${name}. ${r.message}`,
+    });
   };
 
   const handleDownload = async (name: string): Promise<void> => {
-    setBusy(name);
-    setMessage(null);
-    try {
-      await api.modelDownload(name);
-      setMessage(`Downloaded ${name}.`);
-      reload();
-    } catch (e) {
-      setMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setBusy(null);
-    }
+    await ops.run(name, () => api.modelDownload(name), {
+      success: () => `Downloaded ${name}.`,
+    });
   };
 
   return (
@@ -66,10 +52,10 @@ export function ModelsPage() {
 
       <AdminTabs />
 
-      {message ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--warn)" }}>
-          {message}
-        </p>
+      {ops.message ? (
+        <Banner tone="warn" soft>
+          {ops.message}
+        </Banner>
       ) : null}
       <AsyncBoundary state={{ data, error, loading, reload }}>
         {(models) => (
@@ -93,22 +79,16 @@ export function ModelsPage() {
                   header: "actions",
                   cell: (m) => (
                     <>
-                      <button
-                        type="button"
-                        className="btn"
+                      <IconButton
+                        label="use"
                         onClick={() => void handleUse(m.id)}
-                        disabled={busy !== null || m.current}
-                      >
-                        use
-                      </button>{" "}
-                      <button
-                        type="button"
-                        className="btn"
+                        disabled={ops.busy !== null || m.current}
+                      />{" "}
+                      <IconButton
+                        label={ops.busy === m.id ? "downloading…" : "download"}
                         onClick={() => void handleDownload(m.id)}
-                        disabled={busy !== null}
-                      >
-                        {busy === m.id ? "downloading…" : "download"}
-                      </button>
+                        disabled={ops.busy !== null}
+                      />
                     </>
                   ),
                 },

@@ -6,8 +6,9 @@
 import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
 import { AdminTabs } from "../components/admin-tabs";
+import { Banner } from "../components/banner";
 import { confirm } from "../components/confirm";
-import { Icon } from "../components/icon";
+import { IconButton } from "../components/icon-button";
 import { useLiveRefreshEvent } from "../components/live-refresh";
 import { SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
@@ -114,45 +115,40 @@ export function AdminPage() {
       <AdminTabs />
 
       {ops.message ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--warn)" }}>
+        <Banner tone="warn" soft>
           {ops.message}
-        </p>
+        </Banner>
       ) : null}
 
       <div className="card-stack">
         <div className="card">
           <p className="card-section-title" id="admin-index">Index</p>
           <p>
-            <button
-              type="button"
-              className="btn btn-primary"
+            <IconButton
+              icon="index"
+              className="btn-primary"
+              label="index all projects"
               onClick={() => void indexAll()}
               disabled={indexBlocked}
-              title={reconcileTooltip}
-            >
-              <Icon name="index" /> index all projects
-            </button>{" "}
-            <button
-              type="button"
-              className="btn"
+              {...(reconcileTooltip !== undefined ? { title: reconcileTooltip } : {})}
+            />{" "}
+            <IconButton
+              icon="refresh"
+              label="refresh (reconcile drift)"
               onClick={() => void refreshAll()}
               disabled={indexBlocked}
-              title={reconcileTooltip}
-            >
-              <Icon name="refresh" /> refresh (reconcile drift)
-            </button>{" "}
-            <button
-              type="button"
-              className="btn"
+              {...(reconcileTooltip !== undefined ? { title: reconcileTooltip } : {})}
+            />{" "}
+            <IconButton
+              icon="reset"
+              label="reset index (delete all data)"
               onClick={() => void resetIndex()}
               disabled={resetBlocked}
-              title={resetTooltip}
-            >
-              <Icon name="reset" /> reset index (delete all data)
-            </button>{" "}
-            <button
-              type="button"
-              className="btn"
+              {...(resetTooltip !== undefined ? { title: resetTooltip } : {})}
+            />{" "}
+            <IconButton
+              icon="purge"
+              label={compacting ? "compacting…" : "compact (reclaim disk)"}
               onClick={() => void compact()}
               disabled={indexBlocked || compacting}
               title={
@@ -161,9 +157,7 @@ export function AdminPage() {
                   ? "Compaction is already running."
                   : "Merge vector fragments + prune old version history to reclaim disk")
               }
-            >
-              <Icon name="purge" /> {compacting ? "compacting…" : "compact (reclaim disk)"}
-            </button>
+            />
           </p>
           <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem", marginBottom: 0 }}>
             {compacting
@@ -187,14 +181,13 @@ export function AdminPage() {
             transport. Per-project setup lives on <Link to="/projects">projects</Link>.
           </p>
           <p>
-            <button
-              type="button"
-              className="btn btn-primary"
+            <IconButton
+              icon="refresh"
+              className="btn-primary"
+              label="refresh agent configs"
               onClick={() => void refreshAgents()}
               disabled={ops.busy !== null}
-            >
-              <Icon name="refresh" /> refresh agent configs
-            </button>
+            />
           </p>
           {agentMsg !== null ? (
             <p className="dim" style={{ marginBottom: 0 }}>
@@ -206,22 +199,18 @@ export function AdminPage() {
         <div className="card">
           <p className="card-section-title" id="admin-daemon">Daemon</p>
           <p>
-            <button
-              type="button"
-              className="btn"
+            <IconButton
+              icon="refresh"
+              label="restart"
               onClick={() => void restart()}
               disabled={ops.busy !== null}
-            >
-              <Icon name="refresh" /> restart
-            </button>{" "}
-            <button
-              type="button"
-              className="btn"
+            />{" "}
+            <IconButton
+              icon="stop"
+              label="stop"
               onClick={() => void stop()}
               disabled={ops.busy !== null}
-            >
-              <Icon name="stop" /> stop
-            </button>
+            />
           </p>
         </div>
       </div>

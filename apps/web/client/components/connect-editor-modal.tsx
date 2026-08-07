@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useFetch } from "../lib/use-fetch";
 import { AsyncError, AsyncLoading } from "./async-boundary";
+import { Banner } from "./banner";
 import { Icon } from "./icon";
 import { Modal } from "./modal";
 
@@ -82,9 +83,9 @@ export function ConnectEditorModal({
         : null}
 
       {message !== null ? (
-        <p className="pullquote" style={{ borderLeftColor: "var(--warn)" }}>
+        <Banner tone="warn" soft>
           {message}
-        </p>
+        </Banner>
       ) : null}
 
       <p style={{ marginBottom: 0 }}>

@@ -7,6 +7,7 @@ import { McpHelpModal } from "./components/mcp-help";
 import { NotificationsBell } from "./components/notifications-bell";
 import { api } from "./lib/api";
 import { type ColorMode, getMode, toggleMode } from "./lib/appearance";
+import { type RouteGroup, routeLabelFor, routesInGroup } from "./lib/routes";
 import { initScrollReveal } from "./lib/scroll-reveal";
 import { useFetch } from "./lib/use-fetch";
 
@@ -41,61 +42,16 @@ const LogsPage = lazy(() => import("./routes/logs").then((m) => ({ default: m.Lo
 
 const ROUTE_FALLBACK = <p className="pullquote">Loading…</p>;
 
-interface NavItem {
-  readonly to: string;
-  readonly label: string;
+// Sidebar groups: heading + group icon; the items themselves come from
+// the shared route table (lib/routes.ts, audit WEB-9).
+const NAV_GROUPS: ReadonlyArray<{
+  readonly heading: string;
   readonly icon: IconName;
-  readonly end?: boolean;
-}
-interface NavGroup {
-  readonly heading?: string;
-  readonly icon?: IconName;
-  readonly items: ReadonlyArray<NavItem>;
-}
-
-const NAV: ReadonlyArray<NavGroup> = [
-  {
-    heading: "Menu",
-    icon: "home",
-    items: [
-      { to: "/", label: "Dashboard", icon: "dashboard", end: true },
-      { to: "/projects", label: "Projects", icon: "projects" },
-    ],
-  },
-  {
-    heading: "Search",
-    icon: "search",
-    items: [
-      { to: "/search", label: "Search", icon: "search" },
-      { to: "/find-usages", label: "Find usages", icon: "usages" },
-      { to: "/find-literal", label: "Find literal", icon: "literal" },
-    ],
-  },
-  {
-    heading: "Admin",
-    icon: "admin",
-    items: [
-      { to: "/admin", label: "Admin", icon: "admin" },
-      { to: "/config", label: "Config", icon: "config" },
-      { to: "/analyzers", label: "Analyzers", icon: "analyzers" },
-      { to: "/models", label: "Models", icon: "models" },
-      { to: "/doctor", label: "Doctor", icon: "doctor" },
-      { to: "/logs", label: "Logs", icon: "logs" },
-    ],
-  },
-];
-
-const ROUTE_LABELS: ReadonlyArray<{ readonly prefix: string; readonly label: string }> = [
-  { prefix: "/projects", label: "Projects" },
-  { prefix: "/search", label: "Search" },
-  { prefix: "/find-usages", label: "Find usages" },
-  { prefix: "/find-literal", label: "Find literal" },
-  { prefix: "/doctor", label: "Doctor" },
-  { prefix: "/models", label: "Models" },
-  { prefix: "/config", label: "Config" },
-  { prefix: "/analyzers", label: "Analyzers" },
-  { prefix: "/logs", label: "Logs" },
-  { prefix: "/admin", label: "Admin" },
+  readonly group: RouteGroup;
+}> = [
+  { heading: "Menu", icon: "home", group: "menu" },
+  { heading: "Search", icon: "search", group: "search" },
+  { heading: "Admin", icon: "admin", group: "admin" },
 ];
 
 export function App() {
@@ -215,41 +171,36 @@ function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () => void }
         <span className="text-lg font-semibold tracking-tight text-[var(--text)]">loctx</span>
       </div>
       <nav className="flex-1 overflow-y-auto px-4 py-2">
-        {NAV.map((group) => {
-          const heading = group.heading ?? "main";
-          const isCollapsed = group.heading !== undefined && collapsed[group.heading] === true;
+        {NAV_GROUPS.map((group) => {
+          const isCollapsed = collapsed[group.heading] === true;
           return (
-            <div key={heading} className="mb-4">
-              {group.heading ? (
-                <button
-                  type="button"
-                  onClick={() => toggle(group.heading as string)}
-                  aria-expanded={!isCollapsed}
-                  className="mb-1 flex w-full items-center justify-between rounded-md px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-wider text-[var(--subtle)] transition-colors hover:text-[var(--text)]"
+            <div key={group.heading} className="mb-4">
+              <button
+                type="button"
+                onClick={() => toggle(group.heading)}
+                aria-expanded={!isCollapsed}
+                className="mb-1 flex w-full items-center justify-between rounded-md px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-wider text-[var(--subtle)] transition-colors hover:text-[var(--text)]"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="text-[0.8rem]">
+                    <Icon name={group.icon} />
+                  </span>
+                  {group.heading}
+                </span>
+                <span
+                  className={`text-[0.7rem] transition-transform duration-200 ${
+                    isCollapsed ? "-rotate-90" : ""
+                  }`}
                 >
-                  <span className="flex items-center gap-2">
-                    {group.icon ? (
-                      <span className="text-[0.8rem]">
-                        <Icon name={group.icon} />
-                      </span>
-                    ) : null}
-                    {group.heading}
-                  </span>
-                  <span
-                    className={`text-[0.7rem] transition-transform duration-200 ${
-                      isCollapsed ? "-rotate-90" : ""
-                    }`}
-                  >
-                    <Icon name="chevron-down" />
-                  </span>
-                </button>
-              ) : null}
+                  <Icon name="chevron-down" />
+                </span>
+              </button>
               {isCollapsed ? null : (
                 <ul className="flex flex-col gap-1">
-                  {group.items.map((item) => (
-                    <li key={item.to}>
+                  {routesInGroup(group.group).map((item) => (
+                    <li key={item.path}>
                       <NavLink
-                        to={item.to}
+                        to={item.path}
                         end={item.end === true}
                         onClick={onNavigate}
                         className={({ isActive }) =>
@@ -314,15 +265,12 @@ function Header({ onMenu, onMcp }: { onMenu: () => void; onMcp: () => void }) {
 /** Current section name as the header title. */
 function PageTitle() {
   const { pathname } = useLocation();
-  const match = ROUTE_LABELS.find(
-    (r) => pathname === r.prefix || pathname.startsWith(`${r.prefix}/`),
-  );
   // A breadcrumb-style label, deliberately NOT a heading — each route
   // renders its own <h1>, so a second heading here would duplicate the
   // document title (a11y) and break heading-based selectors.
   return (
     <div className="truncate text-base font-semibold text-[var(--text)]" aria-hidden="true">
-      {match?.label ?? "Dashboard"}
+      {routeLabelFor(pathname) ?? "Dashboard"}
     </div>
   );
 }
