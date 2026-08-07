@@ -705,20 +705,92 @@ function mergeDiscovery(
   });
 }
 
+// ---- descriptor-driven analyzer merge (CORE-4) -------------------------
+
+/**
+ * Field kinds a section descriptor can declare. The camelCase config
+ * key is the single source of truth: the snake_case YAML key is derived
+ * mechanically and the fallback comes from the section's defaults
+ * object, so a leaf can no longer drift between its three spellings
+ * (CORE-4 — mergeAnalyzers used to spell all three out per leaf, 175
+ * lines of mechanical picker calls).
+ */
+type SectionFieldKind = "bool" | "str" | "int" | "strArray";
+
+interface SectionField<S> {
+  readonly key: Extract<keyof S, string>;
+  readonly kind: SectionFieldKind;
+}
+
+function camelToSnake(key: string): string {
+  return key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+}
+
+/**
+ * Merge one config section: every field in `picked` resolves
+ * global-YAML → default via {@link makePicker} (stamping `sources`);
+ * fields NOT listed stay pinned to their defaults with no YAML lookup
+ * and no source stamp — e.g. `semgrep.bundledRules` and
+ * `astGrep.registryConfig`, kept only for RulePackAnalyzerConfig type
+ * parity.
+ */
+function mergeSection<S extends object>(
+  glo: Record<string, unknown> | null,
+  sources: Record<string, ConfigSource>,
+  trackPrefix: string,
+  defaults: S,
+  picked: ReadonlyArray<SectionField<S>>,
+): S {
+  const pick = makePicker(glo, sources);
+  const overrides: Partial<Record<Extract<keyof S, string>, unknown>> = {};
+  for (const f of picked) {
+    const trackKey = `${trackPrefix}.${f.key}`;
+    const yamlKey = camelToSnake(f.key);
+    const fallback = defaults[f.key];
+    switch (f.kind) {
+      case "bool":
+        overrides[f.key] = pick(trackKey, yamlKey, BOOL, fallback as boolean);
+        break;
+      case "str":
+        overrides[f.key] = pick(trackKey, yamlKey, STR, fallback as string);
+        break;
+      case "int":
+        overrides[f.key] = pick(trackKey, yamlKey, INT_NON_NEG, fallback as number);
+        break;
+      case "strArray":
+        overrides[f.key] = Object.freeze(
+          pick(trackKey, yamlKey, STR_ARRAY, [...(fallback as ReadonlyArray<string>)]),
+        );
+        break;
+    }
+  }
+  // The switch above resolves each field with the Spec matching its
+  // declared kind, so the merged object satisfies S; the cast just
+  // re-attaches the interface the per-key loop erased.
+  return Object.freeze({ ...defaults, ...overrides } as S);
+}
+
+/**
+ * Fields shared by both rule-pack analyzers (semgrep, ast-grep). Each
+ * analyzer appends its own extra: semgrep picks `registryConfig` (the
+ * registry fallback ruleset), ast-grep picks `bundledRules` (loctx's
+ * starter set — ast-grep has no registry).
+ */
+const RULE_PACK_FIELDS: ReadonlyArray<SectionField<RulePackAnalyzerConfig>> = [
+  { key: "enabled", kind: "bool" },
+  { key: "command", kind: "str" },
+  { key: "ruleDirs", kind: "strArray" },
+  { key: "maxFindingsPerFile", kind: "int" },
+];
+
 function mergeAnalyzers(
   global: Record<string, unknown> | null,
   sources: Record<string, ConfigSource>,
 ): AnalyzerConfig {
   const gloA = sectionRecord(global, "analyzers", "<global>");
+  const section = (name: string): Record<string, unknown> | null =>
+    sectionRecord(gloA, name, "<global>");
   const pick = makePicker(gloA, sources);
-  const lizardPick = makePicker(sectionRecord(gloA, "lizard", "<global>"), sources);
-  const dupPick = makePicker(sectionRecord(gloA, "duplicates", "<global>"), sources);
-  const semgrepPick = makePicker(sectionRecord(gloA, "semgrep", "<global>"), sources);
-  const defPick = makePicker(sectionRecord(gloA, "definitions", "<global>"), sources);
-  const astGrepPick = makePicker(
-    sectionRecord(gloA, "astGrep", "<global>") ?? sectionRecord(gloA, "ast_grep", "<global>"),
-    sources,
-  );
   return Object.freeze({
     backgroundEnabled: pick(
       "analyzers.backgroundEnabled",
@@ -738,147 +810,52 @@ function mergeAnalyzers(
       INT_NON_NEG,
       DEFAULT_ANALYZERS.perTaskTimeoutMs,
     ),
-    lizard: Object.freeze({
-      enabled: lizardPick(
-        "analyzers.lizard.enabled",
-        "enabled",
-        BOOL,
-        DEFAULT_ANALYZERS.lizard.enabled,
-      ),
-      command: lizardPick(
-        "analyzers.lizard.command",
-        "command",
-        STR,
-        DEFAULT_ANALYZERS.lizard.command,
-      ),
-    }),
-    duplicates: Object.freeze({
-      enabled: dupPick(
-        "analyzers.duplicates.enabled",
-        "enabled",
-        BOOL,
-        DEFAULT_ANALYZERS.duplicates.enabled,
-      ),
-      windowSize: dupPick(
-        "analyzers.duplicates.windowSize",
-        "window_size",
-        INT_NON_NEG,
-        DEFAULT_ANALYZERS.duplicates.windowSize,
-      ),
-      minUniqueTokens: dupPick(
-        "analyzers.duplicates.minUniqueTokens",
-        "min_unique_tokens",
-        INT_NON_NEG,
-        DEFAULT_ANALYZERS.duplicates.minUniqueTokens,
-      ),
-    }),
-    semgrep: Object.freeze({
-      enabled: semgrepPick(
-        "analyzers.semgrep.enabled",
-        "enabled",
-        BOOL,
-        DEFAULT_ANALYZERS.semgrep.enabled,
-      ),
-      command: semgrepPick(
-        "analyzers.semgrep.command",
-        "command",
-        STR,
-        DEFAULT_ANALYZERS.semgrep.command,
-      ),
-      ruleDirs: Object.freeze(
-        semgrepPick("analyzers.semgrep.ruleDirs", "rule_dirs", STR_ARRAY, [
-          ...DEFAULT_ANALYZERS.semgrep.ruleDirs,
-        ]),
-      ),
-      registryConfig: semgrepPick(
-        "analyzers.semgrep.registryConfig",
-        "registry_config",
-        STR,
-        DEFAULT_ANALYZERS.semgrep.registryConfig,
-      ),
-      bundledRules: DEFAULT_ANALYZERS.semgrep.bundledRules,
-      maxFindingsPerFile: semgrepPick(
-        "analyzers.semgrep.maxFindingsPerFile",
-        "max_findings_per_file",
-        INT_NON_NEG,
-        DEFAULT_ANALYZERS.semgrep.maxFindingsPerFile,
-      ),
-    }),
-    astGrep: Object.freeze({
-      enabled: astGrepPick(
-        "analyzers.astGrep.enabled",
-        "enabled",
-        BOOL,
-        DEFAULT_ANALYZERS.astGrep.enabled,
-      ),
-      command: astGrepPick(
-        "analyzers.astGrep.command",
-        "command",
-        STR,
-        DEFAULT_ANALYZERS.astGrep.command,
-      ),
-      ruleDirs: Object.freeze(
-        astGrepPick("analyzers.astGrep.ruleDirs", "rule_dirs", STR_ARRAY, [
-          ...DEFAULT_ANALYZERS.astGrep.ruleDirs,
-        ]),
-      ),
-      // ast-grep has no registry; always blank (kept for type parity).
-      registryConfig: DEFAULT_ANALYZERS.astGrep.registryConfig,
-      bundledRules: astGrepPick(
-        "analyzers.astGrep.bundledRules",
-        "bundled_rules",
-        BOOL,
-        DEFAULT_ANALYZERS.astGrep.bundledRules,
-      ),
-      maxFindingsPerFile: astGrepPick(
-        "analyzers.astGrep.maxFindingsPerFile",
-        "max_findings_per_file",
-        INT_NON_NEG,
-        DEFAULT_ANALYZERS.astGrep.maxFindingsPerFile,
-      ),
-    }),
-    definitions: Object.freeze({
-      enabled: defPick(
-        "analyzers.definitions.enabled",
-        "enabled",
-        BOOL,
-        DEFAULT_ANALYZERS.definitions.enabled,
-      ),
-      okfDefault: defPick(
-        "analyzers.definitions.okfDefault",
-        "okf_default",
-        BOOL,
-        DEFAULT_ANALYZERS.definitions.okfDefault,
-      ),
-      globs: Object.freeze(
-        defPick("analyzers.definitions.globs", "globs", STR_ARRAY, [
-          ...DEFAULT_ANALYZERS.definitions.globs,
-        ]),
-      ),
-      schemas: Object.freeze(
-        defPick("analyzers.definitions.schemas", "schemas", STR_ARRAY, [
-          ...DEFAULT_ANALYZERS.definitions.schemas,
-        ]),
-      ),
-      requireFrontmatter: defPick(
-        "analyzers.definitions.requireFrontmatter",
-        "require_frontmatter",
-        BOOL,
-        DEFAULT_ANALYZERS.definitions.requireFrontmatter,
-      ),
-      checkLinks: defPick(
-        "analyzers.definitions.checkLinks",
-        "check_links",
-        BOOL,
-        DEFAULT_ANALYZERS.definitions.checkLinks,
-      ),
-      maxFindingsPerFile: defPick(
-        "analyzers.definitions.maxFindingsPerFile",
-        "max_findings_per_file",
-        INT_NON_NEG,
-        DEFAULT_ANALYZERS.definitions.maxFindingsPerFile,
-      ),
-    }),
+    lizard: mergeSection(section("lizard"), sources, "analyzers.lizard", DEFAULT_ANALYZERS.lizard, [
+      { key: "enabled", kind: "bool" },
+      { key: "command", kind: "str" },
+    ]),
+    duplicates: mergeSection(
+      section("duplicates"),
+      sources,
+      "analyzers.duplicates",
+      DEFAULT_ANALYZERS.duplicates,
+      [
+        { key: "enabled", kind: "bool" },
+        { key: "windowSize", kind: "int" },
+        { key: "minUniqueTokens", kind: "int" },
+      ],
+    ),
+    semgrep: mergeSection(
+      section("semgrep"),
+      sources,
+      "analyzers.semgrep",
+      DEFAULT_ANALYZERS.semgrep,
+      [...RULE_PACK_FIELDS, { key: "registryConfig", kind: "str" }],
+    ),
+    astGrep: mergeSection(
+      // Accept both `astGrep:` (camelCase, matches the config template)
+      // and `ast_grep:` (snake_case, matches every other YAML key).
+      section("astGrep") ?? section("ast_grep"),
+      sources,
+      "analyzers.astGrep",
+      DEFAULT_ANALYZERS.astGrep,
+      [...RULE_PACK_FIELDS, { key: "bundledRules", kind: "bool" }],
+    ),
+    definitions: mergeSection(
+      section("definitions"),
+      sources,
+      "analyzers.definitions",
+      DEFAULT_ANALYZERS.definitions,
+      [
+        { key: "enabled", kind: "bool" },
+        { key: "okfDefault", kind: "bool" },
+        { key: "globs", kind: "strArray" },
+        { key: "schemas", kind: "strArray" },
+        { key: "requireFrontmatter", kind: "bool" },
+        { key: "checkLinks", kind: "bool" },
+        { key: "maxFindingsPerFile", kind: "int" },
+      ],
+    ),
   });
 }
 

@@ -22,8 +22,20 @@ import { detectLanguage } from "../chunking/index.js";
 import type { RetrievalConfig } from "../config.js";
 import type { WorkspaceDiscovery } from "../discovery.js";
 import type { EmbeddingProvider } from "../embeddings/index.js";
-import type { AnalyzerMetadata, FileId, Project, ProjectId } from "../models.js";
-import type { LexicalMatch, StateStore, VectorMatch, VectorStore } from "../storage/index.js";
+import {
+  type AnalyzerMetadata,
+  type FileId,
+  type Project,
+  type ProjectId,
+  projectId as toProjectId,
+} from "../models.js";
+import {
+  type LexicalMatch,
+  quoteSql,
+  type StateStore,
+  type VectorMatch,
+  type VectorStore,
+} from "../storage/index.js";
 
 /** What kind of slice the searcher applied. Reported back on the response. */
 export type Scope = "all" | "project" | "subtree";
@@ -97,7 +109,12 @@ export type MatchReason =
   | "derivative";
 
 export interface SearchResult {
-  readonly projectId: string;
+  /**
+   * Branded project id (CORE-10). Rows always carry a real ProjectId;
+   * typing it as plain string forced `as ProjectId` re-casts at every
+   * StateStore lookup downstream.
+   */
+  readonly projectId: ProjectId;
   readonly projectName: string;
   /** Absolute project root, or null if the project is no longer on disk. */
   readonly projectRoot: string | null;
@@ -272,10 +289,10 @@ export class WorkspaceSearcher {
     // file inside the ranking loop below.
     const absByChunk = new Map<string, string>();
     for (const entry of fused) {
-      const v = vectorById.get(entry.chunkId);
-      const l = lexicalById.get(entry.chunkId);
-      const relPath = l?.relPath ?? String(v?.metadata["rel_path"] ?? "");
-      const projectId = l?.projectId ?? String(v?.metadata["project_id"] ?? "");
+      const { relPath, projectId } = mergeBranchFields(
+        vectorById.get(entry.chunkId),
+        lexicalById.get(entry.chunkId),
+      );
       const proj = projectsById.get(projectId);
       if (proj !== undefined && relPath !== "") {
         absByChunk.set(entry.chunkId, join(proj.root, relPath));
@@ -290,12 +307,10 @@ export class WorkspaceSearcher {
       const reasons = [...computeMatchReasons(analyzers.get(entry.chunkId) ?? null, queryTerms)];
       let boost = reasons.length * BOOST_PER_REASON;
 
-      const v = vectorById.get(entry.chunkId);
-      const l = lexicalById.get(entry.chunkId);
-      const relPath = l?.relPath ?? String(v?.metadata["rel_path"] ?? "");
-      const projectId = l?.projectId ?? String(v?.metadata["project_id"] ?? "");
-      const kind = l?.kind ?? String(v?.metadata["kind"] ?? "");
-      const symbols = l?.symbols ?? parseSymbols(v?.metadata["symbols"]);
+      const { relPath, projectId, kind, symbols } = mergeBranchFields(
+        vectorById.get(entry.chunkId),
+        lexicalById.get(entry.chunkId),
+      );
 
       // Authority: how many other docs link to this file (source-of-truth).
       const proj = projectsById.get(projectId);
@@ -335,7 +350,7 @@ export class WorkspaceSearcher {
     // Coverage expansion (#72). Skipped unless the caller asked.
     // Capped at 2x the requested limit so payloads stay bounded.
     const expandedResults = request.coverage
-      ? await this.expandCoverage(results, projectsById, limit * 2)
+      ? this.expandCoverage(results, projectsById, limit * 2)
       : results;
 
     // Background-analyzer surfacing (#62 #65). Walk every result, fetch
@@ -379,7 +394,7 @@ export class WorkspaceSearcher {
       const cacheKey = `${r.projectId}:${r.relPath}`;
       let fileId = fileIdCache.get(cacheKey);
       if (fileId === undefined) {
-        fileId = this.state.getFile(r.projectId as ProjectId, r.relPath)?.fileId ?? null;
+        fileId = this.state.getFile(r.projectId, r.relPath)?.fileId ?? null;
         fileIdCache.set(cacheKey, fileId);
       }
       if (fileId === null) return r;
@@ -406,11 +421,14 @@ export class WorkspaceSearcher {
     });
   }
 
-  private async expandCoverage(
+  // Synchronous on purpose: everything here is StateStore reads. The
+  // stray `async` (audit 2026-08-06, lower-severity core notes) implied
+  // I/O that never happened.
+  private expandCoverage(
     originals: ReadonlyArray<SearchResult>,
     projectsById: ReadonlyMap<string, Project>,
     cap: number,
-  ): Promise<SearchResult[]> {
+  ): SearchResult[] {
     const seen = new Set<string>(originals.map((r) => coverageKey(r)));
     const expanded: SearchResult[] = [];
 
@@ -420,11 +438,10 @@ export class WorkspaceSearcher {
       if (exports.length === 0) continue;
       for (const symbol of exports) {
         if (originals.length + expanded.length >= cap) break;
-        const { defs, refs } = this.state.findSymbol(orig.projectId as ProjectId, symbol);
+        const { defs, refs } = this.state.findSymbol(orig.projectId, symbol);
         // Skip the symbol's own def chunk; we only want callers/importers.
         for (const ref of [...defs, ...refs]) {
           if (originals.length + expanded.length >= cap) break;
-          if (ref.chunkId === undefined) continue;
           const key = `${ref.projectId}:${ref.relPath}:${ref.chunkStartLine}`;
           if (seen.has(key)) continue;
           const reason =
@@ -439,7 +456,7 @@ export class WorkspaceSearcher {
           const project = projectsById.get(ref.projectId);
           expanded.push(
             Object.freeze<SearchResult>({
-              projectId: String(ref.projectId),
+              projectId: ref.projectId,
               projectName: project?.name ?? "",
               projectRoot: project?.root ?? null,
               relPath: ref.relPath,
@@ -647,8 +664,29 @@ function buildVectorWhere(scope: ResolvedScope, language?: string): string | nul
   return clauses.length === 0 ? null : clauses.join(" AND ");
 }
 
-function quoteSql(s: string): string {
-  return `'${s.replace(/'/g, "''")}'`;
+/**
+ * Coalesce the two retrieval branches' views of a chunk into the fields
+ * both can carry. Lexical matches (SQLite JOIN to chunks) win when
+ * present; vector matches fall back to their stored metadata columns.
+ * Previously inlined three times in this file (CORE-5).
+ */
+function mergeBranchFields(
+  v: VectorMatch | undefined,
+  l: LexicalMatch | undefined,
+): {
+  readonly projectId: ProjectId;
+  readonly relPath: string;
+  readonly kind: string;
+  readonly symbols: ReadonlyArray<string>;
+} {
+  return {
+    // Vector metadata is unbranded at rest; this is the single
+    // row→brand conversion point for search results (CORE-10).
+    projectId: l?.projectId ?? toProjectId(String(v?.metadata["project_id"] ?? "")),
+    relPath: l?.relPath ?? String(v?.metadata["rel_path"] ?? ""),
+    kind: l?.kind ?? String(v?.metadata["kind"] ?? ""),
+    symbols: l?.symbols ?? parseSymbols(v?.metadata["symbols"]),
+  };
 }
 
 /**
@@ -907,8 +945,7 @@ function assembleResult(
   projectsById: ReadonlyMap<string, Project>,
   analyzer: AnalyzerMetadata | null,
 ): SearchResult {
-  const projectId = lexical?.projectId ?? String(vector?.metadata["project_id"] ?? "");
-  const relPath = lexical?.relPath ?? String(vector?.metadata["rel_path"] ?? "");
+  const { projectId, relPath, kind, symbols } = mergeBranchFields(vector, lexical);
   const project = projectsById.get(projectId) ?? null;
 
   // Prefer vector metadata for language (stored at index time); fall back
@@ -919,10 +956,7 @@ function assembleResult(
 
   const startLine = lexical?.startLine ?? Number(vector?.metadata["start_line"] ?? 0);
   const endLine = lexical?.endLine ?? Number(vector?.metadata["end_line"] ?? 0);
-  const kind = lexical?.kind ?? String(vector?.metadata["kind"] ?? "");
   const snippet = vector?.document ?? lexical?.document ?? "";
-
-  const symbols = lexical?.symbols ?? parseSymbols(vector?.metadata["symbols"]);
 
   return Object.freeze({
     projectId,

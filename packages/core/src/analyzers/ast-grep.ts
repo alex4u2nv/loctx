@@ -38,6 +38,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
   capFindings,
+  detectCommand,
   normalizeSeverity,
   type RulePackFileResult,
   type RulePackFinding,
@@ -88,12 +89,8 @@ export function bundledAstGrepRulesDir(): string {
 }
 
 export async function detectAstGrep(command = "ast-grep"): Promise<string | null> {
-  try {
-    await exec(command, ["--version"], { timeout: 2000 });
-    return command;
-  } catch {
-    return null;
-  }
+  // Rust binary — starts fast, so a tight timeout is enough.
+  return detectCommand(command, 2000);
 }
 
 export interface RunAstGrepOptions {

@@ -18,6 +18,7 @@ import type {
   StateStore,
   VectorStore,
 } from "../storage/index.js";
+import { mapWithConcurrency } from "./concurrency.js";
 
 export type ChunkerFn = (relPath: string, content: string) => CodeChunk[];
 export type FilterFactory = (project: Project) => ProjectFilter;
@@ -123,31 +124,24 @@ export class ProjectIndexer {
     for (const absPath of iterFiles(project.root, filter.rules.ignoredDirs)) {
       paths.push(absPath);
     }
-    const results: FileIndexResult[] = [];
-    let aborted = false;
     const concurrency = Math.max(1, options.concurrency ?? 1);
-    let cursor = 0;
     const { onProgress } = options;
     onProgress?.({ indexed: 0, total: paths.length });
-    const worker = async (): Promise<void> => {
-      while (true) {
-        if (options.signal?.aborted) {
-          aborted = true;
-          return;
-        }
-        const i = cursor;
-        cursor += 1;
-        if (i >= paths.length) return;
-        const absPath = paths[i];
-        if (absPath === undefined) return;
-        results.push(await this.indexFile(project, absPath, { filter }));
-        // Length-based progress is monotonically increasing under any
-        // concurrency since results.push is serial within the worker
-        // pool's awaited microtask.
-        onProgress?.({ indexed: results.length, total: paths.length });
-      }
-    };
-    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    // Count-based progress is monotonically increasing under any
+    // concurrency since the increment is serial within the worker
+    // pool's awaited microtask.
+    let completed = 0;
+    const { results, aborted } = await mapWithConcurrency(
+      paths,
+      concurrency,
+      async (absPath) => {
+        const result = await this.indexFile(project, absPath, { filter });
+        completed += 1;
+        onProgress?.({ indexed: completed, total: paths.length });
+        return result;
+      },
+      options.signal,
+    );
 
     const indexed = results.filter((r) => r.kind === "indexed").length;
     const skipped = results.filter((r) => r.kind === "skipped").length;

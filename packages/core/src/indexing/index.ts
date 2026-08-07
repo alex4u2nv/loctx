@@ -1,3 +1,4 @@
+export { mapWithConcurrency } from "./concurrency.js";
 export {
   type ChunkerFn,
   type FileIndexResult,

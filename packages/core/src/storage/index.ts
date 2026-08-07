@@ -1,3 +1,4 @@
+export { quoteSql } from "./quote.js";
 export {
   type ChunkInsert,
   type ChunkState,

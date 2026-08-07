@@ -74,6 +74,12 @@ export interface Runtime {
   readonly searcher: WorkspaceSearcher;
   readonly enrichments: EnrichmentQueue;
   /**
+   * Per-runtime probe cache for external analyzer binaries (CORE-11).
+   * Owned by the runtime so tests can construct isolated runtimes (and
+   * seed availability) without sharing process-global probe state.
+   */
+  readonly tools: ToolProbeCache;
+  /**
    * Catch up analyzer enrichments for already-indexed files — used when a
    * feature is enabled after the index is built. For each target analyzer
    * (default: all enabled), enqueues tasks only for files missing an
@@ -99,45 +105,67 @@ export interface Runtime {
   close(): Promise<void>;
 }
 
-/**
- * Memoized availability of an external analyzer binary (lizard, semgrep,
- * ast-grep), keyed by command. External analyzers ship enabled by default
- * (#defaults), so without this an absent binary would enqueue a failing
- * task for every indexed file. We probe each command once:
- *   - eagerly in {@link buildRuntime} for the analyzers enabled at boot,
- *     so the first indexed file already knows the answer; and
- *   - lazily from the index hook when an analyzer is enabled later via
- *     hot-reloaded config (applies to files indexed after that point;
- *     rebuild to backfill already-indexed files).
- * Unknown (probe in flight) returns false so we skip rather than fail.
- */
-const toolAvailability = new Map<string, boolean>();
-const toolProbing = new Set<string>();
 const TOOL_DETECTORS: Record<string, (command: string) => Promise<string | null>> = {
   lizard: detectLizard,
   semgrep: detectSemgrep,
   "ast-grep": detectAstGrep,
 };
 
-async function probeTool(kind: string, command: string): Promise<boolean> {
-  const found = (await TOOL_DETECTORS[kind]?.(command)) ?? null;
-  toolAvailability.set(command, found !== null);
-  if (found === null) {
-    console.error(
-      `[loctx analyzers] '${command}' (${kind}) not found on PATH; skipping until installed.`,
-    );
-  }
-  return found !== null;
-}
+/**
+ * Memoized availability of external analyzer binaries (lizard, semgrep,
+ * ast-grep), keyed by command. External analyzers ship enabled by default
+ * (#defaults), so without this an absent binary would enqueue a failing
+ * task for every indexed file. Each command is probed once:
+ *   - eagerly in {@link buildRuntime} for the analyzers active at boot,
+ *     so the first indexed file already knows the answer; and
+ *   - lazily from the index hook when an analyzer is enabled later via
+ *     hot-reloaded config (applies to files indexed after that point;
+ *     rebuild to backfill already-indexed files).
+ * Unknown (probe in flight) returns false so we skip rather than fail.
+ *
+ * One instance per runtime (CORE-11) — this used to be module-global
+ * mutable state shared across every runtime in the process, which made
+ * isolated tests impossible and leaked probe results between runtimes
+ * with different configs.
+ */
+export class ToolProbeCache {
+  private readonly availability = new Map<string, boolean>();
+  private readonly probing = new Set<string>();
+  private readonly pinned = new Set<string>();
 
-function toolReady(kind: string, command: string): boolean {
-  const cached = toolAvailability.get(command);
-  if (cached !== undefined) return cached;
-  if (!toolProbing.has(command)) {
-    toolProbing.add(command);
-    void probeTool(kind, command).finally(() => toolProbing.delete(command));
+  async probe(kind: string, command: string): Promise<boolean> {
+    // Seeded decisions win: a pinned command never shells out (see seed()).
+    if (this.pinned.has(command)) return this.availability.get(command) === true;
+    const found = (await TOOL_DETECTORS[kind]?.(command)) ?? null;
+    this.availability.set(command, found !== null);
+    if (found === null) {
+      console.error(
+        `[loctx analyzers] '${command}' (${kind}) not found on PATH; skipping until installed.`,
+      );
+    }
+    return found !== null;
   }
-  return false; // probe in flight — skip this round
+
+  ready(kind: string, command: string): boolean {
+    const cached = this.availability.get(command);
+    if (cached !== undefined) return cached;
+    if (!this.probing.has(command)) {
+      this.probing.add(command);
+      void this.probe(kind, command).finally(() => this.probing.delete(command));
+    }
+    return false; // probe in flight — skip this round
+  }
+
+  /**
+   * Pin a command's availability without shelling out; later probe()
+   * calls return the pinned value instead of re-detecting. Test seam:
+   * lets container tests exercise the enqueue/backfill policy for
+   * external analyzers on machines without the binaries installed.
+   */
+  seed(command: string, available: boolean): void {
+    this.availability.set(command, available);
+    this.pinned.add(command);
+  }
 }
 
 interface AnalyzerEnqueueParams {
@@ -147,48 +175,62 @@ interface AnalyzerEnqueueParams {
   readonly contentSha: string;
 }
 
-/**
- * Enqueue the enabled analyzers for one indexed file, honoring tool
- * availability + rule-dir presence. Returns the number of tasks enqueued.
- * Shared by the indexer's `afterFileIndexed` hook (all enabled analyzers)
- * and the backfill (`only` scopes it to a single analyzer per file).
- */
-function enqueueFileAnalyzers(
-  config: Config,
-  enrichments: EnrichmentQueue,
-  params: AnalyzerEnqueueParams,
-  only?: ReadonlySet<string>,
-): number {
-  if (!config.analyzers.backgroundEnabled) return 0;
-  const { project, fileId, absPath, contentSha } = params;
-  const want = (name: string): boolean => only === undefined || only.has(name);
-  let enqueued = 0;
+type AnalyzerTask = ReturnType<typeof analyzerTaskMeta>;
 
-  if (
-    want("lizard") &&
-    config.analyzers.lizard.enabled &&
-    toolReady("lizard", config.analyzers.lizard.command)
-  ) {
-    const command = config.analyzers.lizard.command;
-    enrichments.enqueue(
-      analyzerTaskMeta({
+/**
+ * Everything the runtime needs to know about one analyzer, in one row.
+ */
+export interface AnalyzerDescriptor {
+  readonly name: string;
+  /** Version stamped on enrichments; bumping re-enqueues on backfill. */
+  readonly version: number;
+  /**
+   * The single activation policy, consumed by BOTH the indexing enqueue
+   * path and the backfill (CORE-1). These used to be two hand-written
+   * lists that drifted: the shipped default (`semgrep.ruleDirs: []`,
+   * `registryConfig: "p/default"`) ran semgrep during indexing while
+   * backfill required non-empty ruleDirs and silently never touched
+   * already-indexed files.
+   */
+  readonly isActive: (config: Config) => boolean;
+  /** External binary to probe before enqueuing, or null for pure-JS analyzers. */
+  readonly command: (config: Config) => string | null;
+  /**
+   * Build the enrichment task for one file. Null when this particular
+   * file is out of scope (e.g. definitions' glob/schema filter).
+   */
+  readonly buildTask: (config: Config, params: AnalyzerEnqueueParams) => AnalyzerTask | null;
+}
+
+export const ANALYZERS: ReadonlyArray<AnalyzerDescriptor> = [
+  {
+    name: "lizard",
+    version: LIZARD_VERSION,
+    isActive: (c) => c.analyzers.lizard.enabled,
+    command: (c) => c.analyzers.lizard.command,
+    buildTask: (config, { project, fileId, absPath, contentSha }) => {
+      const command = config.analyzers.lizard.command;
+      return analyzerTaskMeta({
         fileId,
         project,
         analyzer: "lizard",
         analyzerVersion: LIZARD_VERSION,
         contentSha,
         run: (signal) => runLizard(command, absPath, signal),
-      }),
-    );
-    enqueued++;
-  }
-  if (want("duplicates") && config.analyzers.duplicates.enabled) {
-    const dupOpts = {
-      windowSize: config.analyzers.duplicates.windowSize,
-      minUniqueTokens: config.analyzers.duplicates.minUniqueTokens,
-    };
-    enrichments.enqueue(
-      analyzerTaskMeta({
+      });
+    },
+  },
+  {
+    name: "duplicates",
+    version: DUPLICATES_VERSION,
+    isActive: (c) => c.analyzers.duplicates.enabled,
+    command: () => null,
+    buildTask: (config, { project, fileId, absPath, contentSha }) => {
+      const dupOpts = {
+        windowSize: config.analyzers.duplicates.windowSize,
+        minUniqueTokens: config.analyzers.duplicates.minUniqueTokens,
+      };
+      return analyzerTaskMeta({
         fileId,
         project,
         analyzer: "duplicates",
@@ -196,20 +238,22 @@ function enqueueFileAnalyzers(
         contentSha,
         // CPU-only pass over the file body; the queue caps concurrency.
         run: async () => computeDuplicateWindows(readFileSync(absPath, "utf-8"), dupOpts),
-      }),
-    );
-    enqueued++;
-  }
-  if (
-    want("semgrep") &&
-    config.analyzers.semgrep.enabled &&
-    (config.analyzers.semgrep.ruleDirs.length > 0 ||
-      config.analyzers.semgrep.registryConfig !== "") &&
-    toolReady("semgrep", config.analyzers.semgrep.command)
-  ) {
-    const sg = config.analyzers.semgrep;
-    enrichments.enqueue(
-      analyzerTaskMeta({
+      });
+    },
+  },
+  {
+    name: "semgrep",
+    version: SEMGREP_VERSION,
+    // Active with local rule dirs OR a registry fallback ruleset — the
+    // shipped default is registry-only, so `registryConfig !== ""` must
+    // count (the CORE-1 backfill bug was exactly this clause missing).
+    isActive: (c) =>
+      c.analyzers.semgrep.enabled &&
+      (c.analyzers.semgrep.ruleDirs.length > 0 || c.analyzers.semgrep.registryConfig !== ""),
+    command: (c) => c.analyzers.semgrep.command,
+    buildTask: (config, { project, fileId, absPath, contentSha }) => {
+      const sg = config.analyzers.semgrep;
+      return analyzerTaskMeta({
         fileId,
         project,
         analyzer: "semgrep",
@@ -226,22 +270,22 @@ function enqueueFileAnalyzers(
             },
             signal,
           ),
-      }),
-    );
-    enqueued++;
-  }
-  if (
-    want("ast-grep") &&
-    config.analyzers.astGrep.enabled &&
-    (config.analyzers.astGrep.ruleDirs.length > 0 || config.analyzers.astGrep.bundledRules) &&
-    toolReady("ast-grep", config.analyzers.astGrep.command)
-  ) {
-    const ag = config.analyzers.astGrep;
-    // User rule dirs win; otherwise fall back to loctx's bundled starter set.
-    const ruleDirs =
-      ag.ruleDirs.length > 0 ? ag.ruleDirs : ag.bundledRules ? [bundledAstGrepRulesDir()] : [];
-    enrichments.enqueue(
-      analyzerTaskMeta({
+      });
+    },
+  },
+  {
+    name: "ast-grep",
+    version: AST_GREP_VERSION,
+    isActive: (c) =>
+      c.analyzers.astGrep.enabled &&
+      (c.analyzers.astGrep.ruleDirs.length > 0 || c.analyzers.astGrep.bundledRules),
+    command: (c) => c.analyzers.astGrep.command,
+    buildTask: (config, { project, fileId, absPath, contentSha }) => {
+      const ag = config.analyzers.astGrep;
+      // User rule dirs win; otherwise fall back to loctx's bundled starter set.
+      const ruleDirs =
+        ag.ruleDirs.length > 0 ? ag.ruleDirs : ag.bundledRules ? [bundledAstGrepRulesDir()] : [];
+      return analyzerTaskMeta({
         fileId,
         project,
         analyzer: "ast-grep",
@@ -257,89 +301,70 @@ function enqueueFileAnalyzers(
             },
             signal,
           ),
-      }),
-    );
+      });
+    },
+  },
+  {
+    name: "definitions",
+    version: DEFINITIONS_VERSION,
+    // Active when on with at least one schema source (OKF default or
+    // custom). buildTask narrows further per file via the glob filter.
+    isActive: (c) =>
+      c.analyzers.definitions.enabled &&
+      (c.analyzers.definitions.okfDefault || c.analyzers.definitions.schemas.length > 0),
+    command: () => null,
+    buildTask: (config, { project, fileId, absPath, contentSha }) => {
+      const def = config.analyzers.definitions;
+      const rel = relative(project.root, absPath);
+      if (!matchesDefinitionGlobs(rel, def.globs)) return null;
+      const schemas = resolveDefinitionSchemas(def.okfDefault, def.schemas);
+      if (schemas.length === 0) return null;
+      return analyzerTaskMeta({
+        fileId,
+        project,
+        analyzer: "definitions",
+        analyzerVersion: DEFINITIONS_VERSION,
+        contentSha,
+        run: () =>
+          runDefinitions(absPath, {
+            schemas,
+            maxFindingsPerFile: def.maxFindingsPerFile,
+            requireFrontmatter: def.requireFrontmatter,
+            checkLinks: def.checkLinks,
+          }),
+      });
+    },
+  },
+];
+
+/**
+ * Enqueue the active analyzers for one indexed file, honoring tool
+ * availability. Returns the number of tasks enqueued. Shared by the
+ * indexer's `afterFileIndexed` hook (all active analyzers) and the
+ * backfill (`only` scopes it to a single analyzer per file). Activation
+ * comes from each {@link ANALYZERS} row's `isActive`, so this path and
+ * the backfill can no longer disagree (CORE-1).
+ */
+function enqueueFileAnalyzers(
+  config: Config,
+  enrichments: EnrichmentQueue,
+  tools: ToolProbeCache,
+  params: AnalyzerEnqueueParams,
+  only?: ReadonlySet<string>,
+): number {
+  if (!config.analyzers.backgroundEnabled) return 0;
+  let enqueued = 0;
+  for (const analyzer of ANALYZERS) {
+    if (only !== undefined && !only.has(analyzer.name)) continue;
+    if (!analyzer.isActive(config)) continue;
+    const command = analyzer.command(config);
+    if (command !== null && !tools.ready(analyzer.name, command)) continue;
+    const task = analyzer.buildTask(config, params);
+    if (task === null) continue;
+    enrichments.enqueue(task);
     enqueued++;
   }
-  if (want("definitions") && config.analyzers.definitions.enabled) {
-    const def = config.analyzers.definitions;
-    const rel = relative(project.root, absPath);
-    if (matchesDefinitionGlobs(rel, def.globs)) {
-      const schemas = resolveDefinitionSchemas(def.okfDefault, def.schemas);
-      if (schemas.length > 0) {
-        enrichments.enqueue(
-          analyzerTaskMeta({
-            fileId,
-            project,
-            analyzer: "definitions",
-            analyzerVersion: DEFINITIONS_VERSION,
-            contentSha,
-            run: () =>
-              runDefinitions(absPath, {
-                schemas,
-                maxFindingsPerFile: def.maxFindingsPerFile,
-                requireFrontmatter: def.requireFrontmatter,
-                checkLinks: def.checkLinks,
-              }),
-          }),
-        );
-        enqueued++;
-      }
-    }
-  }
   return enqueued;
-}
-
-/** Analyzer name → its version + the config predicate gating a backfill. */
-interface BackfillSpec {
-  readonly name: string;
-  readonly version: number;
-  readonly active: boolean;
-  readonly command: string | undefined;
-  readonly external: boolean;
-}
-
-function backfillSpecs(config: Config): ReadonlyArray<BackfillSpec> {
-  const a = config.analyzers;
-  return [
-    {
-      name: "lizard",
-      version: LIZARD_VERSION,
-      active: a.lizard.enabled,
-      command: a.lizard.command,
-      external: true,
-    },
-    {
-      name: "duplicates",
-      version: DUPLICATES_VERSION,
-      active: a.duplicates.enabled,
-      command: undefined,
-      external: false,
-    },
-    {
-      name: "semgrep",
-      version: SEMGREP_VERSION,
-      active: a.semgrep.enabled && a.semgrep.ruleDirs.length > 0,
-      command: a.semgrep.command,
-      external: true,
-    },
-    {
-      name: "ast-grep",
-      version: AST_GREP_VERSION,
-      active: a.astGrep.enabled && (a.astGrep.ruleDirs.length > 0 || a.astGrep.bundledRules),
-      command: a.astGrep.command,
-      external: true,
-    },
-    {
-      name: "definitions",
-      version: DEFINITIONS_VERSION,
-      // Active when on with at least one schema source (OKF default or custom).
-      active:
-        a.definitions.enabled && (a.definitions.okfDefault || a.definitions.schemas.length > 0),
-      command: undefined,
-      external: false,
-    },
-  ];
 }
 
 /** Discovery wiring shared by {@link buildRuntime} and {@link buildStateRuntime}. */
@@ -398,20 +423,18 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
   const rules = loadFilteringRules();
   const state = new StateStore(config.paths.stateDb);
   const embeddings = createEmbeddings(config);
+  const tools = new ToolProbeCache();
 
-  // Probe the external analyzers enabled at boot so the first indexed file
+  // Probe the external analyzers active at boot so the first indexed file
   // already knows whether to enqueue (avoids the initial-index race where
   // many files would skip before a lazy probe resolves).
   if (config.analyzers.backgroundEnabled) {
-    await Promise.all([
-      config.analyzers.lizard.enabled ? probeTool("lizard", config.analyzers.lizard.command) : null,
-      config.analyzers.semgrep.enabled
-        ? probeTool("semgrep", config.analyzers.semgrep.command)
-        : null,
-      config.analyzers.astGrep.enabled
-        ? probeTool("ast-grep", config.analyzers.astGrep.command)
-        : null,
-    ]);
+    await Promise.all(
+      ANALYZERS.filter((a) => a.isActive(config)).map((a) => {
+        const command = a.command(config);
+        return command !== null ? tools.probe(a.name, command) : null;
+      }),
+    );
   }
   // Lazy providers (Local) need a warmup; in-process providers (Fake) skip it.
   await embeddings.ensureReady?.();
@@ -444,7 +467,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
 
   const indexer = new ProjectIndexer(state, vectors, embeddings, filterFor, {
     afterFileIndexed: (p) => {
-      enqueueFileAnalyzers(config, enrichments, p);
+      enqueueFileAnalyzers(config, enrichments, tools, p);
     },
   });
   const reconciler = new Reconciler(state, indexer);
@@ -471,35 +494,41 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
     reconciler,
     searcher,
     enrichments,
+    tools,
     backfillAnalyzers: async (targets?: ReadonlyArray<string>) => {
       if (!config.analyzers.backgroundEnabled) return { enqueued: 0 };
-      const wanted = backfillSpecs(config).filter(
-        (s) => s.active && (targets === undefined || targets.includes(s.name)),
+      // Same ANALYZERS rows (and the same isActive policy) the indexing
+      // path reads — the two paths can no longer drift (CORE-1).
+      const wanted = ANALYZERS.filter(
+        (a) => a.isActive(config) && (targets === undefined || targets.includes(a.name)),
       );
-      // Probe external tools up front so toolReady is decided before we
+      // Probe external tools up front so tools.ready is decided before we
       // query/enqueue (the boot-time eager probe may not have covered an
       // analyzer enabled later via hot-reload).
       await Promise.all(
-        wanted
-          .filter((s) => s.external && s.command !== undefined)
-          .map((s) => probeTool(s.name, s.command as string)),
+        wanted.map((a) => {
+          const command = a.command(config);
+          return command !== null ? tools.probe(a.name, command) : null;
+        }),
       );
       let enqueued = 0;
       for (const proj of state.listProjects()) {
         const project: Project = { id: proj.id, name: proj.name, root: proj.root };
-        for (const s of wanted) {
-          if (s.external && (s.command === undefined || !toolReady(s.name, s.command))) continue;
-          for (const f of state.listFilesMissingEnrichment(proj.id, s.name, s.version)) {
+        for (const a of wanted) {
+          const command = a.command(config);
+          if (command !== null && !tools.ready(a.name, command)) continue;
+          for (const f of state.listFilesMissingEnrichment(proj.id, a.name, a.version)) {
             enqueued += enqueueFileAnalyzers(
               config,
               enrichments,
+              tools,
               {
                 project,
                 fileId: f.fileId,
                 absPath: join(project.root, f.relPath),
                 contentSha: f.contentSha,
               },
-              new Set([s.name]),
+              new Set([a.name]),
             );
           }
         }

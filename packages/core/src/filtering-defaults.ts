@@ -241,3 +241,13 @@ export const FILTERING_DEFAULTS = {
     ".terraform.lock.hcl",
   ],
 } as const;
+
+/**
+ * Canonical ignored-directory NAME list (CORE-12). The policy used to
+ * live in three inconsistent copies — this constant, discovery.ts's
+ * `SKIP_DIR_NAMES`, and the watcher's `DEFAULT_IGNORED` globs — with
+ * `.tox` / `.pnpm` / `.turbo` coverage drifting between them. Discovery
+ * and the watcher now derive their set/glob forms from this list; each
+ * keeps its own documented extras as an explicit union.
+ */
+export const IGNORED_DIR_NAMES: ReadonlyArray<string> = FILTERING_DEFAULTS.ignored_dirs;

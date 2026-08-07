@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { IGNORED_DIR_NAMES } from "./filtering-defaults.js";
 import {
   type ChunkId,
   chunkId,
@@ -60,24 +61,14 @@ export const DEFAULT_PROJECT_MARKERS: ReadonlyArray<MarkerSpec> = Object.freeze(
 /**
  * Directories never treated as project roots regardless of markers
  * found inside them. Avoids `node_modules/<pkg>/package.json` and
- * similar build/dep cache traps. Keep in sync with the filtering
- * defaults; intentional duplication so discovery does not depend on
- * the chunker's filtering layer.
+ * similar build/dep cache traps. Derived from the canonical
+ * filtering-defaults name list (CORE-12 — this used to be a third
+ * hand-maintained copy that had drifted), plus discovery-specific
+ * extras: `vendor` (Go/PHP dependency trees full of foreign
+ * package.json / go.mod markers) and `.pnpm` (pnpm's virtual store,
+ * already covered by the dot-dir skip in the walker but kept explicit).
  */
-const SKIP_DIR_NAMES: ReadonlySet<string> = new Set([
-  "node_modules",
-  ".venv",
-  "venv",
-  "__pycache__",
-  "dist",
-  "build",
-  ".next",
-  "target",
-  "vendor",
-  ".tox",
-  ".cache",
-  ".pnpm",
-]);
+const SKIP_DIR_NAMES: ReadonlySet<string> = new Set([...IGNORED_DIR_NAMES, "vendor", ".pnpm"]);
 
 /** Confidence ranking; lower number = higher confidence. */
 const MARKER_RANK: Record<MarkerKind, number> = { git: 0, ide: 1, build: 2 };

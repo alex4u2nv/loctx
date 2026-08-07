@@ -274,7 +274,7 @@ export function extractAnalyzer(node: TreeSitterNode, language: string): Analyze
     },
   });
 
-  const dedupedCalls = dedupe(calls);
+  const dedupedCalls = dedupeStrings(calls);
   // Surface any call whose lowercased name (or any dot-separated
   // suffix of it) matches a known risky category. This catches
   // `child_process.exec`, `subprocess.run`, plain `exec`, and the
@@ -286,8 +286,8 @@ export function extractAnalyzer(node: TreeSitterNode, language: string): Analyze
   const riskyCalls = dedupedCalls.filter((c) => isRiskyCall(c));
 
   return Object.freeze({
-    imports: Object.freeze(dedupe(imports)),
-    exports: Object.freeze(dedupe(exports)),
+    imports: Object.freeze(dedupeStrings(imports)),
+    exports: Object.freeze(dedupeStrings(exports)),
     calls: Object.freeze(dedupedCalls),
     maxNestingDepth,
     maxLoopDepth,
@@ -405,11 +405,16 @@ function walkForExportSpecifiers(node: TreeSitterNode, out: string[]): void {
   }
 }
 
-function importTargetText(node: TreeSitterNode): string | null {
+/**
+ * Pull the module specifier out of an import-shape node. Shared with
+ * chunking/code.ts's file-level import walk (CORE-7) — the two copies
+ * fed the same `symbol_refs` table, so drift was a correctness risk.
+ */
+export function importTargetText(node: TreeSitterNode): string | null {
   // Try common field names across languages.
   for (const field of ["source", "module", "argument", "name"]) {
     const child = node.childForFieldName(field);
-    if (child !== null && child.text.length > 0) return stripQuotes(child.text);
+    if (child !== null && child.text.length > 0) return stripImportQuotes(child.text);
   }
   // Fall back to the first named string-like child.
   for (const child of node.namedChildren) {
@@ -418,7 +423,7 @@ function importTargetText(node: TreeSitterNode): string | null {
       child.type === "string_literal" ||
       child.type === "raw_string_literal"
     ) {
-      return stripQuotes(child.text);
+      return stripImportQuotes(child.text);
     }
   }
   return null;
@@ -434,14 +439,16 @@ function calleeText(node: TreeSitterNode): string | null {
   return dot === -1 ? text : text.slice(dot + 1);
 }
 
-function stripQuotes(s: string): string {
+/** Strip matching single/double quotes off a string literal's text. Shared (CORE-7). */
+export function stripImportQuotes(s: string): string {
   if (s.length >= 2 && (s[0] === '"' || s[0] === "'") && s[s.length - 1] === s[0]) {
     return s.slice(1, -1);
   }
   return s;
 }
 
-function dedupe(items: ReadonlyArray<string>): string[] {
+/** Order-preserving string dedupe. Shared (CORE-7). */
+export function dedupeStrings(items: ReadonlyArray<string>): string[] {
   return [...new Set(items)];
 }
 

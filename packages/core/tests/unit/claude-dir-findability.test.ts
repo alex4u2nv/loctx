@@ -16,30 +16,28 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FakeEmbeddingProvider } from "../../src/embeddings/index.js";
-import { loadFilteringRules, ProjectFilter } from "../../src/filtering.js";
-import { combinedGitignore } from "../../src/gitignore.js";
-import { ProjectIndexer } from "../../src/indexing/indexer.js";
-import { type Project, projectId } from "../../src/models.js";
-import { createVectorStore, StateStore, type VectorStore } from "../../src/storage/index.js";
-import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
+import type { ProjectIndexer } from "../../src/indexing/indexer.js";
+import type { Project } from "../../src/models.js";
+import type { StateStore } from "../../src/storage/index.js";
+import { type IndexerFixture, makeIndexerFixture } from "../helpers/indexer-fixture.js";
 
-let tmp: string;
+let f: IndexerFixture;
 let projectRoot: string;
 let state: StateStore;
-let vectors: VectorStore;
 let indexer: ProjectIndexer;
 
 beforeEach(async () => {
-  tmp = mkTmpDir("loctx-claude-");
-  projectRoot = join(tmp, "demo");
-  const dataDir = join(tmp, ".data");
-  mkdirSync(join(projectRoot, "src"), { recursive: true });
+  // The fixture wires the real-world filter flow (`combinedGitignore(p.root)`),
+  // which exercises the built-in auto-include (#375) — without it, the
+  // .git/info/exclude entries written below would cause `.claude/`,
+  // `.cursor/`, `.aider/` files to be skipped, regressing #371/#373
+  // silently. Files written here are picked up because the filter is
+  // constructed lazily per project at index time.
+  f = await makeIndexerFixture("loctx-claude-");
+  ({ projectRoot, state, indexer } = f);
   mkdirSync(join(projectRoot, ".git", "info"), { recursive: true });
   mkdirSync(join(projectRoot, ".claude", "commands"), { recursive: true });
   mkdirSync(join(projectRoot, ".cursor"), { recursive: true });
-  mkdirSync(dataDir, { recursive: true });
-  writeFileSync(join(projectRoot, ".git", "HEAD"), "ref: refs/heads/main\n");
 
   // Project rules + slash command def in .claude/ — the #371 case.
   writeFileSync(
@@ -83,31 +81,14 @@ beforeEach(async () => {
     ".claude/\n.cursor/\n.aider/\n",
     "utf-8",
   );
-
-  state = new StateStore(join(dataDir, "state.sqlite3"));
-  const embeddings = new FakeEmbeddingProvider({ dimension: 8, normalize: true });
-  await embeddings.ensureReady?.();
-  vectors = createVectorStore(join(dataDir, "vectors"), embeddings.identity, state);
-  const rules = loadFilteringRules();
-  // Real-world flow: `combinedGitignore(p.root)`. This exercises the
-  // built-in auto-include (#375) — without it, the .git/info/exclude
-  // entries above would cause `.claude/`, `.cursor/`, `.aider/` files
-  // to be skipped, regressing #371/#373 silently.
-  indexer = new ProjectIndexer(
-    state,
-    vectors,
-    embeddings,
-    (p: Project) => new ProjectFilter(p, rules, combinedGitignore(p.root)),
-  );
 });
 
 afterEach(() => {
-  state.close();
-  rmTmpDir(tmp);
+  f.cleanup();
 });
 
 function project(): Project {
-  return Object.freeze({ id: projectId("demo-1"), name: "demo", root: projectRoot });
+  return f.project();
 }
 
 describe("indexer surfaces .claude/ + .cursor/ via find_literal (#371)", () => {
