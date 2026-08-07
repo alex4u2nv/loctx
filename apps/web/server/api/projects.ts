@@ -28,23 +28,6 @@ import { confinedPath } from "../lib/confined-path.js";
 import { jsonBody } from "../lib/http-errors.js";
 import type { RebuildJob, RebuildTracker } from "../lib/rebuild-tracker.js";
 
-/**
- * Per-project AbortControllers for the background `indexProject` pass
- * we kick off on activate. Scoped to this module so deactivate can
- * abort the in-flight pass for the same project (#217). Entries clear
- * themselves when the indexer settles.
- */
-const inFlightActivation = new Map<string, AbortController>();
-
-/**
- * Project IDs whose `/api/projects/activate` request is currently
- * mid-handler. Two near-simultaneous activate POSTs for the same
- * project would otherwise both pass the `watcherRegistry.get(...) === null`
- * check and attach a second watcher. We hold this guard across the
- * await on the runtime + watcher attach + index kickoff. See #191.
- */
-const activating = new Set<string>();
-
 export function mountProjects(
   app: Hono,
   config: Config,
@@ -52,6 +35,25 @@ export function mountProjects(
   getRuntime: () => Promise<Runtime>,
   rebuildTracker: RebuildTracker,
 ): void {
+  /**
+   * Per-project AbortControllers for the background `indexProject` pass
+   * we kick off on activate, so deactivate can abort the in-flight pass
+   * for the same project (#217). Entries clear themselves when the
+   * indexer settles. Closure-scoped (SRV-12): module scope made two
+   * mounted apps in one process share activation state and left it
+   * unreachable for test reset.
+   */
+  const inFlightActivation = new Map<string, AbortController>();
+
+  /**
+   * Project IDs whose `/api/projects/activate` request is currently
+   * mid-handler. Two near-simultaneous activate POSTs for the same
+   * project would otherwise both pass the `watcherRegistry.get(...) === null`
+   * check and attach a second watcher. We hold this guard across the
+   * await on the runtime + watcher attach + index kickoff. See #191.
+   */
+  const activating = new Set<string>();
+
   // One SQLite handle + one discovery instance for the lifetime of the
   // server (#455). These were constructed per request, which paid a DB
   // open + (for discovery) a fresh instance on an endpoint the UI polls

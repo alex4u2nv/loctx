@@ -47,6 +47,9 @@ export interface FakeRuntimeParts {
   readonly discovery?: Partial<Runtime["discovery"]>;
   readonly state?: Partial<Runtime["state"]>;
   readonly reconcile?: Partial<ReconcileStatus>;
+  readonly indexer?: Partial<Runtime["indexer"]>;
+  readonly vectors?: Partial<Runtime["vectors"]>;
+  readonly compactVectors?: Runtime["compactVectors"];
 }
 
 /**
@@ -66,11 +69,38 @@ export function fakeRuntime(parts: FakeRuntimeParts = {}): Runtime {
       findSymbol: () => ({ defs: [], refs: [] }),
       findLiteralMatches: () => [],
       listProjects: () => [],
+      // Write-path no-ops so ops/projects lifecycle routes run against
+      // the fake without every test stubbing the full mutation surface.
+      upsertProjectWithActive: () => undefined,
+      setProjectActive: () => true,
+      markProjectRebuildPending: () => undefined,
+      clearProjectRebuildPending: () => undefined,
+      markProjectReconciled: () => undefined,
+      purgeProjectContents: () => undefined,
+      deleteProject: () => undefined,
       ...parts.state,
     },
     reconciler: {
       status: () => ({ ...IDLE_RECONCILE, ...parts.reconcile }),
+      reconcileAll: async () => [],
     },
+    indexer: {
+      indexProject: async (project: { id: string; name: string; root: string }) => ({
+        project,
+        indexed: 0,
+        skipped: 0,
+        failed: 0,
+        elapsedSeconds: 0,
+        failures: [],
+        total: 0,
+      }),
+      ...parts.indexer,
+    },
+    vectors: {
+      deleteProjectChunks: async () => undefined,
+      ...parts.vectors,
+    },
+    compactVectors: parts.compactVectors ?? (async () => ({ beforeBytes: 0, afterBytes: 0 })),
   } as unknown as Runtime;
 }
 
