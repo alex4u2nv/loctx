@@ -18,6 +18,7 @@ import {
 } from "@loctx/core";
 import type { Hono } from "hono";
 import type { ModelInfo, ModelsPayload } from "../../shared/contracts.js";
+import { jsonBody } from "../lib/http-errors.js";
 import { sanitizeError } from "../lib/request-validation.js";
 
 export function mountModels(app: Hono, config: Config): void {
@@ -40,8 +41,8 @@ export function mountModels(app: Hono, config: Config): void {
   });
 
   app.post("/api/models/use", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as { name?: string } | null;
-    const name = body?.name?.trim() ?? "";
+    const body = await jsonBody(c);
+    const name = typeof body["name"] === "string" ? body["name"].trim() : "";
     if (name === "") return c.json({ error: "name required" }, 400);
     const info = findModel(name);
     if (info === null) return c.json({ error: `unknown model '${name}'` }, 404);
@@ -60,8 +61,8 @@ export function mountModels(app: Hono, config: Config): void {
   });
 
   app.post("/api/models/download", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as { name?: string } | null;
-    const name = body?.name?.trim() ?? "";
+    const body = await jsonBody(c);
+    const name = typeof body["name"] === "string" ? body["name"].trim() : "";
     if (name === "") return c.json({ error: "name required" }, 400);
     const info = findModel(name);
     if (info === null) return c.json({ error: `unknown model '${name}'` }, 404);

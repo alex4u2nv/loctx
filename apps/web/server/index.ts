@@ -20,6 +20,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { mountApi } from "./api/index.js";
+import { registerErrorBoundary } from "./lib/http-errors.js";
 import { mountMcp } from "./mcp.js";
 import { localDaemonGuard } from "./security.js";
 
@@ -55,6 +56,11 @@ export interface CreateWebAppOptions {
 
 export function createWebApp(opts: CreateWebAppOptions): Hono {
   const app = new Hono();
+
+  // Uniform error boundary (SRV-3): typed HttpErrors map to their JSON
+  // body + status; anything else escaping a handler is sanitized to an
+  // opaque 500 with the detail on stderr.
+  registerErrorBoundary(app);
 
   // Local-daemon hardening — Host + Origin gate. MUST be registered
   // before mountApi/mountMcp so it runs before any state-changing

@@ -10,6 +10,7 @@ export {
   type AdminInput,
   type AdminOptions,
   type AdminOutput,
+  type IndexHealth,
   type RefreshInput,
   type RefreshOutput,
   registerTools,

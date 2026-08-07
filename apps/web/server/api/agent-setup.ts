@@ -16,6 +16,7 @@ import type {
   AgentSetupApplyResponse,
   AgentSetupPayload,
 } from "../../shared/contracts.js";
+import { jsonBody } from "../lib/http-errors.js";
 
 /**
  * Agent integration for the admin UI. `GET` returns, for one project, which
@@ -60,19 +61,14 @@ export function mountAgentSetup(
   });
 
   app.post("/api/agent-setup", async (c) => {
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: "invalid JSON body" }, 400);
-    }
-    const b = body as { path?: unknown; agents?: unknown } | null;
-    const root = await validateRoot(b?.path);
+    const body = await jsonBody(c);
+    const root = await validateRoot(body["path"]);
     if (root === null) return c.json({ error: "path must be a known project root" }, 400);
 
     const valid = new Set<string>(AGENTS.map((a) => a.id));
-    const agents = Array.isArray(b?.agents)
-      ? (b.agents.filter((a): a is string => typeof a === "string" && valid.has(a)) as AgentId[])
+    const rawAgents = body["agents"];
+    const agents = Array.isArray(rawAgents)
+      ? (rawAgents.filter((a): a is string => typeof a === "string" && valid.has(a)) as AgentId[])
       : [];
     if (agents.length === 0) return c.json({ error: "no valid agents specified" }, 400);
 

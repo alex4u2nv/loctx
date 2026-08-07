@@ -10,7 +10,6 @@ import {
   WorkspaceDiscovery,
   inventoryProjects,
   makeProject,
-  resolveUnderWorkspaceRoots,
   summarizeUsage,
 } from "@loctx/core";
 import type { Hono } from "hono";
@@ -25,6 +24,8 @@ import type {
   RebuildProgress,
   WatcherState,
 } from "../../shared/contracts.js";
+import { confinedPath } from "../lib/confined-path.js";
+import { jsonBody } from "../lib/http-errors.js";
 import type { RebuildJob, RebuildTracker } from "../lib/rebuild-tracker.js";
 
 /**
@@ -357,16 +358,13 @@ export function mountProjects(
   });
 
   app.post("/api/projects/activate", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as { path?: string } | null;
-    const path = body?.path?.trim() ?? "";
+    const body = await jsonBody(c);
+    const path = typeof body["path"] === "string" ? body["path"].trim() : "";
     if (path === "") return c.json({ error: "path required" }, 400);
     // Confine the resolved path to configured workspace_roots — a local
     // attacker on loopback could otherwise activate `/etc` or another
-    // user's home and trigger watcher + indexer work against it.
-    const confined = resolveUnderWorkspaceRoots(path, config.workspaceRoots);
-    if (confined === null) {
-      return c.json({ error: "path is not under any configured workspace_root" }, 403);
-    }
+    // user's home and trigger watcher + indexer work against it (SRV-4).
+    const confined = confinedPath(config, path);
     const project = makeProject(confined);
     // De-dupe near-simultaneous activate POSTs for the same project so
     // we don't attach two watchers or kick off two background indexers
@@ -456,13 +454,10 @@ export function mountProjects(
   });
 
   app.post("/api/projects/deactivate", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as { path?: string } | null;
-    const path = body?.path?.trim() ?? "";
+    const body = await jsonBody(c);
+    const path = typeof body["path"] === "string" ? body["path"].trim() : "";
     if (path === "") return c.json({ error: "path required" }, 400);
-    const confined = resolveUnderWorkspaceRoots(path, config.workspaceRoots);
-    if (confined === null) {
-      return c.json({ error: "path is not under any configured workspace_root" }, 403);
-    }
+    const confined = confinedPath(config, path);
     const project = makeProject(confined);
     const rt = await getRuntime();
     const ok = rt.state.setProjectActive(project.id, false);

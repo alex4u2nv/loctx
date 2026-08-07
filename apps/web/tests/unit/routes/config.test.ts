@@ -12,6 +12,7 @@ import { loadConfig } from "@loctx/core";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mountConfig } from "../../../server/api/config.js";
+import { registerErrorBoundary } from "../../../server/lib/http-errors.js";
 
 let dir: string;
 let configPath: string;
@@ -33,6 +34,9 @@ function appWithConfig(onWrite?: () => void): Hono {
   process.env["LOCTX_CONFIG_DIR"] = join(dir, "cfg");
   const config = loadConfig({ configPath });
   const app = new Hono();
+  // Same error boundary production installs (SRV-3) — jsonBody's
+  // invalid-JSON 400 is mapped there.
+  registerErrorBoundary(app);
   mountConfig(app, config, onWrite);
   return app;
 }

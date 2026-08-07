@@ -15,13 +15,17 @@
 import { join } from "node:path";
 import {
   assertNotReconciling,
-  CONFIG_SCHEMA,
   type DuplicateGroup,
+  effectiveSettings,
   estimateQueryValue,
+  FIND_LITERAL_COVERAGE_NOTE,
   findSymbolUsages,
   inventoryProjects,
   isValueTool,
   type ProjectId,
+  parseFindLiteralToolInput,
+  parseFindUsagesToolInput,
+  parseSearchToolInput,
   ReconcileInFlightError,
   type Runtime,
   readActiveDaemon,
@@ -395,26 +399,18 @@ export const tools = {
     const v = new Validator(ToolError, "search_workspace");
     const data = v.requireRecord(input ?? {}, "arguments");
 
-    const query = v.getStr(data, "query");
-    if (!query) throw new ToolError("query is required and must be a non-empty string");
-
-    // Match the HTTP /api/search bounds (#326-era). Without an upper
-    // bound, an agent passing `limit: 1_000_000` could ask the
-    // searcher for a million rows and OOM the daemon — same Searcher
-    // is shared with the admin search where it's already bounded.
-    // Lower bound 1 (not 0) so callers don't accidentally request an
-    // empty payload and assume "no results".
-    const rawLimit = v.getInt(data, "limit", { nonNegative: true }) ?? 10;
-    const limit = Math.min(Math.max(1, rawLimit), 1000);
-
-    const path = confinedPath(runtime, v.getStr(data, "path"));
-    const language = v.getStr(data, "language");
+    // Shared per-operation input spec (SRV-5) — identical bounds +
+    // error strings to POST /api/search. An out-of-range `limit` is
+    // now REJECTED (matching HTTP's 400) instead of silently clamped:
+    // a clamp hides caller bugs behind a plausible-looking result.
+    const parsed = parseSearchToolInput(data, ToolError);
+    const path = confinedPath(runtime, parsed.path);
     const response = await runtime.searcher.search({
-      query,
+      query: parsed.query,
       ...(path !== undefined ? { path } : {}),
-      limit,
-      ...(language !== undefined ? { language } : {}),
-      ...(v.getBool(data, "coverage") === true ? { coverage: true } : {}),
+      limit: parsed.limit,
+      ...(parsed.language !== undefined ? { language: parsed.language } : {}),
+      ...(parsed.coverage ? { coverage: true } : {}),
     });
     return Object.freeze({ ...response, indexHealth: currentIndexHealth(runtime) });
   },
@@ -495,9 +491,11 @@ export const tools = {
   async findUsages(runtime: Runtime, input: unknown): Promise<FindUsagesOutput> {
     const v = new Validator(ToolError, "find_usages");
     const data = v.requireRecord(input ?? {}, "arguments");
-    const symbol = v.getStr(data, "symbol");
-    if (!symbol) throw new ToolError("symbol is required and must be a non-empty string");
-    const path = confinedPath(runtime, v.getStr(data, "path"));
+    // Shared per-operation input spec (SRV-5) — identical bounds +
+    // error strings to POST /api/find-usages.
+    const parsed = parseFindUsagesToolInput(data, ToolError);
+    const symbol = parsed.symbol;
+    const path = confinedPath(runtime, parsed.path);
 
     // Shared resolve-scope → findSymbol sweep (#449). findSymbolUsages
     // prefers the deepest *indexed* ancestor over an unindexed inner
@@ -573,14 +571,11 @@ export const tools = {
   async findLiteral(runtime: Runtime, input: unknown): Promise<FindLiteralOutput> {
     const v = new Validator(ToolError, "find_literal");
     const data = v.requireRecord(input ?? {}, "arguments");
-    const pattern = v.getStr(data, "pattern");
-    if (pattern === undefined || pattern === "") {
-      throw new ToolError("pattern is required and must be a non-empty string");
-    }
-    if (pattern.length > 1024) {
-      throw new ToolError("pattern exceeds 1024-char limit");
-    }
-    const path = confinedPath(runtime, v.getStr(data, "path"));
+    // Shared per-operation input spec (SRV-5) — identical bounds +
+    // error strings to POST /api/find-literal.
+    const parsed = parseFindLiteralToolInput(data, ToolError);
+    const pattern = parsed.pattern;
+    const path = confinedPath(runtime, parsed.path);
 
     // resolveProjectScope prefers the deepest *indexed* ancestor over an
     // unindexed inner marker and derives the subtree prefix, so a path
@@ -623,8 +618,8 @@ export const tools = {
       fileCount,
       warnings: Object.freeze(warnings),
       indexHealth: currentIndexHealth(runtime),
-      coverageNote:
-        "Scans indexed chunk text only. **Blind spots:** (1) chunker-gap regions inside indexed files (#360 — the gap-fill landed in #362/#364 but doesn't cover 100% of lines); (2) files under directories the filtering rules exclude — typically `.git/`, `node_modules/`, build outputs (`dist/`, `build/`, `coverage/`), and lockfiles by basename (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`). Inspect the exact list via `workspace_status` → `exclusions`. For safety-critical audits ('is this stale URL referenced anywhere'), cross-check with `rg <pattern>`.",
+      // Shared with the HTTP transport so the wording can't drift (SRV-9).
+      coverageNote: FIND_LITERAL_COVERAGE_NOTE,
     });
   },
 
@@ -675,19 +670,9 @@ export const tools = {
     switch (action) {
       case "get_config": {
         // Effective (merged) value of every schema field, plucked off the
-        // live config tree — matches what the admin Config editor shows.
-        const settings: AdminConfigSetting[] = [];
-        for (const section of CONFIG_SCHEMA) {
-          for (const f of section.fields) {
-            settings.push({
-              key: f.key,
-              label: f.label,
-              type: f.type,
-              value: pluckConfigKey(runtime, f.key),
-              default: f.default,
-            });
-          }
-        }
+        // live config tree — same core walk the admin Config editor uses
+        // (SRV-8), so the two surfaces can't diverge.
+        const settings: ReadonlyArray<AdminConfigSetting> = effectiveSettings(runtime.config);
         return Object.freeze({
           action,
           configPath: runtime.config.source ?? null,
@@ -771,16 +756,6 @@ export const tools = {
     }
   },
 } as const;
-
-/** Pluck a dot-path schema key (e.g. "mcp.adminEnabled") off the live config. */
-function pluckConfigKey(runtime: Runtime, key: string): unknown {
-  let cur: unknown = runtime.config as unknown as Record<string, unknown>;
-  for (const seg of key.split(".")) {
-    if (cur === null || typeof cur !== "object") return undefined;
-    cur = (cur as Record<string, unknown>)[seg];
-  }
-  return cur;
-}
 
 // ---- tool catalog ------------------------------------------------------
 

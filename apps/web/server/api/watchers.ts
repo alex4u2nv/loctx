@@ -13,6 +13,7 @@
 import type { ProjectId, WatcherRegistry } from "@loctx/core";
 import type { Hono } from "hono";
 import type { WatchersPayload } from "../../shared/contracts.js";
+import { jsonBody } from "../lib/http-errors.js";
 
 export function mountWatchers(app: Hono, registry: WatcherRegistry | undefined): void {
   app.get("/api/watchers", (c) => {
@@ -37,8 +38,8 @@ export function mountWatchers(app: Hono, registry: WatcherRegistry | undefined):
     if (registry === undefined) {
       return c.json({ error: "watcher disabled (daemon started with --no-watch)" }, 409);
     }
-    const body = (await c.req.json().catch(() => null)) as { projectId?: string } | null;
-    const projectId = body?.projectId?.trim() ?? "";
+    const body = await jsonBody(c);
+    const projectId = typeof body["projectId"] === "string" ? body["projectId"].trim() : "";
     if (projectId === "") return c.json({ error: "projectId required" }, 400);
     const entry = registry.pause(projectId as ProjectId);
     if (entry === null) return c.json({ error: `unknown projectId ${projectId}` }, 404);
@@ -49,8 +50,8 @@ export function mountWatchers(app: Hono, registry: WatcherRegistry | undefined):
     if (registry === undefined) {
       return c.json({ error: "watcher disabled (daemon started with --no-watch)" }, 409);
     }
-    const body = (await c.req.json().catch(() => null)) as { projectId?: string } | null;
-    const projectId = body?.projectId?.trim() ?? "";
+    const body = await jsonBody(c);
+    const projectId = typeof body["projectId"] === "string" ? body["projectId"].trim() : "";
     if (projectId === "") return c.json({ error: "projectId required" }, 400);
     const entry = registry.resume(projectId as ProjectId);
     if (entry === null) return c.json({ error: `unknown projectId ${projectId}` }, 404);

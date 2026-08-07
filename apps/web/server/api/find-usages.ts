@@ -1,40 +1,21 @@
-import {
-  type Config,
-  findSymbolUsages,
-  type Runtime,
-  resolveUnderWorkspaceRoots,
-} from "@loctx/core";
+import { type Config, findSymbolUsages, parseFindUsagesToolInput, type Runtime } from "@loctx/core";
 import type { Hono } from "hono";
 import type { FindUsagesPayload, UsageHit } from "../../shared/contracts.js";
+import { confinedPath } from "../lib/confined-path.js";
+import { BadRequestError, jsonBody } from "../lib/http-errors.js";
 import { reconcileWarnings } from "../lib/index-health-warnings.js";
-import { parseString } from "../lib/request-validation.js";
 
 export function mountFindUsages(app: Hono, config: Config, getRuntime: () => Promise<Runtime>): void {
   app.post("/api/find-usages", async (c) => {
-    const raw = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
-    if (raw === null) {
-      return c.json({ error: "invalid JSON body" }, 400);
-    }
-    const symbol = parseString(raw["symbol"], { maxLength: 256 });
-    if (symbol === null || symbol === "") {
-      return c.json({ error: "symbol required (non-empty string, ≤ 256 chars)" }, 400);
-    }
-    const pathField = parseString(raw["path"], { maxLength: 1024 });
-    if (pathField === null && raw["path"] !== undefined) {
-      return c.json({ error: "path must be a string (≤ 1024 chars)" }, 400);
-    }
+    const raw = await jsonBody(c);
+    // Shared per-operation input spec (SRV-5) — same bounds + error
+    // strings the MCP find_usages tool enforces.
+    const { symbol, path } = parseFindUsagesToolInput(raw, BadRequestError);
 
     const rt = await getRuntime();
-    let scopePath: string | undefined;
-    if (pathField !== null && pathField !== "") {
-      // Refuse paths outside configured workspace_roots so this surface
-      // can't be used to probe arbitrary filesystem locations.
-      const confined = resolveUnderWorkspaceRoots(pathField, config.workspaceRoots);
-      if (confined === null) {
-        return c.json({ error: "path is not under any configured workspace_root" }, 403);
-      }
-      scopePath = confined;
-    }
+    // Refuse paths outside configured workspace_roots so this surface
+    // can't be used to probe arbitrary filesystem locations (SRV-4).
+    const scopePath = path !== undefined ? confinedPath(config, path) : undefined;
 
     // Shared resolve-scope → findSymbol sweep (#449). Previously this
     // endpoint used plain discovery.resolveProject, so a path inside an
