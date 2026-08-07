@@ -61,18 +61,28 @@ export interface QueryRunResult {
 }
 
 /**
- * The six headline metrics the report surfaces. Each value is in [0, 1].
+ * The headline metric keys, in report-column order. Single source of
+ * truth (CLI-5, 2026-08-06 audit): `MetricSummary`, `averageMetrics`,
+ * the report tables, and the run-JSON validator all derive from this
+ * array — adding a metric is a one-line change here plus its formula.
+ */
+export const METRIC_KEYS = [
+  "hitAt1",
+  "hitAt3",
+  "hitAt10",
+  "mrrAt10",
+  "ndcgAt10",
+  "recallAt20",
+  "recallAt50",
+] as const;
+
+export type MetricKey = (typeof METRIC_KEYS)[number];
+
+/**
+ * The headline metrics the report surfaces. Each value is in [0, 1].
  * Per-query metrics use the same keys.
  */
-export interface MetricSummary {
-  readonly hitAt1: number;
-  readonly hitAt3: number;
-  readonly hitAt10: number;
-  readonly mrrAt10: number;
-  readonly ndcgAt10: number;
-  readonly recallAt20: number;
-  readonly recallAt50: number;
-}
+export type MetricSummary = Readonly<Record<MetricKey, number>>;
 
 export interface PerQueryMetrics extends MetricSummary {
   readonly queryId: QueryId;

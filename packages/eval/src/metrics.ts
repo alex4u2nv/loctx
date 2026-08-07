@@ -14,13 +14,16 @@
 
 import { groupQrelsByQuery, judgeRanked, qrelMatchesDoc } from "./qrels.js";
 import type {
+  MetricKey,
   MetricSummary,
   PerQueryMetrics,
   Qrel,
+  QueryId,
   QueryType,
   RankedDoc,
   Relevance,
 } from "./types.js";
+import { METRIC_KEYS } from "./types.js";
 
 /** Top-k cutoffs reported on every run. Update the report header if these move. */
 export const K_HITS: ReadonlyArray<number> = Object.freeze([1, 3, 10]);
@@ -157,49 +160,21 @@ export function perQueryMetrics(
   });
 }
 
-/** Average a list of metric summaries elementwise. Empty list → all zeros. */
+/**
+ * Average a list of metric summaries elementwise. Empty list → all
+ * zeros. Folded over the shared `METRIC_KEYS` (CLI-5, 2026-08-06 audit)
+ * so a new metric key can't be added to the summary type without this
+ * reducer picking it up.
+ */
 export function averageMetrics(rows: ReadonlyArray<MetricSummary>): MetricSummary {
-  if (rows.length === 0) {
-    return Object.freeze({
-      hitAt1: 0,
-      hitAt3: 0,
-      hitAt10: 0,
-      mrrAt10: 0,
-      ndcgAt10: 0,
-      recallAt20: 0,
-      recallAt50: 0,
-    });
-  }
-  const sum = rows.reduce(
-    (acc, r) => ({
-      hitAt1: acc.hitAt1 + r.hitAt1,
-      hitAt3: acc.hitAt3 + r.hitAt3,
-      hitAt10: acc.hitAt10 + r.hitAt10,
-      mrrAt10: acc.mrrAt10 + r.mrrAt10,
-      ndcgAt10: acc.ndcgAt10 + r.ndcgAt10,
-      recallAt20: acc.recallAt20 + r.recallAt20,
-      recallAt50: acc.recallAt50 + r.recallAt50,
-    }),
-    {
-      hitAt1: 0,
-      hitAt3: 0,
-      hitAt10: 0,
-      mrrAt10: 0,
-      ndcgAt10: 0,
-      recallAt20: 0,
-      recallAt50: 0,
-    },
-  );
   const n = rows.length;
-  return Object.freeze({
-    hitAt1: sum.hitAt1 / n,
-    hitAt3: sum.hitAt3 / n,
-    hitAt10: sum.hitAt10 / n,
-    mrrAt10: sum.mrrAt10 / n,
-    ndcgAt10: sum.ndcgAt10 / n,
-    recallAt20: sum.recallAt20 / n,
-    recallAt50: sum.recallAt50 / n,
-  });
+  const mean = (key: MetricKey): number =>
+    n === 0 ? 0 : rows.reduce((acc, r) => acc + r[key], 0) / n;
+  // Object.fromEntries widens to a string index; the keys are exactly
+  // METRIC_KEYS, so the assertion restores what the compiler dropped.
+  return Object.freeze(
+    Object.fromEntries(METRIC_KEYS.map((key) => [key, mean(key)])) as Record<MetricKey, number>,
+  );
 }
 
 export interface ScoredRun {
@@ -214,35 +189,34 @@ export interface ScoredRun {
  * no matching qrels are skipped (with a warning return, not a throw —
  * a stale runner output against an updated gold set should surface,
  * not crash the report).
+ *
+ * Throws when a qrels query has no entry in `queryTypes`: the runner
+ * builds that map from the same grouped qrels it executes, so a miss
+ * is a caller bug (mismatched runner output vs gold set), not a data
+ * condition — silently defaulting to "concept" mis-bucketed the
+ * per-type averages (2026-08-06 audit, "also noted").
  */
 export function scoreRun(
-  perQueryRanked: ReadonlyMap<string, ReadonlyArray<RankedDoc>>,
+  perQueryRanked: ReadonlyMap<QueryId, ReadonlyArray<RankedDoc>>,
   qrels: ReadonlyArray<Qrel>,
-  queryTypes: ReadonlyMap<string, QueryType>,
+  queryTypes: ReadonlyMap<QueryId, QueryType>,
 ): ScoredRun {
   const grouped = groupQrelsByQuery(qrels);
   const perQuery: PerQueryMetrics[] = [];
   for (const [qid, queryQrels] of grouped) {
     const ranked = perQueryRanked.get(qid) ?? [];
-    const qt = queryTypes.get(qid) ?? "concept";
+    const qt = queryTypes.get(qid);
+    if (qt === undefined) {
+      throw new Error(
+        `scoreRun: no query type recorded for '${qid}' — the ranked results and qrels disagree on the query set.`,
+      );
+    }
     const metrics = perQueryMetrics(ranked, queryQrels);
-    perQuery.push(
-      Object.freeze<PerQueryMetrics>({
-        queryId: qid as PerQueryMetrics["queryId"],
-        queryType: qt,
-        ...metrics,
-      }),
-    );
+    perQuery.push(Object.freeze<PerQueryMetrics>({ queryId: qid, queryType: qt, ...metrics }));
   }
   const overall = averageMetrics(perQuery);
-  const byTypeBuckets = new Map<string, MetricSummary[]>();
-  for (const p of perQuery) {
-    const bucket = byTypeBuckets.get(p.queryType) ?? [];
-    bucket.push(p);
-    byTypeBuckets.set(p.queryType, bucket);
-  }
   const byQueryType: Record<string, MetricSummary> = {};
-  for (const [type, rows] of byTypeBuckets) {
+  for (const [type, rows] of Map.groupBy(perQuery, (p) => p.queryType)) {
     byQueryType[type] = averageMetrics(rows);
   }
   return Object.freeze({

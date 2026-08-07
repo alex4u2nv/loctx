@@ -15,7 +15,7 @@ import {
 } from "@loctx/core";
 import type { Command } from "commander";
 import { maybeNudgeAgentSetup } from "../lib/agent-setup.js";
-import { getCtx, loadConfigOrFail } from "../lib/context.js";
+import { EXIT, errorMessage, getCtx, loadConfigOrFail } from "../lib/context.js";
 import { makeProgressLogger } from "../lib/daemon-io.js";
 
 export function registerIndexingCommands(program: Command): void {
@@ -52,7 +52,7 @@ export function registerIndexingCommands(program: Command): void {
         console.error(
           "[loctx index]   To run a foreground index pass: `loctx stop`, `loctx index`, `loctx start`.",
         );
-        process.exit(1);
+        process.exit(EXIT.error);
       }
 
       const runtime = await buildRuntime(config);
@@ -73,12 +73,12 @@ export function registerIndexingCommands(program: Command): void {
             console.error(
               `No active projects. ${inv.inactive.length} discovered but inactive — run \`loctx activate <path>\` to opt one in.`,
             );
-            process.exit(1);
+            process.exit(EXIT.error);
           }
         }
         if (projects.length === 0) {
           console.error("No projects found. Pass an explicit PATH or configure workspace_roots.");
-          process.exit(1);
+          process.exit(EXIT.error);
         }
         for (const project of projects) {
           console.log(`Indexing ${project.name} (${project.root}) ...`);
@@ -124,7 +124,7 @@ export function registerIndexingCommands(program: Command): void {
         console.error(
           "[loctx refresh] no daemon running. Start one with `loctx start`, or run `loctx index` for a one-shot foreground pass.",
         );
-        process.exit(1);
+        process.exit(EXIT.error);
       }
       const client = daemonClient(config.paths.dataDir);
       try {
@@ -144,11 +144,10 @@ export function registerIndexingCommands(program: Command): void {
           console.error(
             "[loctx refresh]   The reconciler is already running — see `loctx status` for progress.",
           );
-          process.exit(2);
+          process.exit(EXIT.conflict);
         }
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[loctx refresh] failed: ${msg}`);
-        process.exit(1);
+        console.error(`[loctx refresh] failed: ${errorMessage(err)}`);
+        process.exit(EXIT.error);
       }
     });
 }

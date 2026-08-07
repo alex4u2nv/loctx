@@ -25,6 +25,36 @@ export interface CliContext {
   readonly debug: boolean;
 }
 
+/**
+ * The CLI's exit-code contract (CLI-7, 2026-08-06 audit). Before this
+ * constant, three conventions coexisted (`process.exit(n)`, bare
+ * `process.exitCode = n`, plain return) and the "conflict" code 2 was a
+ * magic number in two files.
+ *
+ *   ok       0 — success (including "nothing matched" reads)
+ *   error    1 — any failure
+ *   conflict 2 — the daemon refused because the work is already in
+ *                flight (refresh mid-reconcile, rebuild all-rejected)
+ */
+export const EXIT = { ok: 0, error: 1, conflict: 2 } as const;
+export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
+
+/** Print `message` to stderr and exit. Use only outside try/finally cleanup. */
+export function fail(message: string, code: ExitCode = EXIT.error): never {
+  console.error(message);
+  process.exit(code);
+}
+
+/**
+ * Message text for an arbitrary thrown value (CLI-10, 2026-08-06
+ * audit). Replaces the `(err as Error).message` casts: a non-Error
+ * throw (string, plain object) used to print `failed: undefined` in
+ * exactly the diagnostic paths where the message mattered.
+ */
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 // Module-level singleton: `getCtx()` reads its parsed opts, `cli.ts`
 // configures it and calls `parseAsync`, command modules register onto it.
 export const program = new Command();
@@ -42,8 +72,7 @@ export function loadConfigOrFail(ctx: CliContext): Config {
     return loadConfig(ctx.configPath);
   } catch (err) {
     if (err instanceof ConfigError) {
-      console.error(err.message);
-      process.exit(1);
+      fail(err.message);
     }
     throw err;
   }
@@ -77,8 +106,7 @@ export function resolveCommandPath(input: string | undefined): Project | null {
  */
 export function noProjectMarkerError(verb: string, path: string | undefined, suffix = ""): never {
   const start = path === undefined || path === "." ? process.cwd() : resolve(path);
-  console.error(`[loctx ${verb}] no project marker found at or above ${start}.${suffix}`);
-  process.exit(1);
+  fail(`[loctx ${verb}] no project marker found at or above ${start}.${suffix}`);
 }
 
 /**

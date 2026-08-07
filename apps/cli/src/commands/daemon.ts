@@ -4,7 +4,7 @@
 
 import { DaemonLockHeldError, stopActiveDaemon } from "@loctx/core";
 import type { Command } from "commander";
-import { getCtx, loadConfigOrFail } from "../lib/context.js";
+import { EXIT, getCtx, loadConfigOrFail } from "../lib/context.js";
 
 export function registerDaemonCommands(program: Command): void {
   program
@@ -30,7 +30,7 @@ export function registerDaemonCommands(program: Command): void {
         if (err instanceof DaemonLockHeldError) {
           console.error(err.message);
           console.error("Use `loctx start --replace` or `loctx restart` to take over.");
-          process.exit(1);
+          process.exit(EXIT.error);
         }
         throw err;
       }

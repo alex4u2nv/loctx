@@ -15,7 +15,8 @@ import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
   buildRuntime,
@@ -25,12 +26,69 @@ import {
   type Project,
   type Runtime,
 } from "@loctx/core";
+import { errorMessage } from "./errors.js";
 import { parseCorpusToml } from "./toml.js";
 import type { CorpusConfig } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
 export class CorpusError extends Error {}
+
+/**
+ * `packages/eval/golden` — resolved relative to this module so it works
+ * from `src/` (tsx dev) and `dist/` (built) alike. Single definition
+ * (CLI-3, 2026-08-06 audit); the cmd modules used to each recompute it.
+ */
+export const DEFAULT_GOLDEN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "golden");
+
+export interface GoldenSetOptions {
+  readonly goldenSet: string;
+  readonly goldenRoot?: string;
+}
+
+/** Directory of one gold-set version (`<goldenRoot>/<goldenSet>`). */
+export function goldenSetDir(options: GoldenSetOptions): string {
+  return join(options.goldenRoot ?? DEFAULT_GOLDEN_ROOT, options.goldenSet);
+}
+
+/** Everything a command callback needs after the corpus is indexed. */
+export interface CorpusRuntimeContext {
+  readonly corpus: CorpusConfig;
+  readonly setDir: string;
+  readonly runtime: Runtime;
+  readonly project: Project;
+  readonly chunkBoundaryHash: string;
+}
+
+/**
+ * Own the corpus lifecycle for one eval command (CLI-3, 2026-08-06
+ * audit): resolve the gold-set dir, load `corpus.toml`, snapshot the
+ * pinned sha, build the sandboxed runtime, index the checkout, run
+ * `fn`, and tear everything down in reverse order — the ~16-line
+ * preamble/teardown that `index`, `run`, and `validate` each repeated.
+ */
+export async function withCorpusRuntime<T>(
+  options: GoldenSetOptions,
+  fn: (ctx: CorpusRuntimeContext) => Promise<T>,
+): Promise<T> {
+  const setDir = goldenSetDir(options);
+  const corpus = loadCorpusConfig(join(setDir, "corpus.toml"));
+  // Search-roots probe: the worktree we're running in, plus its parent
+  // (the parent loctx clone). Either may be a usable local git source
+  // even when corpus.repo points to a public URL.
+  const searchRoots = [process.cwd(), resolve(process.cwd(), "..")];
+  const snap = await snapshotCorpus(corpus, searchRoots);
+  let runtimeBox: Awaited<ReturnType<typeof buildSandboxedRuntime>> | undefined;
+  try {
+    runtimeBox = await buildSandboxedRuntime(corpus);
+    const { runtime } = runtimeBox;
+    const { project, chunkBoundaryHash } = await indexCorpus(runtime, snap.root);
+    return await fn({ corpus, setDir, runtime, project, chunkBoundaryHash });
+  } finally {
+    if (runtimeBox !== undefined) await runtimeBox.close();
+    snap.cleanup();
+  }
+}
 
 export function loadCorpusConfig(path: string): CorpusConfig {
   const text = readFileSync(path, "utf-8");
@@ -144,7 +202,7 @@ export async function snapshotCorpus(
         corpus.sha,
       ]);
     } catch (err) {
-      const msg = (err as Error).message;
+      const msg = errorMessage(err);
       throw new CorpusError(
         `git worktree add ${worktreePath} ${corpus.sha} failed (from ${source.path}): ${msg}`,
       );
@@ -177,7 +235,7 @@ export async function snapshotCorpus(
     await execFileAsync("git", ["-C", worktreePath, "checkout", "--detach", corpus.sha]);
   } catch (err) {
     throw new CorpusError(
-      `git clone ${source.url} → ${worktreePath} (sha ${corpus.sha}) failed: ${(err as Error).message}`,
+      `git clone ${source.url} → ${worktreePath} (sha ${corpus.sha}) failed: ${errorMessage(err)}`,
     );
   }
   return Object.freeze({

@@ -2,38 +2,30 @@
  * Stdout formatting helpers shared by the search and config commands.
  */
 
-import type { Config } from "@loctx/core";
+import type { Config, SearchResult } from "@loctx/core";
 
-export interface SearchResultRow {
-  readonly score: number;
-  readonly absPath: string | null;
-  readonly relPath: string;
-  readonly startLine: number;
-  readonly endLine: number;
-  readonly kind: string;
-  readonly symbols: ReadonlyArray<string>;
-  readonly matchReasons: ReadonlyArray<string>;
-  readonly coverageReason: string | null;
-  readonly enrichments: {
-    readonly lizard: {
-      readonly functionName: string;
-      readonly ccn: number;
-      readonly nloc: number;
-      readonly tokens: number;
-      readonly parameters: number;
-    } | null;
-    readonly findings: ReadonlyArray<{
-      readonly analyzer: string;
-      readonly severity: string;
-      readonly category: string;
-      readonly ruleId: string;
-      readonly message: string;
-      readonly lineFrom: number;
-      readonly lineTo: number;
-    }>;
-  };
-  readonly snippet: string;
-}
+/**
+ * The subset of the core searcher's {@link SearchResult} the CLI
+ * renders. Defined via `Pick` (CLI-6, 2026-08-06 audit) so the local
+ * search path can pass `response.results` straight through instead of
+ * re-listing all eleven fields to satisfy a structurally-identical
+ * local type; the daemon path's JSON payload decodes into the same
+ * shape. `matchReasons` widens to plain strings — the daemon boundary
+ * is JSON, so the CLI must not trust the `MatchReason` union.
+ */
+export type SearchResultRow = Pick<
+  SearchResult,
+  | "score"
+  | "absPath"
+  | "relPath"
+  | "startLine"
+  | "endLine"
+  | "kind"
+  | "symbols"
+  | "coverageReason"
+  | "enrichments"
+  | "snippet"
+> & { readonly matchReasons: ReadonlyArray<string> };
 
 export function clip(text: string, maxLines = 12): string {
   const lines = text.split("\n");
@@ -92,6 +84,46 @@ export function printSearchResponse(payload: {
     }
     console.log(indent(clip(result.snippet)));
     console.log();
+  }
+}
+
+/** One def/ref row as the usages printer needs it. */
+export interface UsageRow {
+  readonly relPath: string;
+  readonly chunkStartLine: number;
+  readonly kind: string;
+}
+
+/** Per-project def/ref groups for {@link printUsages}. */
+export interface UsageGroup {
+  readonly name: string;
+  /** Project root for absolute rendering; null when unknown (daemon payload). */
+  readonly root: string | null;
+  readonly defs: ReadonlyArray<UsageRow>;
+  readonly refs: ReadonlyArray<UsageRow>;
+}
+
+/**
+ * The one find-usages renderer (CLI-8, 2026-08-06 audit) — the daemon
+ * and local paths used to print near-identical tables from separate
+ * loops. Format follows the local path's: `absolute: true` joins each
+ * row onto its project root; the daemon payload carries no roots, so
+ * that path stays relative (`absolute: false`), exactly as before.
+ */
+export function printUsages(
+  groups: ReadonlyArray<UsageGroup>,
+  options: { readonly absolute: boolean },
+): void {
+  for (const { name, root, defs, refs } of groups) {
+    const render = (relPath: string): string =>
+      options.absolute && root !== null ? `${root}/${relPath}` : relPath;
+    console.log(`# project: ${name}  defs=${defs.length}  refs=${refs.length}`);
+    for (const d of defs) {
+      console.log(`  def  ${render(d.relPath)}:${d.chunkStartLine}  [${d.kind}]`);
+    }
+    for (const r of refs) {
+      console.log(`  ${r.kind.padEnd(5)} ${render(r.relPath)}:${r.chunkStartLine}`);
+    }
   }
 }
 

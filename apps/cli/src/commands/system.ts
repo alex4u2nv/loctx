@@ -5,6 +5,7 @@
 import {
   daemonClient,
   inventoryProjects,
+  type ProjectId,
   readActiveDaemon,
   runDoctorChecks,
   StateStore,
@@ -12,7 +13,7 @@ import {
   worstStatus,
 } from "@loctx/core";
 import type { Command } from "commander";
-import { getCtx, loadConfigOrFail } from "../lib/context.js";
+import { EXIT, getCtx, loadConfigOrFail } from "../lib/context.js";
 
 export function registerSystemCommands(program: Command): void {
   program
@@ -29,7 +30,7 @@ export function registerSystemCommands(program: Command): void {
       const worst = worstStatus(checks);
       console.log("");
       console.log(`summary: ${worst}`);
-      if (worst === "error") process.exit(1);
+      if (worst === "error") process.exit(EXIT.error);
     });
 
   program
@@ -41,7 +42,7 @@ export function registerSystemCommands(program: Command): void {
       const discovery = new WorkspaceDiscovery(config.workspaceRoots);
       const state = new StateStore(config.paths.stateDb);
       let inventory: ReturnType<typeof inventoryProjects>;
-      let pendingRebuilds: ReadonlyArray<{ id: string; rebuildPendingAt: string }>;
+      let pendingRebuilds: ReadonlyArray<{ id: ProjectId; rebuildPendingAt: string }>;
       try {
         inventory = inventoryProjects(discovery, state);
         pendingRebuilds = state.listProjectsWithRebuildPending();
@@ -102,7 +103,9 @@ export function registerSystemCommands(program: Command): void {
       for (const root of config.workspaceRoots) {
         console.log(`    - ${root}`);
       }
-      const pendingSet = new Set(pendingRebuilds.map((p) => p.id as string));
+      // Set<ProjectId> by inference — no brand-stripping `as string`
+      // (2026-08-06 audit "also noted"); Project.id is the same brand.
+      const pendingSet = new Set(pendingRebuilds.map((p) => p.id));
       console.log(`  active projects (${inventory.active.length}):`);
       for (const { project, lastIndexedAt, marker, markerKind } of inventory.active) {
         const stamp = lastIndexedAt ? `  (indexed ${lastIndexedAt})` : "";

@@ -20,7 +20,7 @@ import {
   writeConfigPatch,
 } from "@loctx/core";
 import type { Command } from "commander";
-import { confirm, getCtx, loadConfigOrFail } from "../lib/context.js";
+import { confirm, EXIT, errorMessage, getCtx, loadConfigOrFail } from "../lib/context.js";
 
 // YAML key for a tool's `enabled`/`command` (ast-grep is camelCase in config).
 const toolConfigKeys = (t: ToolName): { readonly enabled: string; readonly command: string } => {
@@ -49,7 +49,7 @@ export function registerToolsCommands(program: Command): void {
           "loctx update applies to pre-built release installs only. You're running from source or an\n" +
             "npm link — update via that path instead (e.g. `git pull && pnpm run install:local`).",
         );
-        process.exitCode = 1;
+        process.exitCode = EXIT.error;
         return;
       }
       // Re-run the bundled installer (no arg → resolves the latest release for
@@ -60,7 +60,7 @@ export function registerToolsCommands(program: Command): void {
       console.error("[loctx update] fetching the latest release…");
       const install = spawnSync("bash", [installer], { stdio: "inherit", env });
       if (install.status !== 0) {
-        process.exitCode = install.status ?? 1;
+        process.exitCode = install.status ?? EXIT.error;
         return;
       }
       // Restart using the freshly-installed version (the `current` symlink now
@@ -88,7 +88,7 @@ export function registerToolsCommands(program: Command): void {
         console.error(
           `[install-tools] unknown tool(s): ${unknown.join(", ")} (expected ${TOOL_NAMES.join(", ")})`,
         );
-        process.exitCode = 1;
+        process.exitCode = EXIT.error;
         return;
       }
       const tools = requested as ToolName[];
@@ -118,7 +118,7 @@ export function registerToolsCommands(program: Command): void {
           if (r.log) console.error(r.log);
           if (!r.ok) {
             console.error(`[install-tools] ${tool}: ${r.error ?? "install failed"}`);
-            process.exitCode = 1;
+            process.exitCode = EXIT.error;
             continue;
           }
           console.error(
@@ -126,15 +126,15 @@ export function registerToolsCommands(program: Command): void {
           );
         } catch (err) {
           if (!(err instanceof NoDaemonError)) {
-            console.error(`[install-tools] ${tool}: ${(err as Error).message}`);
-            process.exitCode = 1;
+            console.error(`[install-tools] ${tool}: ${errorMessage(err)}`);
+            process.exitCode = EXIT.error;
             continue;
           }
           const result = await installTool(config, tool);
           if (result.log) console.error(result.log);
           if (!result.ok || result.command === undefined) {
             console.error(`[install-tools] ${tool}: ${result.error ?? "install failed"}`);
-            process.exitCode = 1;
+            process.exitCode = EXIT.error;
             continue;
           }
           const keys = toolConfigKeys(tool);
@@ -149,7 +149,7 @@ export function registerToolsCommands(program: Command): void {
           if (!write.ok) {
             const detail = write.errors.map((e) => `${e.key}: ${e.message}`).join("; ");
             console.error(`[install-tools] ${tool}: installed but config update failed: ${detail}`);
-            process.exitCode = 1;
+            process.exitCode = EXIT.error;
             continue;
           }
           console.error(
@@ -184,7 +184,7 @@ export function registerToolsCommands(program: Command): void {
         console.error(
           "[loctx watch]   To see daemon activity: `loctx status` or http://localhost:3022/.",
         );
-        process.exit(1);
+        process.exit(EXIT.error);
       }
       const runtime = await buildRuntime(config);
       try {
@@ -193,7 +193,7 @@ export function registerToolsCommands(program: Command): void {
           : runtime.discovery.discoverProjects();
         if (projects.length === 0) {
           console.error("No projects to watch.");
-          process.exit(1);
+          process.exit(EXIT.error);
         }
 
         const watchers = await Promise.all(

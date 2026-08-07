@@ -20,14 +20,11 @@
  * command exit non-zero.
  */
 
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { buildSandboxedRuntime, indexCorpus, loadCorpusConfig, snapshotCorpus } from "../corpus.js";
+import { join } from "node:path";
+import type { GoldenSetOptions } from "../corpus.js";
+import { goldenSetDir, withCorpusRuntime } from "../corpus.js";
 import { loadQrels, spansOverlap } from "../qrels.js";
 import type { Qrel } from "../types.js";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_GOLDEN_ROOT = resolve(HERE, "..", "..", "golden");
 
 export type QrelStatus = "exact" | "drift" | "no-overlap" | "missing-file";
 
@@ -48,27 +45,16 @@ export interface ValidateCommandResult {
   readonly all: ReadonlyArray<QrelValidation>;
 }
 
-export interface ValidateCommandOptions {
-  readonly goldenSet: string;
-  readonly goldenRoot?: string;
-}
+export type ValidateCommandOptions = GoldenSetOptions;
 
 export async function validateCommand(
   options: ValidateCommandOptions,
 ): Promise<ValidateCommandResult> {
-  const goldenRoot = options.goldenRoot ?? DEFAULT_GOLDEN_ROOT;
-  const setDir = join(goldenRoot, options.goldenSet);
-  const corpus = loadCorpusConfig(join(setDir, "corpus.toml"));
-  const qrels = loadQrels(join(setDir, "qrels.jsonl"));
-  const searchRoots = [process.cwd(), resolve(process.cwd(), "..")];
+  // Load qrels before the (expensive) snapshot + index so an authoring
+  // error in the gold set fails fast.
+  const qrels = loadQrels(join(goldenSetDir(options), "qrels.jsonl"));
 
-  const snap = await snapshotCorpus(corpus, searchRoots);
-  let runtimeBox: Awaited<ReturnType<typeof buildSandboxedRuntime>> | undefined;
-  try {
-    runtimeBox = await buildSandboxedRuntime(corpus);
-    const { runtime } = runtimeBox;
-    const { project } = await indexCorpus(runtime, snap.root);
-
+  return withCorpusRuntime(options, async ({ runtime, project }) => {
     // rel_path → sorted chunk spans.
     const spansByPath = new Map<string, Array<{ start: number; end: number }>>();
     for (const f of runtime.state.listFiles(project.id)) {
@@ -94,10 +80,7 @@ export async function validateCommand(
       failures: Object.freeze(failures),
       all: Object.freeze(all),
     });
-  } finally {
-    if (runtimeBox !== undefined) await runtimeBox.close();
-    snap.cleanup();
-  }
+  });
 }
 
 /**
@@ -110,7 +93,8 @@ export function classify(
   spans: ReadonlyArray<{ start: number; end: number }> | undefined,
 ): QrelValidation {
   const base = {
-    queryId: q.queryId as string,
+    // QueryId is a string subtype — no brand-stripping cast needed.
+    queryId: q.queryId,
     relPath: q.relPath,
     startLine: q.startLine,
     endLine: q.endLine,

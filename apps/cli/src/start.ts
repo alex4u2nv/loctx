@@ -35,6 +35,7 @@ import {
   WatcherRegistry,
   WatcherService,
 } from "@loctx/core";
+import { errorMessage } from "./lib/context.js";
 
 // Real package version (#451) — one source of truth in package.json.
 const DAEMON_VERSION = readPackageVersion(new URL("../package.json", import.meta.url));
@@ -110,8 +111,8 @@ export async function start(bootConfig: Config, options: StartOptions): Promise<
       console.error(`[loctx config] analyzer(s) activated: ${newly.join(", ")} — backfilling`);
       void runtime
         .backfillAnalyzers(newly)
-        .catch((err) =>
-          console.error(`[loctx analyzers] backfill failed: ${(err as Error).message}`),
+        .catch((err: unknown) =>
+          console.error(`[loctx analyzers] backfill failed: ${errorMessage(err)}`),
         );
     }
   };
@@ -173,8 +174,8 @@ export async function start(bootConfig: Config, options: StartOptions): Promise<
   // covered by the indexer hook, not here.
   void runtime
     .backfillAnalyzers()
-    .catch((err) =>
-      console.error(`[loctx analyzers] startup backfill failed: ${(err as Error).message}`),
+    .catch((err: unknown) =>
+      console.error(`[loctx analyzers] startup backfill failed: ${errorMessage(err)}`),
     );
 
   const banner = [
@@ -210,12 +211,12 @@ export async function start(bootConfig: Config, options: StartOptions): Promise<
     try {
       reconciliationStop();
     } catch (err) {
-      console.error(`[loctx start] reconciliation stop threw: ${(err as Error).message}`);
+      console.error(`[loctx start] reconciliation stop threw: ${errorMessage(err)}`);
     }
     try {
       maintenanceStop();
     } catch (err) {
-      console.error(`[loctx start] maintenance stop threw: ${(err as Error).message}`);
+      console.error(`[loctx start] maintenance stop threw: ${errorMessage(err)}`);
     }
 
     // 2. Tear watcher subscriptions down so no new index events fire
@@ -251,13 +252,46 @@ export async function start(bootConfig: Config, options: StartOptions): Promise<
   process.once("SIGINT", () => void shutdown("SIGINT"));
   process.once("SIGTERM", () => void shutdown("SIGTERM"));
 
-  // Block until the signal handler exits the process.
+  // Block until the signal handler exits the process. (The dead
+  // `void …` pins that used to follow were unreachable and unneeded —
+  // every local is already referenced by the shutdown closure above;
+  // removed per the 2026-08-06 audit "also noted" list.)
   await new Promise<void>(() => undefined);
+}
 
-  // Unreachable; satisfies TypeScript's flow analysis.
-  void watchers;
-  void httpStop;
-  void reconciliationStop;
+// ---- periodic scheduling -----------------------------------------------
+
+interface Rescheduler {
+  /** Arm the next tick. No-op once stopped. */
+  readonly schedule: (delayMs: number, task: () => void) => void;
+  /** Flip the stopped flag and clear any pending tick. */
+  readonly stop: () => void;
+  readonly isStopped: () => boolean;
+}
+
+/**
+ * Timer state shared by the daemon's periodic loops (reconciliation,
+ * auto-compaction) — extracted per the 2026-08-06 audit ("also noted")
+ * before a third periodic task lands. A setTimeout *chain* rather than
+ * setInterval so a hot-reloaded interval applies on the very next
+ * reschedule; each timer is unref'd so it never keeps the process
+ * alive on its own.
+ */
+function makeRescheduler(): Rescheduler {
+  let timer: NodeJS.Timeout | null = null;
+  let stopped = false;
+  return Object.freeze({
+    schedule: (delayMs: number, task: () => void): void => {
+      if (stopped) return;
+      timer = setTimeout(task, delayMs);
+      timer.unref();
+    },
+    stop: (): void => {
+      stopped = true;
+      if (timer !== null) clearTimeout(timer);
+    },
+    isStopped: (): boolean => stopped,
+  });
 }
 
 // ---- reconciliation ----------------------------------------------------
@@ -278,9 +312,9 @@ function startReconciliation(
   // are skipped, only the unfinished tail gets embedded. After a
   // successful reconcile we clear the marker so subsequent passes don't
   // re-prioritise the same project forever.
-  const pending = new Set(
-    runtime.state.listProjectsWithRebuildPending().map((p) => p.id as string),
-  );
+  // Set<ProjectId> by inference — no brand-stripping `as string`
+  // (2026-08-06 audit "also noted"); Project.id is the same brand.
+  const pending = new Set(runtime.state.listProjectsWithRebuildPending().map((p) => p.id));
   const orderedProjects: Project[] =
     pending.size === 0
       ? projects.slice()
@@ -305,8 +339,7 @@ function startReconciliation(
   const baseMs = (): number => config.reconciliation.intervalSeconds * 1000;
   const MAX_BACKOFF_MS = 60 * 60 * 1000;
   let consecutiveFailures = 0;
-  let timer: NodeJS.Timeout | null = null;
-  let stopped = false;
+  const sched = makeRescheduler();
 
   const nextDelayMs = (): number => {
     if (consecutiveFailures === 0) return baseMs();
@@ -314,7 +347,7 @@ function startReconciliation(
   };
 
   const scheduleNext = (): void => {
-    if (stopped || baseMs() <= 0) return;
+    if (sched.isStopped() || baseMs() <= 0) return;
     const delay = nextDelayMs();
     if (consecutiveFailures > 0) {
       const minutes = Math.round(delay / 60_000);
@@ -322,8 +355,7 @@ function startReconciliation(
         `[loctx reconcile] backing off after ${consecutiveFailures} failure(s); next attempt in ~${minutes}m`,
       );
     }
-    timer = setTimeout(() => run("periodic"), delay);
-    timer.unref();
+    sched.schedule(delay, () => run("periodic"));
   };
 
   const run = (label: string): void => {
@@ -357,9 +389,9 @@ function startReconciliation(
         );
         consecutiveFailures = 0;
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         consecutiveFailures += 1;
-        console.error(`[loctx reconcile ${traceId}] ${label} failed: ${(err as Error).message}`);
+        console.error(`[loctx reconcile ${traceId}] ${label} failed: ${errorMessage(err)}`);
       })
       .finally(() => {
         // Schedule via setTimeout chain rather than setInterval so the
@@ -375,10 +407,7 @@ function startReconciliation(
     scheduleNext();
   }
 
-  return () => {
-    stopped = true;
-    if (timer !== null) clearTimeout(timer);
-  };
+  return sched.stop;
 }
 
 // ---- maintenance (auto-compaction) -------------------------------------
@@ -413,17 +442,11 @@ function startMaintenance(runtime: Runtime, config: Config): () => void {
   // and re-check rather than skipping a whole interval.
   const BUSY_RETRY_MS = 5 * 60 * 1000;
 
-  let timer: NodeJS.Timeout | null = null;
-  let stopped = false;
-
-  const schedule = (delay: number): void => {
-    if (stopped) return;
-    timer = setTimeout(() => void run(), delay);
-    timer.unref();
-  };
+  const sched = makeRescheduler();
+  const schedule = (delay: number): void => sched.schedule(delay, () => void run());
 
   const run = async (): Promise<void> => {
-    if (stopped) return;
+    if (sched.isStopped()) return;
     if (runtime.reconciler.status().running) {
       console.error(
         `[loctx compact] reconcile in flight; deferring compaction ~${Math.round(BUSY_RETRY_MS / 60_000)}m`,
@@ -442,11 +465,11 @@ function startMaintenance(runtime: Runtime, config: Config): () => void {
           `freed ${mb(Math.max(0, beforeBytes - afterBytes))}MB, elapsed ${elapsed}s)`,
       );
     } catch (err) {
-      console.error(`[loctx compact] failed: ${(err as Error).message}`);
+      console.error(`[loctx compact] failed: ${errorMessage(err)}`);
     } finally {
       // Reschedule on the live interval so a hot-reloaded value takes
       // effect; bail if it was turned off (0) while we ran.
-      if (!stopped && intervalMs() > 0) schedule(intervalMs());
+      if (!sched.isStopped() && intervalMs() > 0) schedule(intervalMs());
     }
   };
 
@@ -456,10 +479,7 @@ function startMaintenance(runtime: Runtime, config: Config): () => void {
   );
   schedule(INITIAL_DELAY_MS);
 
-  return () => {
-    stopped = true;
-    if (timer !== null) clearTimeout(timer);
-  };
+  return sched.stop;
 }
 
 // ---- preflight ---------------------------------------------------------
@@ -487,6 +507,14 @@ function warnOnLegacyProjectConfig(): void {
   }
 }
 
+/** The multi-line ulimit bump hint with the `[loctx start]` log prefix on every line. */
+function prefixedNofileHint(): string {
+  return nofileBumpHint()
+    .split("\n")
+    .map((l) => `[loctx start] ${l}`)
+    .join("\n");
+}
+
 function warnIfNofileLow(projectCount: number): void {
   const status = checkNofile();
   if (status === null || status.ok) return;
@@ -496,12 +524,7 @@ function warnIfNofileLow(projectCount: number): void {
   console.error(
     `[loctx start] chokidar opens ~1-2 fds per watched dir; with ${projectCount} project(s) this will likely flood with EMFILE.`,
   );
-  console.error(
-    nofileBumpHint()
-      .split("\n")
-      .map((l) => `[loctx start] ${l}`)
-      .join("\n"),
-  );
+  console.error(prefixedNofileHint());
 }
 
 // ---- watchers ----------------------------------------------------------
@@ -532,7 +555,7 @@ async function startWatchers(
       try {
         await w.start();
       } catch (err) {
-        const message = (err as Error).message;
+        const message = errorMessage(err);
         // Register the entry as failed so the UI and doctor have
         // something to show. The watcher is not active; no events
         // will fire for this project until the daemon restarts after
@@ -548,12 +571,7 @@ async function startWatchers(
         });
         console.error(`[loctx start] watcher failed for ${project.name}: ${message}`);
         if (looksLikeFdExhaustion(message)) {
-          console.error(
-            nofileBumpHint()
-              .split("\n")
-              .map((l) => `[loctx start] ${l}`)
-              .join("\n"),
-          );
+          console.error(prefixedNofileHint());
         }
         return null;
       }
@@ -691,7 +709,7 @@ async function raceShutdownStep(
       console.error(`[loctx start] ${label} hung past ${timeoutMs}ms; abandoning`);
     }
   } catch (err) {
-    console.error(`[loctx start] ${label} threw: ${(err as Error).message}`);
+    console.error(`[loctx start] ${label} threw: ${errorMessage(err)}`);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
