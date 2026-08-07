@@ -2,7 +2,12 @@
  * Wire types shared by the Hono server and the React SPA. No runtime
  * imports — keep this file dependency-free so both sides can pull it
  * without dragging in @loctx/core (which the client must not bundle).
+ * `import type` from workspace packages is fine: type-only imports are
+ * erased at compile time and never reach the client bundle.
  */
+
+import type { SearchResult } from "@loctx/core";
+import type { IndexHealth } from "@loctx/mcp";
 
 export interface StatusPayload {
   readonly daemon:
@@ -276,42 +281,26 @@ export interface SearchRequestBody {
   readonly coverage?: boolean;
 }
 
-export interface SearchHit {
-  readonly projectId: string;
-  readonly projectName: string;
-  readonly relPath: string;
-  readonly absPath: string | null;
-  readonly startLine: number;
-  readonly endLine: number;
-  readonly score: number;
-  readonly snippet: string;
-  readonly language: string;
-  readonly kind: string;
-  readonly symbols: ReadonlyArray<string>;
-  readonly sources: ReadonlyArray<string>;
-  readonly matchReasons: ReadonlyArray<string>;
-  /** Inbound-link count — authority signal from the doc cross-link graph (#427). */
-  readonly referencedBy: number;
-  readonly coverageReason: string | null;
+/**
+ * One search result on the wire — the core searcher's result minus the
+ * fields the admin UI doesn't consume (SRV-10). Derived rather than
+ * re-declared so a new core field can't silently drift out of the HTTP
+ * response's type:
+ *
+ *   - `projectRoot` / `analyzer` are dropped: the UI renders relPath +
+ *     absPath and never reads the raw AST metadata blob.
+ *   - `enrichments.lizard` drops the function's own lineFrom/lineTo
+ *     (the chunk's startLine/endLine are what the UI links to).
+ */
+export type SearchHit = Omit<SearchResult, "projectRoot" | "analyzer" | "enrichments"> & {
   readonly enrichments: {
-    readonly lizard: {
-      readonly functionName: string;
-      readonly ccn: number;
-      readonly nloc: number;
-      readonly tokens: number;
-      readonly parameters: number;
-    } | null;
-    readonly findings: ReadonlyArray<{
-      readonly analyzer: string;
-      readonly ruleId: string;
-      readonly severity: "error" | "warning" | "info";
-      readonly message: string;
-      readonly category: string;
-      readonly lineFrom: number;
-      readonly lineTo: number;
-    }>;
+    readonly lizard: Omit<
+      NonNullable<SearchResult["enrichments"]["lizard"]>,
+      "lineFrom" | "lineTo"
+    > | null;
+    readonly findings: SearchResult["enrichments"]["findings"];
   };
-}
+};
 
 export interface SearchPayload {
   readonly resolvedScope: {
@@ -321,6 +310,14 @@ export interface SearchPayload {
   };
   readonly results: ReadonlyArray<SearchHit>;
   readonly warnings: ReadonlyArray<string>;
+  /**
+   * Same liveness signal the MCP tools carry (#43): search results may
+   * be partial while the daemon is mid-reconcile. Optional/additive
+   * (SRV-10) so existing typed consumers compile unchanged; the HTTP
+   * daemon observes its own reconciler, so `reconciling` is always a
+   * plain boolean here (never "unknown").
+   */
+  readonly indexHealth?: IndexHealth;
 }
 
 export type DoctorCheckStatus = "ok" | "warn" | "error";

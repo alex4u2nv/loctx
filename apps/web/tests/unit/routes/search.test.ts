@@ -104,10 +104,17 @@ describe("POST /api/search — happy path + errors", () => {
     );
     const { status, body } = await postJson(app, "/api/search", { query: "auth" });
     expect(status).toBe(200);
-    const payload = body as { warnings: string[]; resolvedScope: { mode: string } };
+    const payload = body as {
+      warnings: string[];
+      resolvedScope: { mode: string };
+      indexHealth: { reconciling: boolean; currentProject: string | null };
+    };
     expect(payload.resolvedScope.mode).toBe("all");
     expect(payload.warnings[0]).toContain("reconciling");
     expect(payload.warnings).toContain("searcher note");
+    // SRV-10: HTTP search now carries the same liveness signal MCP
+    // responses do. We're the daemon, so it's a plain boolean.
+    expect(payload.indexHealth).toMatchObject({ reconciling: true, currentProject: "demo" });
   });
 
   it("500s with a sanitized error when the searcher throws (no internals leaked)", async () => {

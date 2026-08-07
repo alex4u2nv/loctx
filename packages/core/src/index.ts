@@ -25,6 +25,7 @@ export * from "./paths.js";
 export * from "./pkg-version.js";
 export * from "./retrieval/index.js";
 export * from "./storage/index.js";
+export * from "./tool-inputs.js";
 export * from "./tools.js";
 export * from "./trusted-models.js";
 export * from "./ulimit.js";

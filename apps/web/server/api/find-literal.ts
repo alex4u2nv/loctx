@@ -12,17 +12,16 @@
 
 import {
   type Config,
+  FIND_LITERAL_COVERAGE_NOTE,
+  parseFindLiteralToolInput,
   type ProjectId,
   type Runtime,
-  resolveUnderWorkspaceRoots,
 } from "@loctx/core";
 import type { Hono } from "hono";
 import type { FindLiteralPayload, LiteralHit } from "../../shared/contracts.js";
+import { confinedPath } from "../lib/confined-path.js";
+import { BadRequestError, jsonBody } from "../lib/http-errors.js";
 import { reconcileWarnings } from "../lib/index-health-warnings.js";
-import { parseString } from "../lib/request-validation.js";
-
-const COVERAGE_NOTE =
-  "Scans indexed chunk text only. Blind spots: (1) chunker-gap regions inside indexed files (#360 — gap-fill in #362/#364 doesn't cover 100% of lines); (2) files under directories the filtering rules exclude — typically `.git/`, `node_modules/`, build outputs (`dist/`, `build/`, `coverage/`), and lockfiles by basename. Inspect the exact list via `workspace_status` → `exclusions`. For safety-critical audits, cross-check with `rg <pattern>`.";
 
 export function mountFindLiteral(
   app: Hono,
@@ -30,29 +29,18 @@ export function mountFindLiteral(
   getRuntime: () => Promise<Runtime>,
 ): void {
   app.post("/api/find-literal", async (c) => {
-    const raw = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
-    if (raw === null) {
-      return c.json({ error: "invalid JSON body" }, 400);
-    }
-    const pattern = parseString(raw["pattern"], { maxLength: 1024 });
-    if (pattern === null || pattern === "") {
-      return c.json({ error: "pattern required (non-empty string, ≤ 1024 chars)" }, 400);
-    }
-    const pathField = parseString(raw["path"], { maxLength: 1024 });
-    if (pathField === null && raw["path"] !== undefined) {
-      return c.json({ error: "path must be a string (≤ 1024 chars)" }, 400);
-    }
+    const raw = await jsonBody(c);
+    // Shared per-operation input spec (SRV-5) — same bounds + error
+    // strings the MCP find_literal tool enforces.
+    const { pattern, path } = parseFindLiteralToolInput(raw, BadRequestError);
 
     const rt = await getRuntime();
     const opts: { projectId?: ProjectId; relPathPrefix?: string } = {};
-    if (pathField !== null && pathField !== "") {
+    if (path !== undefined) {
       // Same workspace-root guard the search endpoint uses — local
       // attackers on loopback shouldn't be able to probe arbitrary
-      // filesystem locations via this surface.
-      const confined = resolveUnderWorkspaceRoots(pathField, config.workspaceRoots);
-      if (confined === null) {
-        return c.json({ error: "path is not under any configured workspace_root" }, 403);
-      }
+      // filesystem locations via this surface (SRV-4).
+      const confined = confinedPath(config, path);
       const scoped = rt.discovery.resolveProject(confined);
       if (scoped === null) {
         return c.json({ error: "path is not inside any indexed project" }, 404);
@@ -81,7 +69,8 @@ export function mountFindLiteral(
       pattern,
       matches,
       fileCount,
-      coverageNote: COVERAGE_NOTE,
+      // Shared with the MCP transport so the wording can't drift (SRV-9).
+      coverageNote: FIND_LITERAL_COVERAGE_NOTE,
       warnings: reconcileWarnings(rt),
     };
     return c.json(payload);

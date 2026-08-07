@@ -562,6 +562,49 @@ export function getField(key: string): FieldSchema | undefined {
   return FIELDS_BY_KEY.get(key);
 }
 
+/** One schema field's effective (merged) value plucked off a live config tree. */
+export interface EffectiveSetting {
+  readonly key: string;
+  readonly label: string;
+  readonly type: FieldType;
+  readonly value: unknown;
+  readonly default: unknown;
+}
+
+/**
+ * Walk the schema and pluck each field's merged value off the live
+ * config tree, so "current value" matches what the daemon resolved at
+ * boot (post-env-override, post-merge). Single implementation for the
+ * web Config editor (`GET /api/config`) and the MCP `admin_workspace`
+ * get_config action, which had drifted into two identical copies
+ * (SRV-8). Accepts `object` rather than `Config` to keep this module
+ * dependency-free.
+ */
+export function effectiveSettings(config: object): ReadonlyArray<EffectiveSetting> {
+  const settings: EffectiveSetting[] = [];
+  for (const section of CONFIG_SCHEMA) {
+    for (const f of section.fields) {
+      settings.push({
+        key: f.key,
+        label: f.label,
+        type: f.type,
+        value: pluckByKey(config, f.key),
+        default: f.default,
+      });
+    }
+  }
+  return settings;
+}
+
+function pluckByKey(config: object, key: string): unknown {
+  let cur: unknown = config;
+  for (const seg of key.split(".")) {
+    if (cur === null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[seg];
+  }
+  return cur;
+}
+
 export interface ValidationError {
   readonly key: string;
   readonly message: string;

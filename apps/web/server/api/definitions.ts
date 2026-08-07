@@ -12,6 +12,7 @@ import {
 import type { Hono } from "hono";
 import { parse as parseYaml } from "yaml";
 import type { DefinitionSchemaResponse } from "../../shared/contracts.js";
+import { jsonBody } from "../lib/http-errors.js";
 
 /**
  * Schema management for the definitions analyzer (#okf phase 5). Stores custom
@@ -66,12 +67,10 @@ export function mountDefinitions(
 ): void {
   // Add a custom schema by URL or inline content; validate + store it.
   app.post("/api/definitions/schema", async (c) => {
-    let body: { url?: unknown; content?: unknown; name?: unknown } | null;
-    try {
-      body = (await c.req.json()) as typeof body;
-    } catch {
-      return c.json({ ok: false, error: "invalid JSON body" } satisfies DefinitionSchemaResponse, 400);
-    }
+    // Uniform invalid-JSON handling (SRV-3): malformed bodies map to
+    // the shared 400 `{ error: "invalid JSON body" }` shape.
+    const raw = await jsonBody(c);
+    const body = raw as { url?: unknown; content?: unknown; name?: unknown };
     let text: string;
     let name: string;
     if (typeof body?.url === "string" && body.url.trim() !== "") {

@@ -1,5 +1,11 @@
 import { join } from "node:path";
-import { CONFIG_SCHEMA, type Config, readLayerSnapshot, writeConfigPatch } from "@loctx/core";
+import {
+  CONFIG_SCHEMA,
+  type Config,
+  effectiveSettings,
+  readLayerSnapshot,
+  writeConfigPatch,
+} from "@loctx/core";
 import type { Hono } from "hono";
 import type {
   ConfigFieldSchemaWire,
@@ -11,6 +17,7 @@ import type {
   ConfigWriteRequest,
   ConfigWriteResponse,
 } from "../../shared/contracts.js";
+import { jsonBody } from "../lib/http-errors.js";
 
 export function mountConfig(
   app: Hono,
@@ -22,12 +29,7 @@ export function mountConfig(
   });
 
   app.post("/api/config/write", async (c) => {
-    let raw: unknown;
-    try {
-      raw = await c.req.json();
-    } catch {
-      return c.json({ error: "invalid JSON body" }, 400);
-    }
+    const raw = await jsonBody(c);
     const parsed = parseRequest(raw);
     if (parsed === null) {
       return c.json({ error: "expected { patch }" }, 400);
@@ -68,7 +70,9 @@ export function mountConfig(
 }
 
 function buildPayload(config: Config): ConfigPayload {
-  const effective = effectiveByKey(config);
+  // Effective (merged) value per schema key — shared with the MCP
+  // admin_workspace get_config action via core (SRV-8).
+  const effective = Object.fromEntries(effectiveSettings(config).map((s) => [s.key, s.value]));
   const layers: ConfigLayerPayload[] = [
     {
       kind: "global",
@@ -110,29 +114,6 @@ function schemaForWire(): ReadonlyArray<ConfigSectionSchemaWire> {
       }),
     ),
   }));
-}
-
-function effectiveByKey(config: Config): Record<string, unknown> {
-  // Walk the schema and pluck the merged value off the live config
-  // tree so the editor's "current value" matches what the daemon
-  // resolved at boot (post-env-override, post-merge).
-  const out: Record<string, unknown> = {};
-  for (const section of CONFIG_SCHEMA) {
-    for (const f of section.fields) {
-      out[f.key] = pluckByKey(config, f.key);
-    }
-  }
-  return out;
-}
-
-function pluckByKey(config: Config, key: string): unknown {
-  const path = key.split(".");
-  let cur: unknown = config as unknown as Record<string, unknown>;
-  for (const seg of path) {
-    if (cur === null || typeof cur !== "object") return undefined;
-    cur = (cur as Record<string, unknown>)[seg];
-  }
-  return cur;
 }
 
 function parseRequest(body: unknown): ConfigWriteRequest | null {

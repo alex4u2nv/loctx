@@ -7,6 +7,7 @@
 
 import type { Config, Runtime } from "@loctx/core";
 import { Hono } from "hono";
+import { registerErrorBoundary } from "../../../server/lib/http-errors.js";
 
 /**
  * Minimal Config. Only the fields the API routes actually read are
@@ -88,6 +89,9 @@ export function appWith(
   runtime: Runtime,
 ): Hono {
   const app = new Hono();
+  // Same error boundary production installs (SRV-3) — routes rely on it
+  // to map thrown BadRequest/Forbidden errors to their wire shape.
+  registerErrorBoundary(app);
   mount(app, config, async () => runtime);
   return app;
 }

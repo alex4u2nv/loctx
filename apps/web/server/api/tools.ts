@@ -19,6 +19,7 @@ import type {
   ToolsStatusPayload,
   ToolStatus,
 } from "../../shared/contracts.js";
+import { jsonBody } from "../lib/http-errors.js";
 
 /**
  * Optional analyzer tools (lizard, semgrep, ast-grep). `/api/tools/status`
@@ -123,13 +124,11 @@ export function mountTools(
   // "Reindex" action on the Analyzers panel — install does this once, this
   // lets the user re-trigger it after editing rule dirs).
   app.post("/api/tools/backfill", async (c) => {
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ ok: false, tool: "?", error: "invalid JSON body" } satisfies ToolsBackfillResponse, 400);
-    }
-    const requested = (body as { tool?: unknown } | null)?.tool;
+    // Uniform invalid-JSON handling (SRV-3): a malformed body now maps
+    // to the shared 400 `{ error: "invalid JSON body" }` instead of a
+    // route-local ToolsBackfillResponse shape.
+    const body = await jsonBody(c);
+    const requested = body["tool"];
     // Backfillable analyzers — the binary tools plus the pure-JS ones
     // (duplicates, definitions) that have no install step.
     const BACKFILLABLE = new Set([...TOOL_NAMES, "duplicates", "definitions"]);
@@ -156,13 +155,8 @@ export function mountTools(
   });
 
   app.post("/api/tools/install", async (c) => {
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ ok: false, tool: "?", error: "invalid JSON body" } satisfies ToolsInstallResponse, 400);
-    }
-    const requested = (body as { tool?: unknown } | null)?.tool;
+    const body = await jsonBody(c);
+    const requested = body["tool"];
     const spec = SPECS.find((s) => s.name === requested);
     if (spec === undefined) {
       return c.json(

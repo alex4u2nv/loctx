@@ -36,10 +36,11 @@ import {
   inventoryProjects,
   makeProject,
   readActiveDaemon,
-  resolveUnderWorkspaceRoots,
   stopActiveDaemon,
 } from "@loctx/core";
 import type { Context, Hono } from "hono";
+import { confinedPath } from "../lib/confined-path.js";
+import { jsonBody, jsonBodyOrEmpty } from "../lib/http-errors.js";
 import type { RebuildTracker } from "../lib/rebuild-tracker.js";
 
 /**
@@ -74,7 +75,10 @@ export function mountOps(
   rebuildTracker: RebuildTracker,
 ): void {
   app.post("/api/index", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { path?: string };
+    // Body-less POST means "index everything" — keep that trigger
+    // convention working for scripted callers.
+    const body = await jsonBodyOrEmpty(c);
+    const path = typeof body["path"] === "string" ? body["path"].trim() : "";
     const rt = await getRuntime();
     const conflict = reconcileConflict(c, rt, "index");
     if (conflict !== null) return conflict;
@@ -82,11 +86,8 @@ export function mountOps(
     // serve the project list from the discovery cache (#443).
     rt.discovery.invalidate();
     let projects: ReturnType<typeof rt.discovery.discoverProjects>;
-    if (body.path) {
-      const confined = resolveUnderWorkspaceRoots(body.path, config.workspaceRoots);
-      if (confined === null) {
-        return c.json({ error: "path is not under any configured workspace_root" }, 403);
-      }
+    if (path !== "") {
+      const confined = confinedPath(config, path);
       const resolved = rt.discovery.resolveProject(confined);
       projects = resolved !== null ? [resolved] : [];
     } else {
@@ -163,14 +164,11 @@ export function mountOps(
   });
 
   app.post("/api/reset/project", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as { path?: string } | null;
-    const path = body?.path?.trim() ?? "";
+    const body = await jsonBody(c);
+    const path = typeof body["path"] === "string" ? body["path"].trim() : "";
     if (path === "") return c.json({ error: "path required" }, 400);
 
-    const confined = resolveUnderWorkspaceRoots(path, config.workspaceRoots);
-    if (confined === null) {
-      return c.json({ error: "path is not under any configured workspace_root" }, 403);
-    }
+    const confined = confinedPath(config, path);
 
     // We're inside the daemon — use its open Runtime rather than building
     // a second one (which would race on SQLite + LanceDB handles). The
@@ -186,14 +184,14 @@ export function mountOps(
   });
 
   app.post("/api/rebuild", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { path?: string };
+    // Body-less POST means "rebuild every active project" — keep that
+    // trigger convention working for scripted callers.
+    const body = await jsonBodyOrEmpty(c);
+    const path = typeof body["path"] === "string" ? body["path"].trim() : "";
     const rt = await getRuntime();
     let projects: ReturnType<typeof rt.discovery.discoverProjects>;
-    if (body.path !== undefined && body.path.trim() !== "") {
-      const confined = resolveUnderWorkspaceRoots(body.path, config.workspaceRoots);
-      if (confined === null) {
-        return c.json({ error: "path is not under any configured workspace_root" }, 403);
-      }
+    if (path !== "") {
+      const confined = confinedPath(config, path);
       const resolved = rt.discovery.resolveProject(confined);
       // Fall back to a synthetic Project if discovery didn't find it
       // (orphaned, or never registered) — we still want to be able to

@@ -357,7 +357,20 @@ describe("tools.search", () => {
     ).rejects.toBeInstanceOf(ToolError);
   });
 
-  it("clamps an out-of-range limit to [1, 1000] (#344)", async () => {
+  it("rejects an out-of-range limit like HTTP's 400 does (#344, SRV-5)", async () => {
+    // Used to clamp silently; now both transports share the core input
+    // spec and REJECT, so an agent's bad limit surfaces instead of
+    // being reshaped into a plausible-looking result.
+    const runtime = stubRuntime();
+    await expect(tools.search(runtime, { query: "x", limit: 0 })).rejects.toThrow(
+      "limit must be an integer in [1, 1000]",
+    );
+    await expect(tools.search(runtime, { query: "x", limit: 999_999 })).rejects.toBeInstanceOf(
+      ToolError,
+    );
+  });
+
+  it("accepts the inclusive limit bounds", async () => {
     const captured: Array<{ limit?: number }> = [];
     const runtime = stubRuntime({
       searcher: {
@@ -371,8 +384,8 @@ describe("tools.search", () => {
         },
       } as Runtime["searcher"],
     });
-    await tools.search(runtime, { query: "x", limit: 0 });
-    await tools.search(runtime, { query: "x", limit: 999_999 });
+    await tools.search(runtime, { query: "x", limit: 1 });
+    await tools.search(runtime, { query: "x", limit: 1000 });
     expect(captured[0]?.limit).toBe(1);
     expect(captured[1]?.limit).toBe(1000);
   });
