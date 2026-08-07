@@ -1,5 +1,5 @@
 /**
- * Dashboard — Phoenix-influenced operational overview.
+ * Dashboard — operational overview.
  *
  * The home page used to be a `Status` data dump (key/value pairs +
  * project table). It's now a layout with three primary slots:

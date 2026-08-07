@@ -1,76 +1,78 @@
 /*
- * TailAdmin-flavoured design system (spike: spike/tailadmin-ui).
+ * loctx design system.
  *
- * Tailwind v4 is the engine now. The TailAdmin look (brand #465fff, Outfit
- * type, gray-50 canvas, rounded-2xl white cards, soft shadows, light/dark
- * via `.dark` on <html>) lives in the `@theme` block. The legacy `--*`
- * token names below are KEPT and remapped onto the TailAdmin palette so the
- * ~200 existing component classes and the inline `var(--…)` styles scattered
- * through the routes re-skin automatically without touching every file.
+ * Tailwind v4 is the engine. The loctx look — type-driven hierarchy, a
+ * neutral gray scale, one blue accent, hairline borders, flat cards on a
+ * near-white canvas, light/dark via `.dark` on <html> — lives in the
+ * `@theme` block. The legacy `--*` token names below are KEPT and remapped
+ * onto that palette so the ~200 existing component classes and the inline
+ * `var(--…)` styles scattered through the routes re-skin automatically
+ * without touching every file.
  */
 
 @import "tailwindcss";
 
-/* Dark mode driven by a `.dark` class on <html> (TailAdmin convention),
+/* Dark mode driven by a `.dark` class on <html>,
    toggled from the header (lib/appearance.ts). */
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  /* TailAdmin brand + status palettes (utility classes: bg-brand-500, …). */
-  --color-brand-25: #f2f7ff;
-  --color-brand-50: #ecf3ff;
-  --color-brand-100: #dde9ff;
-  --color-brand-200: #c2d6ff;
-  --color-brand-300: #9cb9ff;
-  --color-brand-400: #7592ff;
-  --color-brand-500: #465fff;
-  --color-brand-600: #3641f5;
-  --color-brand-700: #2a31d8;
-  --color-brand-800: #252dae;
-  --color-brand-900: #262e89;
+  /* Brand + status palettes (utility classes: bg-brand-500, …). */
+  --color-brand-25: #f7faff;
+  --color-brand-50: #eef5ff;
+  --color-brand-100: #d9e9ff;
+  --color-brand-200: #b7d5ff;
+  --color-brand-300: #8abaff;
+  --color-brand-400: #4d9aff;
+  --color-brand-500: #0071e3;
+  --color-brand-600: #0064c8;
+  --color-brand-700: #0055a8;
+  --color-brand-800: #084687;
+  --color-brand-900: #0c3a6d;
 
-  --color-gray-25: #fcfcfd;
-  --color-gray-50: #f9fafb;
-  --color-gray-100: #f2f4f7;
-  --color-gray-200: #e4e7ec;
-  --color-gray-300: #d0d5dd;
-  --color-gray-400: #98a2b3;
-  --color-gray-500: #667085;
-  --color-gray-600: #475467;
-  --color-gray-700: #344054;
-  --color-gray-800: #1d2939;
-  --color-gray-900: #101828;
-  --color-gray-950: #0c111d;
+  --color-gray-25: #fbfbfd;
+  --color-gray-50: #f5f5f7;
+  --color-gray-100: #e8e8ed;
+  --color-gray-200: #d2d2d7;
+  --color-gray-300: #aeaeb2;
+  --color-gray-400: #86868b;
+  --color-gray-500: #6e6e73;
+  --color-gray-600: #515154;
+  --color-gray-700: #3a3a3c;
+  --color-gray-800: #2c2c2e;
+  --color-gray-900: #1d1d1f;
+  --color-gray-950: #000000;
 
-  --color-success-500: #12b76a;
-  --color-warning-500: #f79009;
-  --color-error-500: #f04438;
+  --color-success-500: #34c759;
+  --color-warning-500: #ff9500;
+  --color-error-500: #ff3b30;
 
-  --font-sans: "Outfit Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "Helvetica Neue", system-ui, sans-serif;
 }
 
 :root {
-  /* Legacy contract → TailAdmin light. */
-  --bg: #f9fafb;
+  /* Legacy contract → light. */
+  --bg: #fbfbfd;
   --surface: #ffffff;
-  --surface-2: #f9fafb;
+  --surface-2: #f5f5f7;
   --surface-elevated: #ffffff;
-  --text: #1d2939;
-  --muted: #475467;
-  --subtle: #98a2b3;
-  --primary: #465fff;
-  --primary-soft: rgba(70, 95, 255, 0.12);
-  --primary-glow: rgba(70, 95, 255, 0.25);
-  --primary-dim: #9cb9ff;
-  --link: #465fff;
-  --accent: #465fff;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --subtle: #86868b;
+  --primary: #0071e3;
+  --primary-soft: rgba(0, 113, 227, 0.1);
+  --primary-glow: rgba(0, 113, 227, 0.22);
+  --primary-dim: #8abaff;
+  --link: #0066cc;
+  --accent: #0071e3;
   --on-accent: #ffffff;
-  --border: #e4e7ec;
-  --border-strong: #d0d5dd;
+  --border: #e5e5ea;
+  --border-strong: #d2d2d7;
 
-  --ok: #12b76a;
-  --warn: #f79009;
-  --bad: #f04438;
+  --ok: #34c759;
+  --warn: #ff9500;
+  --bad: #ff3b30;
 
   --radius-card: 16px;
   --radius-inner: 12px;
@@ -86,45 +88,47 @@
   --space-7: 80px;
   --space-8: 120px;
 
-  --font-sans: "Outfit Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 
-  --shadow-hover: 0 12px 34px rgba(16, 24, 40, 0.12);
-  --shadow-card: 0 1px 3px rgba(16, 24, 40, 0.1), 0 1px 2px rgba(16, 24, 40, 0.06);
-  --shadow-soft: 0 1px 2px rgba(16, 24, 40, 0.05);
+  /* Cards sit flat at rest — the hairline border carries the edge; shadow
+     is reserved for true elevation (modals, popovers, hover lift). */
+  --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-card: none;
+  --shadow-soft: none;
 
-  --nav-bg: #ffffff;
+  --nav-bg: rgba(251, 251, 253, 0.78);
 }
 
-/* Legacy contract → TailAdmin dark (gray-900 canvas, gray-800 borders). */
+/* Legacy contract → dark (near-black canvas, graphite surfaces). */
 .dark {
-  --bg: #101828;
-  --surface: #1a2436;
-  --surface-2: #232f44;
-  --surface-elevated: #1a2436;
-  --text: #f2f4f7;
-  --muted: #98a2b3;
-  --subtle: #667085;
-  --primary: #465fff;
-  --primary-soft: rgba(70, 95, 255, 0.18);
-  --primary-glow: rgba(70, 95, 255, 0.3);
-  --primary-dim: #344054;
-  --link: #7592ff;
-  --accent: #465fff;
+  --bg: #000000;
+  --surface: #1d1d1f;
+  --surface-2: #252527;
+  --surface-elevated: #2c2c2e;
+  --text: #f5f5f7;
+  --muted: #a1a1a6;
+  --subtle: #6e6e73;
+  --primary: #2997ff;
+  --primary-soft: rgba(41, 151, 255, 0.16);
+  --primary-glow: rgba(41, 151, 255, 0.28);
+  --primary-dim: #1c5fa8;
+  --link: #2997ff;
+  --accent: #2997ff;
   --on-accent: #ffffff;
-  --border: #1d2939;
-  --border-strong: #344054;
+  --border: #2c2c2e;
+  --border-strong: #3a3a3c;
 
-  --ok: #32d583;
-  --warn: #fdb022;
-  --bad: #f97066;
+  --ok: #30d158;
+  --warn: #ff9f0a;
+  --bad: #ff453a;
 
-  --shadow-hover: 0 14px 40px rgba(0, 0, 0, 0.5);
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.35);
-  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-hover: 0 8px 28px rgba(0, 0, 0, 0.55);
+  --shadow-card: none;
+  --shadow-soft: none;
 
-  --nav-bg: #1a2436;
+  --nav-bg: rgba(0, 0, 0, 0.72);
 }
 
 /* Base element styles live in @layer base so Tailwind utilities (which sit
@@ -299,7 +303,7 @@
   outline: none;
 }
 
-/* Layout — content column inside the TailAdmin shell */
+/* Layout — content column inside the app shell */
 main {
   max-width: 96rem;
   margin: 0 auto;
@@ -337,7 +341,7 @@ main {
   font-size: 1.5rem;
   font-weight: 600;
   line-height: 1.2;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.025em;
   margin: 0 0 var(--space-2);
 }
 
@@ -646,10 +650,6 @@ h3 {
   border-color: var(--primary);
   color: var(--on-accent);
   font-weight: 600;
-}
-
-.btn-primary {
-  box-shadow: 0 1px 2px rgba(70, 95, 255, 0.3);
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -1017,7 +1017,7 @@ h3 {
 }
 
 /* ============================================================
- * Dashboard (Phoenix-style)
+ * Dashboard
  * ============================================================ */
 
 .dashboard {
@@ -1037,7 +1037,7 @@ h3 {
   }
 }
 
-/* Card primitive — TailAdmin "box": rounded-2xl, hairline border, soft shadow */
+/* Card primitive — rounded-2xl, hairline border, flat at rest */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1524,7 +1524,11 @@ h3 {
   align-items: center;
   text-align: center;
   background:
-    radial-gradient(80% 60% at 50% 100%, rgba(0, 113, 227, 0.05), transparent 70%),
+    radial-gradient(
+      80% 60% at 50% 100%,
+      color-mix(in srgb, var(--primary) 5%, transparent),
+      transparent 70%
+    ),
     var(--surface);
 }
 
@@ -2436,7 +2440,7 @@ h3 {
   }
 }
 
-/* Apple-style scroll reveal (see lib/scroll-reveal.ts). Section blocks are
+/* Scroll reveal (see lib/scroll-reveal.ts). Section blocks are
    JS-tagged with `data-reveal` so they start hidden + offset, then get
    `.reveal-visible` as they scroll into view — fading and rising into
    place on an easeOutQuint curve with a per-batch stagger (--reveal-delay).
@@ -2508,123 +2512,11 @@ h3 {
   font-size: 0.78rem;
 }
 
-/* ===================================================================== */
-/* Themes — each overrides the token set on <html data-theme="…">.        */
-/* Switchable from the top-right Appearance menu (lib/appearance.ts).      */
-/* ===================================================================== */
-
-/* Paper — warm editorial light (Stripe Press / NYT), serif, terracotta. */
-[data-theme="paper"] {
-  --bg: #f6f3ec;
-  --surface: #fffdf8;
-  --surface-2: #efe9dd;
-  --surface-elevated: #fffdf8;
-  --text: #1b1a17;
-  --muted: #5c574d;
-  --subtle: #8a8475;
-  --primary: #b4451f;
-  --primary-soft: rgba(180, 69, 31, 0.12);
-  --primary-glow: rgba(180, 69, 31, 0.2);
-  --primary-dim: #d98a6e;
-  --link: #9c3b1a;
-  --on-accent: #fffdf8;
-  --border: #ddd5c5;
-  --border-strong: #cdc4b0;
-  --nav-bg: rgba(255, 253, 248, 0.8);
-  --radius-card: 10px;
-  --radius-inner: 8px;
-  --radius-control: 6px;
-  --font-sans: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;
-  --shadow-card: 0 1px 2px rgba(60, 50, 30, 0.05), 0 8px 24px rgba(60, 50, 30, 0.06);
-  --shadow-hover: 0 8px 28px rgba(60, 50, 30, 0.12);
-  --shadow-soft: 0 1px 2px rgba(60, 50, 30, 0.07);
-}
-
-/* Graphite — Apple dark. */
-[data-theme="graphite"] {
-  --bg: #1d1d1f;
-  --surface: #2a2a2d;
-  --surface-2: #242427;
-  --surface-elevated: #313135;
-  --text: #f5f5f7;
-  --muted: #a1a1a6;
-  --subtle: #86868b;
-  --primary: #2997ff;
-  --primary-soft: rgba(41, 151, 255, 0.16);
-  --primary-glow: rgba(41, 151, 255, 0.28);
-  --primary-dim: #1c5fa8;
-  --link: #2997ff;
-  --on-accent: #ffffff;
-  --border: #3a3a3d;
-  --border-strong: #48484c;
-  --nav-bg: rgba(29, 29, 31, 0.72);
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
-  --shadow-hover: 0 8px 28px rgba(0, 0, 0, 0.5);
-  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4);
-}
-
-/* Midnight — deep slate, violet accent (Linear / Vercel). Crisp 3-tier
-   text hierarchy + razor-thin translucent borders (slate-400 @ low alpha)
-   that read cleanly over the layered slate surfaces. */
-[data-theme="midnight"] {
-  --bg: #0a0e16;
-  --surface: #121826;
-  --surface-2: #0e1421;
-  --surface-elevated: #1a2233;
-  --text: #eef2f8; /* primary */
-  --muted: #9aa8bd; /* secondary */
-  --subtle: #5f6e85; /* muted captions */
-  --primary: #7c6cff;
-  --primary-soft: rgba(124, 108, 255, 0.16);
-  --primary-glow: rgba(124, 108, 255, 0.3);
-  --primary-dim: #4b3fb0;
-  --link: #9a8cff;
-  --on-accent: #ffffff;
-  --border: rgba(148, 163, 184, 0.14);
-  --border-strong: rgba(148, 163, 184, 0.26);
-  --nav-bg: rgba(10, 14, 22, 0.72);
-  --radius-card: 12px;
-  --radius-inner: 8px;
-  --radius-control: 6px;
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 30px rgba(0, 0, 0, 0.45);
-  --shadow-hover: 0 10px 34px rgba(0, 0, 0, 0.55);
-  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.5);
-}
-
-/* Terminal — monospace, square, green-on-black (dev-tool). */
-[data-theme="terminal"] {
-  --bg: #0b0e0c;
-  --surface: #11150f;
-  --surface-2: #0e120d;
-  --surface-elevated: #161b13;
-  --text: #cfe8c3;
-  --muted: #7fa06f;
-  --subtle: #5c7350;
-  --primary: #39d353;
-  --primary-soft: rgba(57, 211, 83, 0.14);
-  --primary-glow: rgba(57, 211, 83, 0.3);
-  --primary-dim: #1f7a32;
-  --link: #57d977;
-  --on-accent: #06140a;
-  --border: #21331c;
-  --border-strong: #2d4527;
-  --nav-bg: rgba(11, 14, 12, 0.85);
-  --ok: #39d353;
-  --warn: #e3b341;
-  --bad: #ff6b6b;
-  --radius-card: 6px;
-  --radius-inner: 4px;
-  --radius-control: 4px;
-  --radius-pill: 4px;
-  --font-sans: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --shadow-card: none;
-  --shadow-hover: 0 0 0 1px var(--primary-glow);
-  --shadow-soft: none;
-}
-
-/* (Removed: the old fixed left-rail layout for `.route-nav` + a
-   `main { margin-left: 208px }` clear. The TailAdmin shell now owns the
-   sidebar offset via `lg:ml-[290px]` on the content wrapper.) */
+/* (Removed: the old multi-theme `data-theme` token sets — appearance is
+   light/dark only now (lib/appearance.ts). Also removed: the old fixed
+   left-rail layout for `.route-nav` + a `main { margin-left: 208px }`
+   clear; the app shell owns the sidebar offset via `lg:ml-[290px]` on
+   the content wrapper.) */
 
 /* ===================================================================== */
 /* Appearance menu (top-right theme/layout switcher).                      */
@@ -2772,32 +2664,6 @@ h3 {
 .overflow-item:disabled {
   opacity: 0.45;
   cursor: default;
-}
-
-/* Preview swatches — diagonal bg/accent split per theme. */
-.swatch {
-  flex: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 4px;
-  display: inline-block;
-  vertical-align: middle;
-  border: 1px solid rgba(128, 128, 128, 0.3);
-}
-.swatch-aurora {
-  background: linear-gradient(135deg, #f5f5f7 0 50%, #0071e3 50% 100%);
-}
-.swatch-paper {
-  background: linear-gradient(135deg, #f6f3ec 0 50%, #b4451f 50% 100%);
-}
-.swatch-graphite {
-  background: linear-gradient(135deg, #1d1d1f 0 50%, #2997ff 50% 100%);
-}
-.swatch-midnight {
-  background: linear-gradient(135deg, #0b0b14 0 50%, #7c6cff 50% 100%);
-}
-.swatch-terminal {
-  background: linear-gradient(135deg, #0b0e0c 0 50%, #39d353 50% 100%);
 }
 
 /* Inline-SVG icon sizing + animation (#460). Replaces the Font Awesome

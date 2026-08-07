@@ -27,8 +27,6 @@
     "test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
-    "@fontsource-variable/jetbrains-mono": "^5.2.8",
-    "@fontsource-variable/outfit": "^5.2.8",
     "@hono/node-server": "catalog:",
     "@loctx/core": "workspace:*",
     "@loctx/mcp": "workspace:*",
