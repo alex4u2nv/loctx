@@ -107,6 +107,8 @@ function semgrepOnlyAnalyzers(semgrep: {
       enabled: false,
       ...DEFAULT_QUALITY_THRESHOLDS,
       maxFindingsPerFile: 50,
+      markdownRules: false,
+      docDriftFloor: 35,
     }),
   });
 }
@@ -224,6 +226,8 @@ describe("quality analyzer end-to-end (#522)", () => {
         enabled: true,
         ...DEFAULT_QUALITY_THRESHOLDS,
         maxFindingsPerFile: 50,
+        markdownRules: true,
+        docDriftFloor: 35,
         ...overrides,
       }),
     });
@@ -367,6 +371,46 @@ describe("quality analyzer end-to-end (#522)", () => {
       expect(upgraded?.status).toBe("complete");
       expect(upgraded?.payloadJson ?? "").toContain("quality/long-params");
       expect(upgraded?.payloadJson ?? "").toContain("phantom");
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it("markdown context rules: stale-ref fires, live refs don't, no drift in the row (#527)", async () => {
+    const projectRoot = join(tmp, "demo");
+    writeDemoProject(projectRoot, join("src", "app.ts"), "export const answer = 42;\n");
+    writeFileSync(
+      join(projectRoot, "GUIDE.md"),
+      [
+        "# Guide",
+        "The runtime lives in `src/app.ts` and reads config.",
+        "Legacy notes moved to [old notes](docs/removed-notes.md).",
+        "",
+      ].join("\n"),
+    );
+
+    const runtime = await buildRuntime(
+      makeTestConfig(projectRoot, join(tmp, "data"), { analyzers: qualityOnlyAnalyzers() }),
+    );
+    try {
+      const project = Object.freeze({ id: projectId("demo-1"), name: "demo", root: projectRoot });
+      await runtime.indexer.indexProject(project);
+      await runtime.enrichments.drainAll();
+
+      const file = runtime.state.getFile(project.id, "GUIDE.md");
+      if (file === null) throw new Error("GUIDE.md was not indexed");
+      const row = runtime.state.getFileEnrichment(file.fileId, "quality");
+      expect(row?.status).toBe("complete");
+      const payload = JSON.parse(row?.payloadJson ?? "{}") as {
+        findings?: ReadonlyArray<{ ruleId: string; message: string }>;
+      };
+      const stale = (payload.findings ?? []).filter((f) => f.ruleId === "quality/stale-ref");
+      // The dangling link is flagged; the live backtick ref is not.
+      expect(stale).toHaveLength(1);
+      expect(stale[0]?.message).toContain("docs/removed-notes.md");
+      // Drift is a query-time rule (#525) — it must NOT appear in the
+      // enrichment row (cross-file signals don't persist per file).
+      expect((payload.findings ?? []).some((f) => f.ruleId === "quality/doc-drift")).toBe(false);
     } finally {
       await runtime.close();
     }

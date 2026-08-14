@@ -68,6 +68,8 @@ export function makeTestConfig(
         enabled: false,
         ...DEFAULT_QUALITY_THRESHOLDS,
         maxFindingsPerFile: 50,
+        markdownRules: false,
+        docDriftFloor: 35,
       }),
     }),
     network: Object.freeze({ caCert: null, strictSsl: true, proxy: null }),

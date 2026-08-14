@@ -63,6 +63,18 @@ export {
   runQuality,
 } from "./quality.js";
 export {
+  docDriftFinding,
+  extractPathRefs,
+  isMarkdownPath,
+  type MarkdownVectorPort,
+  type PathRef,
+  type ResolvedRef,
+  resolvePathRefs,
+  runDocDrift,
+  runMarkdownStaleRefs,
+  staleRefFindings,
+} from "./quality-markdown.js";
+export {
   EnrichmentQueue,
   type EnrichmentQueueOptions,
   type EnrichmentResult,
