@@ -376,6 +376,7 @@ export const ANALYZERS: ReadonlyArray<AnalyzerDescriptor> = [
           runQuality(absPath, fileId, contentSha, index, {
             thresholds: q,
             maxFindingsPerFile: q.maxFindingsPerFile,
+            ...(q.markdownRules ? { markdown: { projectRoot: project.root } } : {}),
           }),
       });
     },

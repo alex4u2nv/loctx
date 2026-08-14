@@ -133,6 +133,13 @@ export interface QualityAnalyzerConfig {
   readonly maxFanIn: number;
   /** Cap on findings persisted per file. */
   readonly maxFindingsPerFile: number;
+  /** Markdown context rules (#527): stale-ref + doc-drift for indexed .md. */
+  readonly markdownRules: boolean;
+  /**
+   * `doc-drift` cosine floor as a percent (35 → 0.35). Evaluated at
+   * query time by the quality report (#525) — cross-file signal.
+   */
+  readonly docDriftFloor: number;
 }
 
 /**
@@ -429,6 +436,8 @@ const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
     enabled: true,
     ...DEFAULT_QUALITY_THRESHOLDS,
     maxFindingsPerFile: 50,
+    markdownRules: true,
+    docDriftFloor: 35,
   }),
 });
 
@@ -929,6 +938,8 @@ function mergeAnalyzers(
         { key: "maxFanOut", kind: "int" },
         { key: "maxFanIn", kind: "int" },
         { key: "maxFindingsPerFile", kind: "int" },
+        { key: "markdownRules", kind: "bool" },
+        { key: "docDriftFloor", kind: "int" },
       ],
     ),
   });
