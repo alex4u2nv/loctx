@@ -40,6 +40,21 @@ export {
   runLizard,
 } from "./lizard.js";
 export {
+  computeQualityFindings,
+  DEFAULT_QUALITY_THRESHOLDS,
+  type DuplicateGroupLike,
+  type ExtractCandidate,
+  extractCandidates,
+  fanInFinding,
+  QUALITY_VERSION,
+  type QualityChunkInfo,
+  type QualityIndexReader,
+  type QualityInput,
+  type QualityOptions,
+  type QualityThresholds,
+  runQuality,
+} from "./quality.js";
+export {
   EnrichmentQueue,
   type EnrichmentQueueOptions,
   type EnrichmentResult,

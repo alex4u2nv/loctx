@@ -17,9 +17,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_QUALITY_THRESHOLDS } from "../../src/analyzers/quality.js";
 import type { AnalyzerConfig } from "../../src/config.js";
 import { loadConfig } from "../../src/config.js";
 import { ANALYZERS, buildRuntime, ToolProbeCache } from "../../src/container.js";
+import { fileIdFor } from "../../src/discovery.js";
 import { projectId } from "../../src/models.js";
 import { makeTestConfig } from "../helpers/config.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
@@ -93,6 +95,11 @@ function semgrepOnlyAnalyzers(semgrep: {
       checkLinks: false,
       maxFindingsPerFile: 50,
     }),
+    quality: Object.freeze({
+      enabled: false,
+      ...DEFAULT_QUALITY_THRESHOLDS,
+      maxFindingsPerFile: 50,
+    }),
   });
 }
 
@@ -125,7 +132,14 @@ describe("ANALYZERS activation policy (CORE-1)", () => {
   it("every analyzer has a distinct descriptor with a version", () => {
     const names = ANALYZERS.map((a) => a.name);
     expect(new Set(names).size).toBe(names.length);
-    expect(names).toEqual(["lizard", "duplicates", "semgrep", "ast-grep", "definitions"]);
+    expect(names).toEqual([
+      "lizard",
+      "duplicates",
+      "semgrep",
+      "ast-grep",
+      "definitions",
+      "quality",
+    ]);
     for (const a of ANALYZERS) expect(a.version).toBeGreaterThan(0);
   });
 });
@@ -188,5 +202,165 @@ describe("ToolProbeCache (CORE-11)", () => {
     // A real probe would fail (the binary doesn't exist); the pin wins.
     await expect(cache.probe("semgrep", MISSING_SEMGREP)).resolves.toBe(true);
     expect(cache.ready("semgrep", MISSING_SEMGREP)).toBe(true);
+  });
+});
+
+describe("quality analyzer end-to-end (#522)", () => {
+  /** All analyzers off except quality (pure-JS, no binary to probe). */
+  function qualityOnlyAnalyzers(
+    overrides: Partial<AnalyzerConfig["quality"]> = {},
+  ): AnalyzerConfig {
+    return Object.freeze({
+      ...semgrepOnlyAnalyzers({ ruleDirs: [], registryConfig: "", enabled: false }),
+      quality: Object.freeze({
+        enabled: true,
+        ...DEFAULT_QUALITY_THRESHOLDS,
+        maxFindingsPerFile: 50,
+        ...overrides,
+      }),
+    });
+  }
+
+  function writeDemoProject(projectRoot: string, relPath: string, content: string): void {
+    mkdirSync(join(projectRoot, "src"), { recursive: true });
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+    writeFileSync(join(projectRoot, ".git", "HEAD"), "ref: refs/heads/main\n");
+    writeFileSync(join(projectRoot, relPath), content);
+  }
+
+  /** 5 exports + 60 filler lines: trips god-file at (50, 3) thresholds. */
+  function godFileContent(): string {
+    const exportLines = Array.from({ length: 5 }, (_, i) => `export const value${i} = ${i};`);
+    const filler = Array.from({ length: 60 }, (_, i) => `const filler${i} = ${i};`);
+    return `${[...exportLines, ...filler].join("\n")}\n`;
+  }
+
+  it("indexing persists quality findings through the enrichment queue", async () => {
+    const projectRoot = join(tmp, "demo");
+    writeDemoProject(projectRoot, join("src", "big.ts"), godFileContent());
+
+    const config = makeTestConfig(projectRoot, join(tmp, "data"), {
+      analyzers: qualityOnlyAnalyzers({ godFileNloc: 50, godFileExports: 3 }),
+    });
+    const runtime = await buildRuntime(config);
+    try {
+      const project = Object.freeze({ id: projectId("demo-1"), name: "demo", root: projectRoot });
+      const summary = await runtime.indexer.indexProject(project);
+      expect(summary.indexed).toBeGreaterThan(0);
+      await runtime.enrichments.drainAll();
+
+      const file = runtime.state.getFile(project.id, "src/big.ts");
+      if (file === null) throw new Error("src/big.ts was not indexed");
+      const row = runtime.state.getFileEnrichment(file.fileId, "quality");
+      expect(row?.status).toBe("complete");
+      const payload = JSON.parse(row?.payloadJson ?? "{}") as {
+        analyzer?: string;
+        findings?: ReadonlyArray<{ ruleId: string; severity: string }>;
+      };
+      expect(payload.analyzer).toBe("quality");
+      expect(payload.findings?.map((f) => f.ruleId)).toContain("quality/god-file");
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it("backfills quality for files indexed before the analyzer was enabled", async () => {
+    const projectRoot = join(tmp, "demo");
+    const dataDir = join(tmp, "data");
+    writeDemoProject(projectRoot, join("src", "app.ts"), "export const answer = 42;\n");
+    const project = Object.freeze({ id: projectId("demo-1"), name: "demo", root: projectRoot });
+
+    // First runtime: quality off — files index with no quality enrichment.
+    const off = await buildRuntime(
+      makeTestConfig(projectRoot, dataDir, {
+        analyzers: qualityOnlyAnalyzers({ enabled: false }),
+      }),
+    );
+    try {
+      await off.indexer.indexProject(project);
+      await off.enrichments.drainAll();
+      const file = off.state.getFile(project.id, "src/app.ts");
+      if (file === null) throw new Error("src/app.ts was not indexed");
+      expect(off.state.getFileEnrichment(file.fileId, "quality")).toBeNull();
+    } finally {
+      await off.close();
+    }
+
+    // Second runtime over the same data dir: quality on — backfill
+    // catches up the already-indexed file without re-embedding.
+    const on = await buildRuntime(
+      makeTestConfig(projectRoot, dataDir, { analyzers: qualityOnlyAnalyzers() }),
+    );
+    try {
+      const { enqueued } = await on.backfillAnalyzers(["quality"]);
+      expect(enqueued).toBeGreaterThan(0);
+      await on.enrichments.drainAll();
+      const file = on.state.getFile(project.id, "src/app.ts");
+      if (file === null) throw new Error("src/app.ts missing after backfill");
+      expect(on.state.getFileEnrichment(file.fileId, "quality")?.status).toBe("complete");
+    } finally {
+      await on.close();
+    }
+  });
+
+  it("ignores a stale-sha lizard row, then upgrades when a fresh lizard result lands", async () => {
+    const projectRoot = join(tmp, "demo");
+    writeDemoProject(projectRoot, join("src", "app.ts"), "export const answer = 42;\n");
+    const project = Object.freeze({ id: projectId("demo-1"), name: "demo", root: projectRoot });
+    const fileId = fileIdFor(project, "src/app.ts");
+    const lizardPayload = {
+      file: "app.ts",
+      functions: [
+        { name: "phantom", nloc: 2, ccn: 1, tokens: 8, parameters: 9, lineFrom: 1, lineTo: 2 },
+      ],
+    };
+
+    const runtime = await buildRuntime(
+      makeTestConfig(projectRoot, join(tmp, "data"), { analyzers: qualityOnlyAnalyzers() }),
+    );
+    try {
+      // Plant a lizard row computed from DIFFERENT content before the
+      // file indexes: quality must treat it as "lizard never ran" and
+      // emit no long-params from the phantom 9-parameter function.
+      runtime.state.upsertFileEnrichment({
+        fileId,
+        analyzer: "lizard",
+        analyzerVersion: 1,
+        contentSha: "stale-sha-from-previous-content",
+        status: "complete",
+        payloadJson: JSON.stringify(lizardPayload),
+      });
+      await runtime.indexer.indexProject(project);
+      await runtime.enrichments.drainAll();
+
+      const file = runtime.state.getFile(project.id, "src/app.ts");
+      if (file === null) throw new Error("src/app.ts was not indexed");
+      expect(file.fileId).toBe(fileId);
+      const degraded = runtime.state.getFileEnrichment(fileId, "quality");
+      expect(degraded?.status).toBe("complete");
+      expect(degraded?.payloadJson ?? "").not.toContain("phantom");
+
+      // A lizard result for the CURRENT content lands (fabricated task
+      // through the real queue): the sink re-enqueues quality, which now
+      // consumes the fresh payload and emits the long-params finding.
+      runtime.enrichments.enqueue({
+        id: `lizard:${fileId}`,
+        analyzer: "lizard",
+        analyzerVersion: 1,
+        contentSha: file.contentSha,
+        fileId,
+        project,
+        absPath: join(projectRoot, "src", "app.ts"),
+        run: async () => lizardPayload,
+      } as Parameters<typeof runtime.enrichments.enqueue>[0]);
+      await runtime.enrichments.drainAll();
+
+      const upgraded = runtime.state.getFileEnrichment(fileId, "quality");
+      expect(upgraded?.status).toBe("complete");
+      expect(upgraded?.payloadJson ?? "").toContain("quality/long-params");
+      expect(upgraded?.payloadJson ?? "").toContain("phantom");
+    } finally {
+      await runtime.close();
+    }
   });
 });

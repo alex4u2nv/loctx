@@ -131,7 +131,7 @@ export function mountTools(
     const requested = body["tool"];
     // Backfillable analyzers — the binary tools plus the pure-JS ones
     // (duplicates, definitions) that have no install step.
-    const BACKFILLABLE = new Set([...TOOL_NAMES, "duplicates", "definitions"]);
+    const BACKFILLABLE = new Set([...TOOL_NAMES, "duplicates", "definitions", "quality"]);
     if (typeof requested !== "string" || !BACKFILLABLE.has(requested)) {
       return c.json(
         {

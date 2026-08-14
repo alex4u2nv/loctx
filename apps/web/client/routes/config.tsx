@@ -41,6 +41,9 @@ const PANEL_OWNED_SECTIONS = new Set([
   "analyzers.semgrep",
   "analyzers.astGrep",
   "analyzers.definitions",
+  // Quality card lands with the quality report (#525); until then the
+  // section is YAML-only rather than splitting provisioning across pages.
+  "analyzers.quality",
 ]);
 
 /**

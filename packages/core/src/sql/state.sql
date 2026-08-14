@@ -348,8 +348,10 @@ INSERT OR IGNORE INTO chunks (
 )
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
+-- Serves both StateStore.listChunks and listChunksWithMetadata (#522);
+-- one statement so the two projections can't drift.
 -- :name list_chunks
-SELECT chunk_id, file_id, start_line, end_line, kind, symbols
+SELECT chunk_id, file_id, start_line, end_line, kind, symbols, metadata_json
 FROM chunks
 WHERE file_id = ?
 ORDER BY start_line;
