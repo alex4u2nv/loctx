@@ -36,12 +36,14 @@
  * degraded pass upgrades instead of being cached until the next edit.
  */
 
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import type { AnalyzerMetadata, FileId } from "../models.js";
 import type { LizardFileResult } from "./lizard.js";
+import { isMarkdownPath, runMarkdownStaleRefs } from "./quality-markdown.js";
 import { capFindings, type RulePackFileResult, type RulePackFinding } from "./rule-pack.js";
 
-export const QUALITY_VERSION = 1;
+export const QUALITY_VERSION = 2; // v2: markdown context rules (#527)
 
 /** One chunk of the analyzed file: line range + optional AST metadata. */
 export interface QualityChunkInfo {
@@ -108,6 +110,12 @@ export interface QualityOptions {
   readonly thresholds: QualityThresholds;
   /** Cap on findings persisted per file, matching the other rule packs. */
   readonly maxFindingsPerFile: number;
+  /** Present ⇒ `quality/stale-ref` (#527) runs for markdown files. */
+  readonly markdown?: QualityMarkdownOptions;
+}
+
+export interface QualityMarkdownOptions {
+  readonly projectRoot: string;
 }
 
 /**
@@ -144,14 +152,23 @@ export async function runQuality(
   index: QualityIndexReader,
   opts: QualityOptions,
 ): Promise<RulePackFileResult> {
-  return computeQualityFindings(
+  const content = await readFile(absPath, "utf-8");
+  const base = computeQualityFindings(
     {
-      content: await readFile(absPath, "utf-8"),
+      content,
       chunks: index.chunksForFile(fileId),
       lizard: index.lizardForFile(fileId, contentSha),
     },
     opts,
   );
+  const md = opts.markdown;
+  if (md === undefined || !isMarkdownPath(absPath)) return base;
+  const mdFindings = runMarkdownStaleRefs(content, absPath, md.projectRoot, existsSync);
+  if (mdFindings.length === 0) return base;
+  return Object.freeze({
+    ...base,
+    findings: capFindings([...base.findings, ...mdFindings], opts.maxFindingsPerFile),
+  });
 }
 
 // ---- rules -------------------------------------------------------------

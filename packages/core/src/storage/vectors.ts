@@ -136,6 +136,8 @@ export interface VectorStore {
    */
   readonly scanChunks: (opts: {
     readonly projectId?: ProjectId;
+    /** Narrow to one file's chunks (doc-drift, #527). */
+    readonly fileId?: string;
     readonly limit: number;
   }) => Promise<ScannedChunk[]>;
   /**
@@ -247,9 +249,10 @@ export function createVectorStore(
       let builder = t
         .query()
         .select(["chunk_id", "file_id", "rel_path", "start_line", "end_line", "vector"]);
-      if (opts.projectId !== undefined) {
-        builder = builder.where(`project_id = ${quote(opts.projectId)}`);
-      }
+      const predicates: string[] = [];
+      if (opts.projectId !== undefined) predicates.push(`project_id = ${quote(opts.projectId)}`);
+      if (opts.fileId !== undefined) predicates.push(`file_id = ${quote(opts.fileId)}`);
+      if (predicates.length > 0) builder = builder.where(predicates.join(" AND "));
       const rows = await builder.limit(limit).toArray();
       // Lance has no ORDER BY on plain scans; sort by chunk_id so the
       // same fetched set always yields the same output order.
