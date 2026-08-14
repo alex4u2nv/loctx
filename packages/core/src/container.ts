@@ -50,6 +50,7 @@ import type { FileId, Project } from "./models.js";
 import { applyNetworkSettings } from "./network.js";
 import { WorkspaceSearcher } from "./retrieval/index.js";
 import { createVectorStore, StateStore, type VectorStore } from "./storage/index.js";
+import { AnalyzerEventCoalescer, watcherBus } from "./watcher/index.js";
 
 /**
  * Live state of the background maintenance (compaction) pass. Surfaced via
@@ -506,6 +507,11 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
     },
   };
 
+  // Coalesced analyzer completion events (#526): the admin UI's SSE
+  // stream gets one event per (analyzer, project) batch instead of one
+  // per file, so backfills don't flood it.
+  const analyzerEvents = new AnalyzerEventCoalescer(watcherBus.publish);
+
   // Background analyzer queue + persistence sink. Each completion writes
   // to file_enrichments so reconciliation / status / search can read it.
   const enrichments = new EnrichmentQueue({
@@ -513,6 +519,14 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
     perTaskTimeoutMs: config.analyzers.perTaskTimeoutMs,
     onResult: (r) => {
       const meta = r.task as ReturnType<typeof analyzerTaskMeta>;
+      // Record the bus event FIRST: a throwing upsert (disk full,
+      // locked DB — the case the queue's sink catch exists for) must
+      // not also silence the admin UI's only progress signal. Only
+      // terminal statuses count; a future "skipped" is neither a
+      // completion nor a failure.
+      if (r.status === "complete" || r.status === "failed") {
+        analyzerEvents.record(meta.analyzer, meta.project.id, r.status);
+      }
       state.upsertFileEnrichment({
         fileId: meta.fileId,
         analyzer: meta.analyzer,
@@ -647,6 +661,11 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
     },
     maintenanceStatus: () => ({ ...maintenance }),
     close: async () => {
+      // Best-effort: publishes any pending batch to still-attached
+      // listeners. The long-lived daemon tears down harder than this
+      // (its shutdown SIGKILLs without runtime.close()) — losing the
+      // final window there is fine; its SSE clients are gone too.
+      analyzerEvents.flush();
       await embeddings.dispose?.();
       state.close();
     },

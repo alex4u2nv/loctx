@@ -23,6 +23,7 @@ import { loadConfig } from "../../src/config.js";
 import { ANALYZERS, buildRuntime, ToolProbeCache } from "../../src/container.js";
 import { fileIdFor } from "../../src/discovery.js";
 import { projectId } from "../../src/models.js";
+import { watcherBus } from "../../src/watcher/index.js";
 import { makeTestConfig } from "../helpers/config.js";
 import { mkTmpDir, rmTmpDir } from "../helpers/tmp.js";
 
@@ -369,5 +370,44 @@ describe("quality analyzer end-to-end (#522)", () => {
     } finally {
       await runtime.close();
     }
+  });
+
+  it("publishes coalesced analyzer bus events once enrichment settles (#526)", async () => {
+    const projectRoot = join(tmp, "demo");
+    writeDemoProject(projectRoot, join("src", "app.ts"), "export const answer = 42;\n");
+    const received: Array<{ analyzer: string; projectId: string; completed: number }> = [];
+    // Register the disposer immediately so a buildRuntime rejection
+    // can't leak the listener onto the process-global bus.
+    const unsubscribe = watcherBus.subscribe((e) => {
+      if (e.type === "analyzer") {
+        for (const b of e.batches) {
+          received.push({ analyzer: b.analyzer, projectId: b.projectId, completed: b.completed });
+        }
+      }
+    });
+    try {
+      const runtime = await buildRuntime(
+        makeTestConfig(projectRoot, join(tmp, "data"), { analyzers: qualityOnlyAnalyzers() }),
+      );
+      try {
+        const project = Object.freeze({
+          id: projectId("demo-1"),
+          name: "demo",
+          root: projectRoot,
+        });
+        await runtime.indexer.indexProject(project);
+        await runtime.enrichments.drainAll();
+      } finally {
+        // close() flushes the coalescer, so the batch event lands
+        // without waiting out the 2s window.
+        await runtime.close();
+      }
+    } finally {
+      unsubscribe();
+    }
+    const quality = received.filter((e) => e.analyzer === "quality");
+    expect(quality).toHaveLength(1);
+    expect(quality[0]?.projectId).toBe("demo-1");
+    expect(quality[0]?.completed).toBeGreaterThan(0);
   });
 });
