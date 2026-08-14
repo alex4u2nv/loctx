@@ -8,6 +8,14 @@ export {
   sgConfigForRuleDirs,
 } from "./ast-grep.js";
 export {
+  type CohesionFlag,
+  type CohesionFlagOptions,
+  type CohesionOptions,
+  cohesionFlags,
+  computeFileCohesion,
+  type FileCohesionScore,
+} from "./cohesion.js";
+export {
   compileDefinitionSchema,
   DEFINITIONS_VERSION,
   type DefinitionSchemaSpec,
