@@ -43,7 +43,14 @@ export function makeTestConfig(
       concurrency: 2,
       perTaskTimeoutMs: 60_000,
       lizard: Object.freeze({ enabled: false, command: "lizard" }),
-      duplicates: Object.freeze({ enabled: false, windowSize: 50, minUniqueTokens: 15 }),
+      duplicates: Object.freeze({
+        enabled: false,
+        windowSize: 50,
+        minUniqueTokens: 15,
+        semantic: false,
+        semanticThreshold: 92,
+        semanticMaxChunks: 1500,
+      }),
       semgrep: Object.freeze({
         enabled: false,
         command: "semgrep",

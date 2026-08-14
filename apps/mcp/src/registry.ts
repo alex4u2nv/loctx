@@ -19,6 +19,7 @@ import {
   effectiveSettings,
   estimateQueryValue,
   FIND_LITERAL_COVERAGE_NOTE,
+  findSemanticDuplicateGroups,
   findSymbolUsages,
   inventoryProjects,
   isValueTool,
@@ -32,6 +33,7 @@ import {
   resolveProjectScope,
   resolveUnderWorkspaceRoots,
   type SearchResponse,
+  type SemanticDuplicatesResult,
   type SymbolRefHit,
   summarizeUsage,
   toUsageDeltas,
@@ -211,6 +213,15 @@ export interface FindDuplicatesOutput {
    * exact config knob the user would flip to enable it.
    */
   readonly disabled: string | null;
+  /**
+   * Embedding-based near-duplicate groups (#523), null when the
+   * semantic pass didn't run — `semanticDisabled` says why. Distinct
+   * from `groups` (exact token-window matches): these are "same
+   * meaning, different text" hits over the stored vectors.
+   */
+  readonly semantic: SemanticDuplicatesResult | null;
+  /** Same convention as `disabled`, for the semantic pass alone. */
+  readonly semanticDisabled: string | null;
 }
 
 export interface SearchOutput extends SearchResponse {
@@ -560,10 +571,52 @@ export const tools = {
     }
 
     const groups = runtime.state.findDuplicateGroups(Math.max(2, minMembers), projectId);
+
+    // Semantic near-duplicates (#523): a query-time pairwise pass over
+    // vectors the index already stores. Gated ONLY by its own knob —
+    // backgroundEnabled/duplicates.enabled control the write-time
+    // analyzer queue, which this pass never touches (the vectors are
+    // written by the embedding pipeline regardless).
+    let semantic: SemanticDuplicatesResult | null = null;
+    let semanticDisabled: string | null = null;
+    if (!an.duplicates.semantic) {
+      semanticDisabled =
+        "analyzers.duplicates.semantic is false in config — enable it to include embedding-based near-duplicate groups.";
+    } else {
+      const cap = an.duplicates.semanticMaxChunks;
+      try {
+        // One extra row makes the truncation signal exact: a corpus of
+        // exactly `cap` chunks is a complete scan, not a truncated one.
+        const scanned = await runtime.vectors.scanChunks({
+          ...(projectId !== null ? { projectId: projectId as ProjectId } : {}),
+          limit: cap + 1,
+        });
+        const truncated = scanned.length > cap;
+        semantic = await findSemanticDuplicateGroups(scanned.slice(0, cap), {
+          threshold: an.duplicates.semanticThreshold / 100,
+          truncated,
+          // Mirror the exact-match groups' min_members contract.
+          minFiles: Math.max(2, minMembers),
+        });
+        if (truncated) {
+          warnings.push(
+            `semantic scan capped at ${cap} chunks (analyzers.duplicates.semanticMaxChunks) — coverage is partial and group membership can shift between calls; scope with 'path' or raise the cap.`,
+          );
+        }
+      } catch (err) {
+        // Vector store unavailable (native bindings, corrupt dir, …) must
+        // not take down the SQLite-backed exact groups above — degrade to
+        // the same disabled-with-reason convention.
+        semanticDisabled = `vector store unavailable for the semantic pass: ${(err as Error).message}`;
+      }
+    }
+
     return Object.freeze({
       groups: Object.freeze(groups),
       indexHealth: currentIndexHealth(runtime),
       disabled,
+      semantic,
+      semanticDisabled,
       ...(warnings.length > 0 ? { warnings: Object.freeze(warnings) } : {}),
     });
   },
@@ -822,7 +875,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_duplicates",
     description:
-      "**Use when you ask 'where do we have duplicated text across files'** — works on any indexed content (code, runbooks, SOP boilerplate, prompt fragments, copy-pasted doc sections). Pre-refactor, when triaging boilerplate, or auditing for accidental copy-paste. **Beats `grep`** because the comparison is on hashed token-windows, not literal text, so it finds duplicates that aren't byte-identical. Heuristic — labelled as such. Requires `analyzers.backgroundEnabled = true` and `analyzers.duplicates.enabled = true` in config; the response's `disabled` field names which knob is off so an empty `groups` from feature-disabled vs. feature-enabled-but-no-hits is distinguishable. Each group: `hash` and `members` (file_id, start/end line range). Cross-project by default — pass `path` to scope to one project, which you should prefer on large workspaces. Output is capped (top groups by size, members per group). Not useful for finding a specific known duplicate — use `find_literal` or `find_usages` for that.",
+      "**Use when you ask 'where do we have duplicated text across files'** — works on any indexed content (code, runbooks, SOP boilerplate, prompt fragments, copy-pasted doc sections). Pre-refactor, when triaging boilerplate, or auditing for accidental copy-paste. **Beats `grep`** because the comparison is on hashed token-windows, not literal text, so it finds duplicates that aren't byte-identical. Heuristic — labelled as such. Requires `analyzers.backgroundEnabled = true` and `analyzers.duplicates.enabled = true` in config; the response's `disabled` field names which knob is off so an empty `groups` from feature-disabled vs. feature-enabled-but-no-hits is distinguishable. Each group: `hash` and `members` (file_id, start/end line range). When `analyzers.duplicates.semantic = true`, the response also carries `semantic`: embedding-based near-duplicate groups ('same meaning, different text') computed at query time over the stored vectors, each with a cosine `similarity` and chunk members; `semanticDisabled` names the knob when off, and a `truncated` flag plus warning appear when the scan cap cut coverage. Cross-project by default — pass `path` to scope to one project, which you should prefer on large workspaces. Output is capped (top groups by size, members per group). Not useful for finding a specific known duplicate — use `find_literal` or `find_usages` for that.",
     inputSchema: {
       type: "object",
       properties: {
