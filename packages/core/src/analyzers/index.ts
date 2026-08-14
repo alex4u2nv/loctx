@@ -8,6 +8,14 @@ export {
   sgConfigForRuleDirs,
 } from "./ast-grep.js";
 export {
+  type CohesionFlag,
+  type CohesionFlagOptions,
+  type CohesionOptions,
+  cohesionFlags,
+  computeFileCohesion,
+  type FileCohesionScore,
+} from "./cohesion.js";
+export {
   compileDefinitionSchema,
   DEFINITIONS_VERSION,
   type DefinitionSchemaSpec,
@@ -83,3 +91,4 @@ export {
   runSemgrep,
   SEMGREP_VERSION,
 } from "./semgrep.js";
+export { dot, round4, toUnit } from "./vector-math.js";
