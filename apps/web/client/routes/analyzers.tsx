@@ -38,6 +38,9 @@ const CFG = {
   dupEnabled: "analyzers.duplicates.enabled",
   dupWindowSize: "analyzers.duplicates.windowSize",
   dupMinUniqueTokens: "analyzers.duplicates.minUniqueTokens",
+  dupSemantic: "analyzers.duplicates.semantic",
+  dupSemanticThreshold: "analyzers.duplicates.semanticThreshold",
+  dupSemanticMaxChunks: "analyzers.duplicates.semanticMaxChunks",
   defEnabled: "analyzers.definitions.enabled",
   defOkfDefault: "analyzers.definitions.okfDefault",
   defRequireFrontmatter: "analyzers.definitions.requireFrontmatter",
@@ -342,6 +345,9 @@ const DUPLICATES_KEYS: ReadonlyArray<string> = [
   CFG.dupEnabled,
   CFG.dupWindowSize,
   CFG.dupMinUniqueTokens,
+  CFG.dupSemantic,
+  CFG.dupSemanticThreshold,
+  CFG.dupSemanticMaxChunks,
 ];
 
 function DuplicatesCard({ reader, writer }: CardProps) {
@@ -381,6 +387,43 @@ function DuplicatesCard({ reader, writer }: CardProps) {
           max={1000}
           disabled={disabled}
           onSave={(v) => void writer.save(CFG.dupMinUniqueTokens, v)}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Semantic groups"
+        help="Also report embedding-based near-duplicates ('same meaning, different text') in find_duplicates. Query-time; reads stored vectors."
+      >
+        <Switch
+          checked={reader.bool(CFG.dupSemantic)}
+          disabled={disabled}
+          onChange={(v) =>
+            void writer.save(
+              CFG.dupSemantic,
+              v,
+              v ? "Semantic near-duplicates on." : "Semantic near-duplicates off.",
+            )
+          }
+        />
+      </SettingRow>
+      <SettingRow label="Semantic threshold" help="Cosine-similarity floor as a percent (92 = 0.92).">
+        <NumField
+          value={reader.num(CFG.dupSemanticThreshold, 92)}
+          min={50}
+          max={100}
+          disabled={disabled}
+          onSave={(v) => void writer.save(CFG.dupSemanticThreshold, v)}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Semantic scan cap"
+        help="Max chunks fed to the semantic pass per call. O(n²) in this cap — responses flag truncation when hit."
+      >
+        <NumField
+          value={reader.num(CFG.dupSemanticMaxChunks, 1500)}
+          min={100}
+          max={5000}
+          disabled={disabled}
+          onSave={(v) => void writer.save(CFG.dupSemanticMaxChunks, v)}
         />
       </SettingRow>
     </div>

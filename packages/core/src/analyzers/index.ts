@@ -69,6 +69,14 @@ export {
   type RulePackFinding,
 } from "./rule-pack.js";
 export {
+  findSemanticDuplicateGroups,
+  type SemanticChunk,
+  type SemanticDuplicateGroup,
+  type SemanticDuplicateMember,
+  type SemanticDuplicatesOptions,
+  type SemanticDuplicatesResult,
+} from "./semantic-duplicates.js";
+export {
   detectSemgrep,
   parseSemgrepJson,
   type RunSemgrepOptions,

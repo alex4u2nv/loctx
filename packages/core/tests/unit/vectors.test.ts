@@ -194,3 +194,30 @@ describe("VectorStore (LanceDB)", () => {
     expect(results.map((r) => r.chunkId)).toEqual(["py1"]);
   });
 });
+
+describe("VectorStore.scanChunks (#523)", () => {
+  it("returns chunk identities with vectors, scoped and capped", async () => {
+    const store = createVectorStore(join(tmp, "vectors"), identity, state);
+    const p2 = projectId("p2") as ProjectId;
+    await store.upsertChunks([
+      chunk("c1", unitVector(1, 0, 0, 0)),
+      chunk("c2", unitVector(0, 1, 0, 0), { fileId: fileId("f2") as FileId, relPath: "src/b.ts" }),
+      chunk("c3", unitVector(0, 0, 1, 0), { projectId: p2, relPath: "src/c.ts" }),
+    ]);
+
+    const all = await store.scanChunks({ limit: 10 });
+    expect(all).toHaveLength(3);
+    const c1 = all.find((c) => c.chunkId === "c1");
+    expect(c1?.relPath).toBe("src/a.ts");
+    expect(c1?.startLine).toBe(1);
+    expect(c1?.endLine).toBe(10);
+    expect(c1?.vector).toHaveLength(DIM);
+    expect(c1?.vector[0]).toBeCloseTo(1, 5);
+
+    const scoped = await store.scanChunks({ projectId: projectId("p1") as ProjectId, limit: 10 });
+    expect(scoped.map((c) => c.chunkId).sort()).toEqual(["c1", "c2"]);
+
+    const capped = await store.scanChunks({ limit: 2 });
+    expect(capped).toHaveLength(2);
+  });
+});

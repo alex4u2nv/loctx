@@ -69,7 +69,14 @@ function semgrepOnlyAnalyzers(semgrep: {
     concurrency: 1,
     perTaskTimeoutMs: 5_000,
     lizard: Object.freeze({ enabled: false, command: "lizard" }),
-    duplicates: Object.freeze({ enabled: false, windowSize: 50, minUniqueTokens: 15 }),
+    duplicates: Object.freeze({
+      enabled: false,
+      windowSize: 50,
+      minUniqueTokens: 15,
+      semantic: false,
+      semanticThreshold: 92,
+      semanticMaxChunks: 1500,
+    }),
     semgrep: Object.freeze({
       enabled: semgrep.enabled ?? true,
       command: MISSING_SEMGREP,

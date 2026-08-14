@@ -171,6 +171,22 @@ export interface DuplicatesAnalyzerConfig {
   readonly windowSize: number;
   /** Minimum distinct tokens required for a window to count. Filters boilerplate. */
   readonly minUniqueTokens: number;
+  /**
+   * Include embedding-based near-duplicate groups in `find_duplicates`
+   * (#523). Query-time only — reads vectors the index already stores;
+   * nothing extra runs during indexing. Off by default in v1.
+   */
+  readonly semantic: boolean;
+  /**
+   * Cosine-similarity floor for a semantic pair, as a PERCENT (92 →
+   * 0.92). Integer because config leaves are int/bool/string only.
+   */
+  readonly semanticThreshold: number;
+  /**
+   * Row cap on the vector scan feeding the pairwise pass. The response
+   * flags `truncated` when hit — bigger finds more at O(n²) cost.
+   */
+  readonly semanticMaxChunks: number;
 }
 
 /**
@@ -367,6 +383,9 @@ const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
     enabled: true,
     windowSize: 50,
     minUniqueTokens: 15,
+    semantic: false,
+    semanticThreshold: 92,
+    semanticMaxChunks: 1500,
   }),
   semgrep: Object.freeze({
     enabled: true,
@@ -859,6 +878,9 @@ function mergeAnalyzers(
         { key: "enabled", kind: "bool" },
         { key: "windowSize", kind: "int" },
         { key: "minUniqueTokens", kind: "int" },
+        { key: "semantic", kind: "bool" },
+        { key: "semanticThreshold", kind: "int" },
+        { key: "semanticMaxChunks", kind: "int" },
       ],
     ),
     semgrep: mergeSection(
