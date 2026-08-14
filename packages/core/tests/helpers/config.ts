@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { DEFAULT_QUALITY_THRESHOLDS } from "../../src/analyzers/quality.js";
 import type { Config } from "../../src/config.js";
 import { defaultPaths } from "../../src/index.js";
 
@@ -54,6 +55,11 @@ export function makeTestConfig(
         enabled: false,
         command: "ast-grep",
         ruleDirs: Object.freeze<string[]>([]),
+        maxFindingsPerFile: 50,
+      }),
+      quality: Object.freeze({
+        enabled: false,
+        ...DEFAULT_QUALITY_THRESHOLDS,
         maxFindingsPerFile: 50,
       }),
     }),

@@ -950,6 +950,28 @@ export class StateStore {
     return result;
   }
 
+  /**
+   * One file's chunk ranges with parsed AST metadata, in file order.
+   * Feeds the quality analyzer's reader port (#522); chunks indexed
+   * before v3 carry null metadata and the rules skip them. Shares the
+   * `list_chunks` statement with {@link listChunks} — different
+   * projection, same rows.
+   */
+  listChunksWithMetadata(
+    fileId: FileId,
+  ): Array<{ startLine: number; endLine: number; metadata: AnalyzerMetadata | null }> {
+    const rows = this.readAll<{
+      start_line: number;
+      end_line: number;
+      metadata_json: string | null;
+    }>("list_chunks", [fileId]);
+    return rows.map((r) => ({
+      startLine: r.start_line,
+      endLine: r.end_line,
+      metadata: analyzerMetadataFromJson(r.metadata_json),
+    }));
+  }
+
   // ---- duplicates aggregation (#65) -----------------------------------
 
   /**

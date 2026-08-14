@@ -16,6 +16,8 @@
  * resolves it back to the YAML path.
  */
 
+import { DEFAULT_QUALITY_THRESHOLDS } from "./analyzers/quality.js";
+
 export type FieldType = "string" | "int" | "bool" | "enum" | "string-array";
 
 export interface FieldSchema {
@@ -477,6 +479,102 @@ export const CONFIG_SCHEMA: ReadonlyArray<SectionSchema> = Object.freeze([
       {
         key: "analyzers.astGrep.maxFindingsPerFile",
         yamlPath: ["analyzers", "astGrep", "max_findings_per_file"],
+        label: "max_findings_per_file",
+        help: "Cap findings per file.",
+        type: "int",
+        default: 50,
+        min: 1,
+        max: 10_000,
+      },
+    ],
+  },
+  {
+    id: "analyzers.quality",
+    label: "Quality heuristics",
+    help: "Rule-of-thumb quality findings (god-file, long-params, deep-nesting, fan-in/out) from data the index already holds. Pure JS, no binary.",
+    yamlSection: "analyzers",
+    fields: [
+      {
+        key: "analyzers.quality.enabled",
+        yamlPath: ["analyzers", "quality", "enabled"],
+        label: "enabled",
+        help: "Enable the heuristic quality analyzer.",
+        type: "bool",
+        default: true,
+      },
+      {
+        key: "analyzers.quality.godFileNloc",
+        yamlPath: ["analyzers", "quality", "god_file_nloc"],
+        label: "god_file_nloc",
+        help: "god-file fires when non-empty lines exceed this AND exports exceed god_file_exports.",
+        type: "int",
+        default: DEFAULT_QUALITY_THRESHOLDS.godFileNloc,
+        min: 50,
+        max: 100_000,
+      },
+      {
+        key: "analyzers.quality.godFileExports",
+        yamlPath: ["analyzers", "quality", "god_file_exports"],
+        label: "god_file_exports",
+        help: "Export-count half of the god-file rule.",
+        type: "int",
+        default: DEFAULT_QUALITY_THRESHOLDS.godFileExports,
+        min: 1,
+        max: 1000,
+      },
+      {
+        key: "analyzers.quality.maxParams",
+        yamlPath: ["analyzers", "quality", "max_params"],
+        label: "max_params",
+        help: "Flag functions with more parameters than this.",
+        type: "int",
+        default: DEFAULT_QUALITY_THRESHOLDS.maxParams,
+        min: 1,
+        max: 100,
+      },
+      {
+        key: "analyzers.quality.maxNestingDepth",
+        yamlPath: ["analyzers", "quality", "max_nesting_depth"],
+        label: "max_nesting_depth",
+        help: "Flag chunks nested at or beyond this depth.",
+        type: "int",
+        default: DEFAULT_QUALITY_THRESHOLDS.maxNestingDepth,
+        min: 1,
+        max: 50,
+      },
+      {
+        key: "analyzers.quality.escalateCcn",
+        yamlPath: ["analyzers", "quality", "escalate_ccn"],
+        label: "escalate_ccn",
+        help: "deep-nesting escalates to warning when the overlapping function's cyclomatic complexity exceeds this (needs lizard).",
+        type: "int",
+        default: DEFAULT_QUALITY_THRESHOLDS.escalateCcn,
+        min: 1,
+        max: 1000,
+      },
+      {
+        key: "analyzers.quality.maxFanOut",
+        yamlPath: ["analyzers", "quality", "max_fan_out"],
+        label: "max_fan_out",
+        help: "Flag files importing from more distinct modules than this.",
+        type: "int",
+        default: DEFAULT_QUALITY_THRESHOLDS.maxFanOut,
+        min: 1,
+        max: 1000,
+      },
+      {
+        key: "analyzers.quality.maxFanIn",
+        yamlPath: ["analyzers", "quality", "max_fan_in"],
+        label: "max_fan_in",
+        help: "Flag files whose symbols are referenced by more files than this.",
+        type: "int",
+        default: DEFAULT_QUALITY_THRESHOLDS.maxFanIn,
+        min: 1,
+        max: 10_000,
+      },
+      {
+        key: "analyzers.quality.maxFindingsPerFile",
+        yamlPath: ["analyzers", "quality", "max_findings_per_file"],
         label: "max_findings_per_file",
         help: "Cap findings per file.",
         type: "int",

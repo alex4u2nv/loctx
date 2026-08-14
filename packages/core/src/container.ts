@@ -25,13 +25,17 @@ import {
   EnrichmentQueue,
   LIZARD_VERSION,
   matchesDefinitionGlobs,
+  QUALITY_VERSION,
+  type QualityIndexReader,
   resolveDefinitionSchemas,
   runAstGrep,
   runDefinitions,
   runLizard,
+  runQuality,
   runSemgrep,
   SEMGREP_VERSION,
 } from "./analyzers/index.js";
+import type { LizardFileResult } from "./analyzers/lizard.js";
 import type { Config } from "./config.js";
 import { DEFAULT_PROJECT_MARKERS, type MarkerSpec, WorkspaceDiscovery } from "./discovery.js";
 import {
@@ -173,6 +177,12 @@ interface AnalyzerEnqueueParams {
   readonly fileId: FileId;
   readonly absPath: string;
   readonly contentSha: string;
+  /**
+   * Read-only index access for analyzers that consume already-indexed
+   * signals (the quality analyzer's port, #522). Supplied by the
+   * runtime's StateStore adapter; consulted at task run time.
+   */
+  readonly index: QualityIndexReader;
 }
 
 type AnalyzerTask = ReturnType<typeof analyzerTaskMeta>;
@@ -216,6 +226,7 @@ export const ANALYZERS: ReadonlyArray<AnalyzerDescriptor> = [
         analyzer: "lizard",
         analyzerVersion: LIZARD_VERSION,
         contentSha,
+        absPath,
         run: (signal) => runLizard(command, absPath, signal),
       });
     },
@@ -236,6 +247,7 @@ export const ANALYZERS: ReadonlyArray<AnalyzerDescriptor> = [
         analyzer: "duplicates",
         analyzerVersion: DUPLICATES_VERSION,
         contentSha,
+        absPath,
         // CPU-only pass over the file body; the queue caps concurrency.
         run: async () => computeDuplicateWindows(readFileSync(absPath, "utf-8"), dupOpts),
       });
@@ -259,6 +271,7 @@ export const ANALYZERS: ReadonlyArray<AnalyzerDescriptor> = [
         analyzer: "semgrep",
         analyzerVersion: SEMGREP_VERSION,
         contentSha,
+        absPath,
         run: (signal) =>
           runSemgrep(
             absPath,
@@ -291,6 +304,7 @@ export const ANALYZERS: ReadonlyArray<AnalyzerDescriptor> = [
         analyzer: "ast-grep",
         analyzerVersion: AST_GREP_VERSION,
         contentSha,
+        absPath,
         run: (signal) =>
           runAstGrep(
             absPath,
@@ -325,6 +339,7 @@ export const ANALYZERS: ReadonlyArray<AnalyzerDescriptor> = [
         analyzer: "definitions",
         analyzerVersion: DEFINITIONS_VERSION,
         contentSha,
+        absPath,
         run: () =>
           runDefinitions(absPath, {
             schemas,
@@ -335,7 +350,39 @@ export const ANALYZERS: ReadonlyArray<AnalyzerDescriptor> = [
       });
     },
   },
+  {
+    // Enqueue order puts quality last, but with concurrency > 1 the
+    // pure-JS rules can still finish before the lizard subprocess. The
+    // result-sink re-enqueues quality when lizard's result lands (see
+    // buildRuntime's onResult), so the degraded pass upgrades instead
+    // of being cached until the next edit.
+    name: "quality",
+    version: QUALITY_VERSION,
+    isActive: (c) => c.analyzers.quality.enabled,
+    command: () => null,
+    buildTask: (config, { project, fileId, absPath, contentSha, index }) => {
+      const q = config.analyzers.quality;
+      return analyzerTaskMeta({
+        fileId,
+        project,
+        analyzer: "quality",
+        analyzerVersion: QUALITY_VERSION,
+        contentSha,
+        absPath,
+        // Index reads (chunk metadata, lizard) happen at run time,
+        // after the indexer's write for this file committed.
+        run: () =>
+          runQuality(absPath, fileId, contentSha, index, {
+            thresholds: q,
+            maxFindingsPerFile: q.maxFindingsPerFile,
+          }),
+      });
+    },
+  },
 ];
+
+/** `only` filter for the lizard→quality catch-up re-enqueue. */
+const QUALITY_ONLY: ReadonlySet<string> = new Set(["quality"]);
 
 /**
  * Enqueue the active analyzers for one indexed file, honoring tool
@@ -444,6 +491,21 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
   const filterFor = (project: Project): ProjectFilter =>
     new ProjectFilter(project, rules, combinedGitignore(project.root));
 
+  // StateStore adapted onto the quality analyzer's reader port (#522).
+  // Defined once per runtime; handed to every enqueue site via
+  // AnalyzerEnqueueParams so the descriptor table stays state-free.
+  const qualityIndex: QualityIndexReader = {
+    chunksForFile: (fileId) => state.listChunksWithMetadata(fileId),
+    lizardForFile: (fileId, contentSha) => {
+      const row = state.getFileEnrichment(fileId, "lizard");
+      // A lizard row computed from different content (the file's previous
+      // version) must read as "not run" — stale line ranges and CCNs
+      // would otherwise shape findings cached under the NEW sha.
+      if (row === null || row.contentSha !== contentSha) return null;
+      return parseLizardPayload(row);
+    },
+  };
+
   // Background analyzer queue + persistence sink. Each completion writes
   // to file_enrichments so reconciliation / status / search can read it.
   const enrichments = new EnrichmentQueue({
@@ -462,12 +524,38 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
         enqueuedAt: r.enqueuedAt,
         completedAt: r.completedAt,
       });
+      // Precision catch-up (#522): quality's pure-JS pass usually beats
+      // the lizard subprocess, runs degraded (no CCN escalation, coarse
+      // param counts), and would stay cached under this contentSha. When
+      // lizard's result lands, invalidate + re-run quality once so the
+      // findings upgrade. No loop risk: quality completions trigger
+      // nothing, and lizard itself dedupes per (sha, version). Known
+      // narrow race: if quality is mid-flight at this instant the
+      // enqueue is a no-op (inflight dedupe) and that pass stays
+      // degraded until the file next changes — accepted; the window is
+      // milliseconds against lizard's seconds.
+      if (meta.analyzer === "lizard" && r.status === "complete") {
+        enrichments.invalidate(`quality:${meta.fileId}`);
+        enqueueFileAnalyzers(
+          config,
+          enrichments,
+          tools,
+          {
+            project: meta.project,
+            fileId: meta.fileId,
+            absPath: meta.absPath,
+            contentSha: meta.contentSha,
+            index: qualityIndex,
+          },
+          QUALITY_ONLY,
+        );
+      }
     },
   });
 
   const indexer = new ProjectIndexer(state, vectors, embeddings, filterFor, {
     afterFileIndexed: (p) => {
-      enqueueFileAnalyzers(config, enrichments, tools, p);
+      enqueueFileAnalyzers(config, enrichments, tools, { ...p, index: qualityIndex });
     },
   });
   const reconciler = new Reconciler(state, indexer);
@@ -527,6 +615,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
                 fileId: f.fileId,
                 absPath: join(project.root, f.relPath),
                 contentSha: f.contentSha,
+                index: qualityIndex,
               },
               new Set([a.name]),
             );
@@ -596,6 +685,7 @@ function analyzerTaskMeta(input: {
   analyzer: string;
   analyzerVersion: number;
   contentSha: string;
+  absPath: string;
   run: (signal?: AbortSignal) => Promise<unknown>;
 }) {
   return {
@@ -605,8 +695,25 @@ function analyzerTaskMeta(input: {
     contentSha: input.contentSha,
     fileId: input.fileId,
     project: input.project,
+    absPath: input.absPath,
     run: input.run,
   };
+}
+
+/**
+ * Parse a lizard enrichment row into its payload. Null on any miss
+ * (never ran, failed, unparseable) — the quality rules treat that as
+ * "lizard unavailable" and degrade.
+ */
+function parseLizardPayload(
+  row: { readonly status: string; readonly payloadJson?: string } | null,
+): LizardFileResult | null {
+  if (row === null || row.status !== "complete" || row.payloadJson === undefined) return null;
+  try {
+    return JSON.parse(row.payloadJson) as LizardFileResult;
+  } catch {
+    return null;
+  }
 }
 
 function createEmbeddings(config: Config): EmbeddingProvider {
