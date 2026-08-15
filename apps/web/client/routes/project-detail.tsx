@@ -12,6 +12,7 @@
 
 import type {
   ProjectDetailPayload,
+  QualityReportPayload,
   SearchHit,
   SearchPayload,
   UsageHit,
@@ -146,6 +147,8 @@ export function ProjectDetailPage() {
       <div id="pd-query">
         <ScopedSearchPanel projectRoot={project.root} />
       </div>
+
+      <QualitySection projectId={project.id} />
 
       <h2 id="pd-files">Recently indexed</h2>
       <FilesTable rows={stats.recentFiles} kind="recent" />
@@ -636,3 +639,66 @@ function UsageTable({ hits }: { hits: ReadonlyArray<UsageHit> }) {
     </>
   );
 }
+
+/**
+ * Read-only quality report (#525): stored quality findings merged with
+ * the query-time cross-file rules, files ranked by severity weight.
+ * Provisioning lives on the Analyzers tab; this only reads.
+ */
+function QualitySection({ projectId }: { projectId: string }) {
+  const fetched = useFetch(() => api.projectQuality(projectId), [projectId]);
+  const data = fetched.data;
+  if (fetched.loading && data === null) return null;
+  if (fetched.error !== null || data === null) return null;
+  const hasFindings = data.files.length > 0;
+  return (
+    <>
+      <h2 id="pd-quality">Quality</h2>
+      {data.disabled !== null ? (
+        <Banner tone="warn" soft>
+          {data.disabled} Configure on the Analyzers tab.
+        </Banner>
+      ) : null}
+      {data.notes.map((n) => (
+        <p key={n} className="dim" style={{ fontSize: "0.85rem" }}>
+          {n}
+        </p>
+      ))}
+      {hasFindings ? (
+        <DataTable columns={qualityColumns} rows={[...data.files]} rowKey={(r) => r.fileId} />
+      ) : (
+        <p className="dim">
+          {data.disabled !== null
+            ? "No query-time findings."
+            : "No quality findings — nothing over the configured thresholds."}
+        </p>
+      )}
+    </>
+  );
+}
+
+type QualityRow = QualityReportPayload["files"][number];
+
+const qualityColumns: ReadonlyArray<Column<QualityRow>> = [
+  { key: "relPath", header: "file", cell: (r) => <code>{r.relPath}</code> },
+  { key: "weight", header: "weight", numeric: true, cell: (r) => r.weight },
+  {
+    key: "findings",
+    header: "findings",
+    cell: (r) => (
+      <span>
+        {r.findings.map((f, i) => (
+          <span
+            key={`${f.ruleId}:${f.lineFrom}:${i}`}
+            className={f.severity === "error" ? "err" : f.severity === "warning" ? "warn" : "dim"}
+            style={{ marginRight: "0.5rem", whiteSpace: "nowrap" }}
+            title={f.message}
+          >
+            {f.ruleId.replace("quality/", "")}
+            {f.lineFrom > 1 ? `:${f.lineFrom}` : ""}
+          </span>
+        ))}
+      </span>
+    ),
+  },
+];

@@ -19,6 +19,7 @@ import { mountMcpTools } from "./mcp-tools.js";
 import { mountModels } from "./models.js";
 import { mountOps } from "./ops.js";
 import { mountProjects } from "./projects.js";
+import { mountQuality } from "./quality.js";
 import { mountSearch } from "./search.js";
 import { mountStatus } from "./status.js";
 import { mountTools } from "./tools.js";
@@ -51,4 +52,5 @@ export function mountApi(
   mountLogs(app, config, getRuntime);
   mountAgentSetup(app, config, getRuntime);
   mountDefinitions(app, config, getRuntime);
+  mountQuality(app, getRuntime);
 }

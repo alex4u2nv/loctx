@@ -41,6 +41,10 @@ const CFG = {
   dupSemantic: "analyzers.duplicates.semantic",
   dupSemanticThreshold: "analyzers.duplicates.semanticThreshold",
   dupSemanticMaxChunks: "analyzers.duplicates.semanticMaxChunks",
+  qualityEnabled: "analyzers.quality.enabled",
+  qualityMarkdownRules: "analyzers.quality.markdownRules",
+  qualityMaxFindings: "analyzers.quality.maxFindingsPerFile",
+  qualityDocDriftFloor: "analyzers.quality.docDriftFloor",
   defEnabled: "analyzers.definitions.enabled",
   defOkfDefault: "analyzers.definitions.okfDefault",
   defRequireFrontmatter: "analyzers.definitions.requireFrontmatter",
@@ -180,6 +184,7 @@ export function AnalyzersPage() {
           onReindex={reindex}
         />
         <DuplicatesCard reader={reader} writer={writer} />
+        <QualityCard reader={reader} writer={writer} onReindex={reindex} />
         <DefinitionsCard reader={reader} writer={writer} onReindex={reindex} />
       </div>
     </section>
@@ -337,6 +342,79 @@ function ToolsCard({
           <pre className="log-output">{log.text}</pre>
         </details>
       ) : null}
+    </div>
+  );
+}
+
+const QUALITY_KEYS: ReadonlyArray<string> = [
+  CFG.qualityEnabled,
+  CFG.qualityMarkdownRules,
+  CFG.qualityMaxFindings,
+  CFG.qualityDocDriftFloor,
+];
+
+/**
+ * Heuristic quality rules (#522/#527) + the quality report they feed
+ * (#525). Pure JS — nothing to install; thresholds beyond these live
+ * in YAML (analyzers.quality.*).
+ */
+function QualityCard({
+  reader,
+  writer,
+  onReindex,
+}: CardProps & { readonly onReindex: (name: string) => Promise<unknown> }) {
+  const disabled = busyIn(writer.busy, QUALITY_KEYS);
+  return (
+    <div className="card">
+      <p className="card-section-title">Quality heuristics</p>
+      <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
+        god-file, long-params, deep-nesting, fan-out, stale markdown refs — plus the cross-file
+        report rules (fan-in, extract-candidate, cohesion, doc-drift). No binary to install.
+      </p>
+      <SettingRow label="Enabled" help="Run the quality analyzer during analysis.">
+        <Switch
+          checked={reader.bool(CFG.qualityEnabled)}
+          disabled={disabled}
+          onChange={(v) =>
+            void writer.save(CFG.qualityEnabled, v, v ? "Quality rules on." : "Quality rules off.")
+          }
+        />
+      </SettingRow>
+      <SettingRow label="Markdown rules" help="Flag stale path references in indexed markdown.">
+        <Switch
+          checked={reader.bool(CFG.qualityMarkdownRules)}
+          disabled={disabled}
+          onChange={(v) => void writer.save(CFG.qualityMarkdownRules, v)}
+        />
+      </SettingRow>
+      <SettingRow label="Doc-drift floor" help="Report flags docs below this doc/code similarity percent.">
+        <NumField
+          value={reader.num(CFG.qualityDocDriftFloor, 35)}
+          min={5}
+          max={95}
+          disabled={disabled}
+          onSave={(v) => void writer.save(CFG.qualityDocDriftFloor, v)}
+        />
+      </SettingRow>
+      <SettingRow label="Max findings / file" help="Cap persisted findings per file.">
+        <NumField
+          value={reader.num(CFG.qualityMaxFindings, 50)}
+          min={1}
+          max={10_000}
+          disabled={disabled}
+          onSave={(v) => void writer.save(CFG.qualityMaxFindings, v)}
+        />
+      </SettingRow>
+      <SettingRow label="Reindex" help="Re-run quality over already-indexed files.">
+        <button
+          type="button"
+          className="btn"
+          disabled={disabled}
+          onClick={() => void onReindex("quality")}
+        >
+          Reindex
+        </button>
+      </SettingRow>
     </div>
   );
 }

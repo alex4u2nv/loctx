@@ -28,6 +28,7 @@ import type {
   ToolsInstallResponse,
   ToolsStatusPayload,
   WatchersPayload,
+  QualityReportPayload,
 } from "@shared/contracts";
 
 /**
@@ -70,6 +71,8 @@ export const api = {
   projects: () => getJson<ProjectsPayload>("/api/projects"),
   search: (body: SearchRequestBody) => postJson<SearchPayload>("/api/search", body),
   doctor: () => getJson<DoctorPayload>("/api/doctor"),
+  projectQuality: (id: string, limit = 20) =>
+    getJson<QualityReportPayload>(`/api/projects/${encodeURIComponent(id)}/quality?limit=${limit}`),
   mcpTools: () => getJson<McpToolsPayload>("/api/mcp-tools"),
   config: () => getJson<ConfigPayload>("/api/config"),
   toolsStatus: () => getJson<ToolsStatusPayload>("/api/tools/status"),

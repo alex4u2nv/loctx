@@ -75,6 +75,13 @@ export {
   staleRefFindings,
 } from "./quality-markdown.js";
 export {
+  buildQualityReport,
+  type QualityReport,
+  type QualityReportFile,
+  type QualityReportOptions,
+  type QualityReportPorts,
+} from "./quality-report.js";
+export {
   EnrichmentQueue,
   type EnrichmentQueueOptions,
   type EnrichmentResult,

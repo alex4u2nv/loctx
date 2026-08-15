@@ -116,7 +116,7 @@ async function connectedPair(
 }
 
 describe("MCP Server + registry over in-memory transport", () => {
-  it("tools/list returns the six loctx tools", async () => {
+  it("tools/list returns the seven loctx tools", async () => {
     const { client } = await connectedPair(stubRuntime());
     const result = await client.listTools();
     const names = result.tools.map((t) => t.name);
@@ -125,6 +125,7 @@ describe("MCP Server + registry over in-memory transport", () => {
       "workspace_status",
       "find_usages",
       "find_duplicates",
+      "quality_report",
       "find_literal",
       "refresh_workspace",
     ]);
