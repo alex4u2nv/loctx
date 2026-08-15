@@ -407,6 +407,31 @@ SELECT analyzer, analyzer_version, content_sha, status, payload_json, error,
 FROM file_enrichments
 WHERE file_id = ? AND analyzer = ?;
 
+-- Quality report (#525): complete quality payloads for one project.
+-- :name list_quality_enrichments_for_project
+SELECT fe.file_id, fe.payload_json
+FROM file_enrichments fe
+JOIN files f ON f.file_id = fe.file_id
+WHERE f.project_id = ?
+  AND fe.analyzer = 'quality'
+  AND fe.status = 'complete'
+  AND fe.payload_json IS NOT NULL;
+
+-- Quality report (#525): live inbound-reference counts per defining
+-- file, one batch query per report call. Walks the
+-- (project_id, symbol, kind) index on both sides.
+-- :name fan_in_counts_for_project
+SELECT d.file_id AS file_id, COUNT(DISTINCT r.file_id) AS n
+FROM symbol_refs d
+JOIN symbol_refs r
+  ON r.project_id = d.project_id
+ AND r.symbol = d.symbol
+WHERE d.project_id = ?
+  AND d.kind = 'def'
+  AND r.kind != 'def'
+  AND r.file_id != d.file_id
+GROUP BY d.file_id;
+
 -- :name list_file_enrichments_by_analyzer
 SELECT file_id, analyzer_version, content_sha, status, payload_json, error,
        enqueued_at, completed_at

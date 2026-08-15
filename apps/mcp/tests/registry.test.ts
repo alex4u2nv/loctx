@@ -119,13 +119,14 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
 // ---- tool catalog ---------------------------------------------------
 
 describe("TOOL_DEFINITIONS", () => {
-  it("exposes the six loctx tools", () => {
+  it("exposes the seven loctx tools", () => {
     const names = TOOL_DEFINITIONS.map((t) => t.name);
     expect(names).toEqual([
       "search_workspace",
       "workspace_status",
       "find_usages",
       "find_duplicates",
+      "quality_report",
       "find_literal",
       "refresh_workspace",
     ]);

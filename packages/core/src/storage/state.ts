@@ -1075,6 +1075,32 @@ export class StateStore {
     return out;
   }
 
+  /**
+   * Complete `quality` payloads for one project (#525). One join; the
+   * report parses payload JSON in JS with per-row error isolation.
+   */
+  listQualityEnrichments(
+    projectId: ProjectId,
+  ): Array<{ readonly fileId: string; readonly payloadJson: string }> {
+    const rows = this.readAll<{ file_id: string; payload_json: string }>(
+      "list_quality_enrichments_for_project",
+      [projectId],
+    );
+    return rows.map((r) => ({ fileId: r.file_id, payloadJson: r.payload_json }));
+  }
+
+  /**
+   * Live inbound-reference counts per defining file (#525,
+   * `quality/high-fan-in`). One batch GROUP BY per report call instead
+   * of a query per file.
+   */
+  fanInCounts(projectId: ProjectId): Map<string, number> {
+    const rows = this.readAll<{ file_id: string; n: number }>("fan_in_counts_for_project", [
+      projectId,
+    ]);
+    return new Map(rows.map((r) => [r.file_id, Number(r.n)]));
+  }
+
   // ---- MCP request log (#380-era) -------------------------------------
 
   /**

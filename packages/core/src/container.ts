@@ -11,7 +11,8 @@
  * deterministic from a `Config` snapshot.
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import {
   AST_GREP_VERSION,
@@ -34,8 +35,14 @@ import {
   runQuality,
   runSemgrep,
   SEMGREP_VERSION,
+  toUnit,
 } from "./analyzers/index.js";
 import type { LizardFileResult } from "./analyzers/lizard.js";
+import {
+  buildQualityReport,
+  type QualityReport,
+  type QualityReportPorts,
+} from "./analyzers/quality-report.js";
 import type { Config } from "./config.js";
 import { DEFAULT_PROJECT_MARKERS, type MarkerSpec, WorkspaceDiscovery } from "./discovery.js";
 import {
@@ -670,6 +677,52 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
       await embeddings.dispose?.();
       state.close();
     },
+  });
+}
+
+/**
+ * Project quality report (#525): adapt the runtime onto the report's
+ * ports and run it. Shared by the MCP `quality_report` tool and the web
+ * `/api/projects/:id/quality` route so the two surfaces cannot drift.
+ */
+export async function runQualityReport(
+  runtime: Pick<Runtime, "config" | "state" | "vectors">,
+  project: Project,
+  opts: { readonly limit: number; readonly rule?: string },
+): Promise<QualityReport> {
+  const { state, vectors } = runtime;
+  const ports: QualityReportPorts = {
+    qualityEnrichments: (pid) => state.listQualityEnrichments(pid),
+    duplicateGroups: (min, pid) => state.findDuplicateGroups(min, pid),
+    fanInCounts: (pid) => state.fanInCounts(pid),
+    scanChunks: (pid, limit) => vectors.scanChunks({ projectId: pid, limit }),
+    listFiles: (pid) => state.listFiles(pid).map((f) => ({ fileId: f.fileId, relPath: f.relPath })),
+    readFileContent: async (absPath) => {
+      try {
+        return await readFile(absPath, "utf-8");
+      } catch {
+        return null;
+      }
+    },
+    exists: existsSync,
+    vectors: {
+      chunkVectorsForPath: async (pid, relPath) => {
+        const file = state.getFile(pid, relPath);
+        if (file === null) return [];
+        const rows = await vectors.scanChunks({ projectId: pid, fileId: file.fileId, limit: 128 });
+        return rows.map((r) => toUnit(r.vector)).filter((v): v is Float32Array => v !== null);
+      },
+    },
+  };
+  const q = runtime.config.analyzers.quality;
+  return buildQualityReport(ports, {
+    projectId: project.id,
+    projectRoot: project.root,
+    thresholds: q,
+    markdownRules: q.markdownRules,
+    driftFloor: q.docDriftFloor / 100,
+    limit: opts.limit,
+    ...(opts.rule !== undefined ? { ruleFilter: opts.rule } : {}),
   });
 }
 

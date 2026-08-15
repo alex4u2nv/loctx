@@ -27,11 +27,13 @@ import {
   parseFindLiteralToolInput,
   parseFindUsagesToolInput,
   parseSearchToolInput,
+  type QualityReport,
   ReconcileInFlightError,
   type Runtime,
   readActiveDaemon,
   resolveProjectScope,
   resolveUnderWorkspaceRoots,
+  runQualityReport,
   type SearchResponse,
   type SemanticDuplicatesResult,
   type SymbolRefHit,
@@ -222,6 +224,20 @@ export interface FindDuplicatesOutput {
   readonly semantic: SemanticDuplicatesResult | null;
   /** Same convention as `disabled`, for the semantic pass alone. */
   readonly semanticDisabled: string | null;
+}
+
+export interface QualityReportOutput {
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly report: QualityReport;
+  /**
+   * Non-null when the stored per-file quality rules are disabled in
+   * config. The query-time cross-file rules run regardless, so a
+   * non-null value means the report is PARTIAL, not empty.
+   */
+  readonly disabled: string | null;
+  readonly indexHealth: IndexHealth;
+  readonly warnings?: ReadonlyArray<string>;
 }
 
 export interface SearchOutput extends SearchResponse {
@@ -621,6 +637,60 @@ export const tools = {
     });
   },
 
+  async qualityReport(runtime: Runtime, input: unknown): Promise<QualityReportOutput> {
+    const v = new Validator(ToolError, "quality_report");
+    const data = v.requireRecord(input ?? {}, "arguments");
+    const limitRaw = v.getInt(data, "limit", { nonNegative: true }) ?? 20;
+    const limit = Math.min(Math.max(1, limitRaw), 100);
+    const rule = v.getStr(data, "rule");
+    const path = confinedPath(runtime, v.getStr(data, "path"));
+
+    // The report is per-project (its vector scans and ref counts are
+    // project-scoped). Resolve from `path`, or default when exactly one
+    // project is indexed.
+    const warnings: string[] = [];
+    let project: { id: ProjectId; name: string; root: string };
+    if (path !== undefined) {
+      const scope = resolveProjectScope(runtime.discovery, runtime.state, path, warnings);
+      if (scope.project === null) {
+        throw new ToolError(`path ${path} is not inside any indexed project.`);
+      }
+      project = scope.project;
+    } else {
+      const active = runtime.state.listProjects().filter((p) => p.active);
+      const sole = active.length === 1 ? active[0] : undefined;
+      if (sole === undefined) {
+        throw new ToolError(
+          `quality_report is per-project — pass 'path' to pick one (indexed: ${active
+            .map((p) => p.name)
+            .join(", ")}).`,
+        );
+      }
+      project = sole;
+    }
+
+    const an = runtime.config.analyzers;
+    let disabled: string | null = null;
+    if (!an.backgroundEnabled || !an.quality.enabled) {
+      disabled =
+        "analyzers.quality.enabled (with analyzers.backgroundEnabled) is off — stored per-file rules are missing from this report; the query-time cross-file rules below still ran. Enable and backfill for the full picture.";
+    }
+
+    const report = await runQualityReport(
+      runtime,
+      { id: project.id, name: project.name, root: project.root },
+      { limit, ...(rule !== undefined ? { rule } : {}) },
+    );
+    return Object.freeze({
+      projectId: project.id as string,
+      projectName: project.name,
+      report,
+      disabled,
+      indexHealth: currentIndexHealth(runtime),
+      ...(warnings.length > 0 ? { warnings: Object.freeze(warnings) } : {}),
+    });
+  },
+
   async findLiteral(runtime: Runtime, input: unknown): Promise<FindLiteralOutput> {
     const v = new Validator(ToolError, "find_literal");
     const data = v.requireRecord(input ?? {}, "arguments");
@@ -894,6 +964,32 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "quality_report",
+    description:
+      "**Use when you ask 'what should we refactor / where is the risky or rotting code in this project'** — one ranked view of every quality signal loctx computes. Stored per-file rules (god-file, long-params, deep-nesting, high-fan-out, stale markdown refs) merge with query-time cross-file rules (extract-candidate duplication across 3+ files, high-fan-in blast radius, low-cohesion mixed-concern files, doc-drift for markdown vs the code it cites). Files rank by severity-weighted finding count (error 3, warning 2, info 1). Per-project: pass `path`; defaults to the sole indexed project when only one exists. `rule` filters to one ruleId (e.g. `quality/god-file`); `limit` caps files (default 20, max 100). **Read `report.notes`** — every coverage cap hit is listed there; treat a capped report as partial. `disabled` names the config knobs when the stored rules haven't run (the cross-file rules run regardless, so the report is partial rather than empty). Heuristic prioritisation for refactoring, not a correctness audit — drill into hits with `find_duplicates`, `find_usages`, or `search_workspace`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Absolute path selecting the project to report on. Optional when exactly one project is indexed.",
+        },
+        rule: {
+          type: "string",
+          description: "Only include findings with this exact ruleId (e.g. quality/god-file).",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 100,
+          default: 20,
+          description: "Max files in the report.",
+        },
+      },
+    },
+  },
+  {
     name: "find_literal",
     description:
       "**Use when you need every occurrence of a literal substring across the indexed workspace** — code, docs, runbooks, prompts, skill files, anything text. E.g. 'every file referencing agents/foo.md', 'every config still pointing at the old URL', 'every runbook mentioning the deprecated escalation contact', 'every prompt that says \"tier-1\"', 'where is the legacy SKU naming still used'. Returns one row per matched line with `relPath`, `line`, `column`, `lineText`, plus surrounding chunk metadata. **Does NOT beat `grep` for safety-critical audits.** The scan operates on indexed chunk text, so chunker gaps (#360) and excluded-by-default directories (`.git`, `node_modules`, build outputs) are blind spots. Use when an indexed-chunk view is sufficient and you want structured per-line responses with chunk context. The response always includes a `coverageNote` — read it. For audit-critical questions ('is this stale phrase referenced anywhere'), supplement with `rg <pattern>` to verify. Complements `search_workspace` (ranked / semantic) and `find_usages` (exact symbol cross-ref). **0-hit semantics:** check `indexHealth.reconciling`. If `true` or `unknown`, retry after the re-index (an `unknown` value means a separate daemon owns reconciliation and its progress is invisible here). If `false`, the substring either isn't in indexed chunks or this workspace isn't indexed (verify with `workspace_status`). Highest-leverage on unfamiliar or large workspaces; for small sets, `rg` may be faster.",
@@ -981,6 +1077,7 @@ const TOOL_HANDLERS = {
   refresh_workspace: tools.refresh,
   find_usages: tools.findUsages,
   find_duplicates: tools.findDuplicates,
+  quality_report: tools.qualityReport,
   find_literal: tools.findLiteral,
 } as const;
 
