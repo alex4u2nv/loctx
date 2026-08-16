@@ -9,4 +9,7 @@ cpSync("src/sql", "dist/sql", { recursive: true, filter: (s) => !s.endsWith(".ts
 mkdirSync("dist/rules", { recursive: true });
 cpSync("src/rules", "dist/rules", { recursive: true, filter: (s) => !s.endsWith(".ts") });
 
-console.log("copied SQL + rule assets to dist/");
+mkdirSync("dist/agent-setup/skills", { recursive: true });
+cpSync("src/agent-setup/skills", "dist/agent-setup/skills", { recursive: true });
+
+console.log("copied SQL, rule, and skill assets to dist/");

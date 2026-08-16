@@ -3,7 +3,7 @@
  */
 
 import { resolve } from "node:path";
-import { AGENTS, loadConfig } from "@loctx/core";
+import { AGENTS, applySkillsInstall, loadConfig, planSkillsInstall } from "@loctx/core";
 import type { Command } from "commander";
 import { runAgentRefresh, runAgentSetup } from "../lib/agent-setup.js";
 import { EXIT, errorMessage, getCtx } from "../lib/context.js";
@@ -77,4 +77,39 @@ export function registerAgentCommands(program: Command): void {
         });
       },
     );
+  program
+    .command("skills [action]")
+    .description(
+      "Install loctx's bundled coding-quality skills (code-style, typescript, python) into the USER-level agent skills dir (~/.claude/skills) so every project benefits. Actions: list (default), install.",
+    )
+    .option("--force", "Overwrite existing skill files (they are never touched by default).", false)
+    .action((action: string | undefined, opts: { force: boolean }) => {
+      try {
+        if (action === undefined || action === "list") {
+          for (const p of planSkillsInstall()) {
+            const state = p.present ? "installed" : "not installed";
+            console.log(`${p.name.padEnd(12)} ${state.padEnd(14)} ${p.description}`);
+          }
+          console.log("\nInstall with: loctx skills install [--force]");
+          return;
+        }
+        if (action !== "install") {
+          console.error(`[loctx skills] unknown action '${action}' — use list or install.`);
+          process.exit(EXIT.error);
+        }
+        const result = applySkillsInstall({ force: opts.force });
+        for (const p of result.plans) {
+          console.log(`${p.action.padEnd(10)} ${p.path}`);
+        }
+        console.log(
+          `\n${result.written} written, ${result.skipped} skipped` +
+            (result.skipped > 0 && !opts.force
+              ? " (existing files kept; use --force to overwrite)"
+              : ""),
+        );
+      } catch (err) {
+        console.error(`[loctx skills] ${errorMessage(err)}`);
+        process.exit(EXIT.error);
+      }
+    });
 }
