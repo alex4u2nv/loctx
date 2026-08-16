@@ -8,8 +8,6 @@ This package only measures. It does not modify retrieval behaviour.
 
 Shipping a reranker, a PageRank repo map, or any other ranking-quality change without a measurement baseline is guessing. The harness is the gating substrate for those PRs.
 
-See `~/Workspaces/Notes/loctx/2026-05-23/eval-harness-plan.md` for the design memo.
-
 ## Quick start
 
 ```bash
@@ -62,7 +60,7 @@ packages/eval/
 
 Schema: see `src/qrels.ts`. Required fields are `query_id`, `query`, `query_type` (`literal | symbol | concept | mixed | prose`), `rel_path`, `start_line`, `end_line`, `relevance` (`0 | 1 | 2`), and `provenance`. Multiple rows with the same `query_id` mark multiple relevant spans.
 
-## Design decisions (locked, see plan)
+## Design decisions (locked)
 
 - **Corpus = pinned git sha.** Materialised via `git worktree add --detach` (local source) or `git clone` + `checkout --detach` (URL fallback).
 - **Qrels keyed on `(rel_path, start_line, end_line)`.** Matching is span-overlap, not exact docid equality, so a re-chunk of the same content doesn't move metrics.

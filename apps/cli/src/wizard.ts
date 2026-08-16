@@ -10,7 +10,8 @@
  * silently picks defaults that would surprise the user later.
  */
 
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { confirm, input, select } from "@inquirer/prompts";
 import { EMBEDDING_REGISTRY, type EmbeddingModelInfo, type EmbeddingUseCase } from "@loctx/core";
 import { stringify as stringifyYaml } from "yaml";
@@ -63,6 +64,9 @@ export async function runInitWizard(options: WizardOptions): Promise<string> {
     daemonPort,
   });
 
+  // First run on a fresh machine: the config directory doesn't exist yet
+  // and writeFileSync won't create parents.
+  mkdirSync(dirname(options.target), { recursive: true });
   writeFileSync(options.target, yaml, "utf-8");
   console.error(`\n[loctx init] wrote ${options.target}`);
   if (downloadModel) {
@@ -142,7 +146,9 @@ async function pickModel(useCase: EmbeddingUseCase): Promise<EmbeddingModelInfo>
 
   const recommended = ordered[0];
   if (recommended === undefined) {
-    throw new Error("registry is empty — this should never happen");
+    throw new Error(
+      "the embedding-model registry is empty; this loctx build is broken — please file an issue at https://github.com/alex4u2nv/loctx/issues",
+    );
   }
   const name = await select({
     message: "Embedding model:",

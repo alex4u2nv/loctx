@@ -88,8 +88,9 @@
   --space-7: 80px;
   --space-8: 120px;
 
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-    "Helvetica Neue", system-ui, sans-serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", system-ui,
+    sans-serif;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 
   /* Cards sit flat at rest — the hairline border carries the edge; shadow
@@ -289,7 +290,10 @@
   font: inherit;
   font-size: 0.8125rem;
   cursor: pointer;
-  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
 }
 
 .nav-mcp:hover,
@@ -506,7 +510,9 @@ h3 {
   font-family: var(--font-mono);
   font-size: 0.9375rem;
   line-height: 1.4;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .input:focus {
@@ -618,7 +624,10 @@ h3 {
   font-weight: 500;
   letter-spacing: 0;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease,
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
     box-shadow 120ms ease;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -667,7 +676,9 @@ h3 {
   border-color: var(--ok);
   color: var(--on-accent);
   font-weight: 600;
-  transition: background 200ms ease, border-color 200ms ease;
+  transition:
+    background 200ms ease,
+    border-color 200ms ease;
 }
 
 .btn-success:hover:not(:disabled) {
@@ -892,7 +903,9 @@ h3 {
   font-size: 0.85rem;
   color: var(--muted);
   white-space: nowrap;
-  transition: color 120ms ease, background 120ms ease;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
 }
 .tab-strip-item:hover {
   color: var(--text);
@@ -1195,8 +1208,13 @@ h3 {
 }
 
 @keyframes flow-pulse {
-  0%, 100% { opacity: 0.45; }
-  50%      { opacity: 0.85; }
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.85;
+  }
 }
 
 .flow-chart-node.paused rect {
@@ -1225,8 +1243,12 @@ h3 {
 }
 
 @keyframes flow-dash {
-  from { stroke-dashoffset: 0; }
-  to   { stroke-dashoffset: -20; }
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -20;
+  }
 }
 
 .flow-chart-wrap {
@@ -1260,16 +1282,26 @@ h3 {
   height: 10px;
   border-radius: 2px;
 }
-.flow-chart-legend-item.active .flow-chart-legend-swatch { background: var(--primary); }
+.flow-chart-legend-item.active .flow-chart-legend-swatch {
+  background: var(--primary);
+}
 .flow-chart-legend-item.indexing .flow-chart-legend-swatch {
   background: var(--primary);
   opacity: 0.6;
   animation: flow-pulse 1.6s ease-in-out infinite;
 }
-.flow-chart-legend-item.ready .flow-chart-legend-swatch { background: var(--primary-dim); }
-.flow-chart-legend-item.paused .flow-chart-legend-swatch { background: var(--warn); }
-.flow-chart-legend-item.failed .flow-chart-legend-swatch { background: var(--bad); }
-.flow-chart-legend-item.dim .flow-chart-legend-swatch { background: var(--border-strong); }
+.flow-chart-legend-item.ready .flow-chart-legend-swatch {
+  background: var(--primary-dim);
+}
+.flow-chart-legend-item.paused .flow-chart-legend-swatch {
+  background: var(--warn);
+}
+.flow-chart-legend-item.failed .flow-chart-legend-swatch {
+  background: var(--bad);
+}
+.flow-chart-legend-item.dim .flow-chart-legend-swatch {
+  background: var(--border-strong);
+}
 .flow-chart-legend-count {
   color: var(--text);
   font-weight: 600;
@@ -1752,9 +1784,15 @@ h3 {
   border: 1px solid var(--border);
 }
 
-.activity-kind.add { color: var(--ok); }
-.activity-kind.change { color: var(--primary); }
-.activity-kind.unlink { color: var(--bad); }
+.activity-kind.add {
+  color: var(--ok);
+}
+.activity-kind.change {
+  color: var(--primary);
+}
+.activity-kind.unlink {
+  color: var(--bad);
+}
 
 .activity-path {
   color: var(--muted);
@@ -1801,7 +1839,10 @@ h3 {
   height: 3px;
   border-radius: 999px;
   background: var(--border-strong);
-  transition: background 160ms ease, height 200ms ease, width 200ms ease,
+  transition:
+    background 160ms ease,
+    height 200ms ease,
+    width 200ms ease,
     border-radius 200ms ease;
 }
 .section-nav-item:hover::before {
@@ -2203,7 +2244,9 @@ h3 {
   font-size: 0.82rem;
   font-weight: 500;
   cursor: pointer;
-  transition: color 120ms ease, background 120ms ease;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
 }
 
 .mcp-view-toggle-btn:hover {
@@ -2237,7 +2280,10 @@ h3 {
   font: inherit;
   font-size: 0.85rem;
   cursor: pointer;
-  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+  transition:
+    color 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
 }
 
 .mcp-tab:hover {
@@ -2441,13 +2487,23 @@ h3 {
 }
 
 @keyframes modal-fade {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes modal-rise {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Route transition: a quick fade as each page mounts (keyed on pathname in
@@ -2648,7 +2704,10 @@ h3 {
   border-radius: var(--radius-control);
   color: var(--muted);
   cursor: pointer;
-  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+  transition:
+    color 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
 }
 .overflow-trigger:hover,
 .overflow-trigger[aria-expanded="true"] {

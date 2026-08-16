@@ -117,11 +117,10 @@ This repo uses pnpm (>= 9) — npm/yarn aren't tested. `corepack enable && corep
 
 **Merging PRs: always go through `pnpm run merge:pr -- <number>`**
 (`scripts/merge-pr.sh`). It waits for the PR's CI checks and refuses
-to merge on any failure. Never `gh pr merge` directly — GitHub-side
-required checks aren't available on this private repo, so the script
-IS the merge gate. When the repo goes public, apply
-`.github/rulesets/main-requires-verify.json` to move the gate
-server-side.
+to merge on any failure. Never `gh pr merge` directly — the script is
+the merge gate (server-side enforcement is the
+`.github/rulesets/main-requires-verify.json` ruleset, applied where
+the repo plan supports it).
 
 ```
 pnpm run verify       # build + lint + typecheck + test, all workspaces

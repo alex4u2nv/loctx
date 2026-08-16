@@ -23,16 +23,16 @@ import { AsyncError, AsyncLoading, AsyncNoData } from "../components/async-bound
 import { Banner } from "../components/banner";
 import { BarChart, type BarRow } from "../components/bar-chart";
 import { type Column, DataTable } from "../components/data-table";
-import { useLiveRefreshEvent } from "../components/live-refresh";
 import { LiteralResults } from "../components/literal-results";
+import { useLiveRefreshEvent } from "../components/live-refresh";
 import { QueryForm } from "../components/query-form";
 import { SectionNav } from "../components/section-nav";
 import { SnippetModal } from "../components/snippet-modal";
 import { SurfaceCard } from "../components/surface-card";
-import { useSnippetSelection } from "../lib/use-snippet-selection";
 import { api } from "../lib/api";
 import { relativeTime } from "../lib/format";
 import { useFetch } from "../lib/use-fetch";
+import { useSnippetSelection } from "../lib/use-snippet-selection";
 import { useQuery } from "../lib/use-url-query";
 
 export function ProjectDetailPage() {
@@ -99,9 +99,7 @@ export function ProjectDetailPage() {
             {project.rebuilding !== null && project.rebuilding.status === "running" ? (
               <span className="warn">
                 indexing… {project.rebuilding.indexed}
-                {project.rebuilding.totalFiles !== null
-                  ? `/${project.rebuilding.totalFiles}`
-                  : ""}{" "}
+                {project.rebuilding.totalFiles !== null ? `/${project.rebuilding.totalFiles}` : ""}{" "}
                 files
               </span>
             ) : (
@@ -198,13 +196,7 @@ type FileRow =
   | ProjectDetailPayload["stats"]["topFiles"][number]
   | ProjectDetailPayload["stats"]["recentFiles"][number];
 
-function FilesTable({
-  rows,
-  kind,
-}: {
-  rows: ReadonlyArray<FileRow>;
-  kind: "top" | "recent";
-}) {
+function FilesTable({ rows, kind }: { rows: ReadonlyArray<FileRow>; kind: "top" | "recent" }) {
   if (rows.length === 0) return <p className="pullquote">—</p>;
   const columns: Column<FileRow>[] = [
     { key: "file", header: "file", cell: (r) => <code>{r.relPath}</code> },
@@ -587,8 +579,8 @@ function UsageResults({
     return (
       <p className="pullquote">
         No matches for <code>{symbol}</code> in this project. Open{" "}
-        <Link to={`/find-usages?symbol=${encodeURIComponent(symbol)}`}>global find-usages</Link>{" "}
-        to search every indexed project.
+        <Link to={`/find-usages?symbol=${encodeURIComponent(symbol)}`}>global find-usages</Link> to
+        search every indexed project.
       </p>
     );
   }
@@ -710,9 +702,9 @@ const qualityColumns: ReadonlyArray<Column<QualityRow>> = [
     header: "findings",
     cell: (r) => (
       <span>
-        {r.findings.map((f, i) => (
+        {r.findings.map((f) => (
           <span
-            key={`${f.ruleId}:${f.lineFrom}:${i}`}
+            key={`${f.ruleId}:${f.lineFrom}:${f.message}`}
             className={f.severity === "error" ? "err" : f.severity === "warning" ? "warn" : "dim"}
             style={{ marginRight: "0.5rem", whiteSpace: "nowrap" }}
             title={f.message}

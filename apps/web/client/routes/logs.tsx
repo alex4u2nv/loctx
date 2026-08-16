@@ -64,92 +64,95 @@ export function LogsPage() {
       {error !== null ? <AsyncError error={error} /> : null}
 
       <div className="card-stack">
-      <div className="card">
-      <p style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
-        <button type="button" className="btn btn-primary" onClick={reload} disabled={initialLoad}>
-          <Icon name="refresh" /> {initialLoad ? "Loading…" : "Refresh"}
-        </button>
-        <label
-          className="dim"
-          style={{ display: "inline-flex", gap: "var(--space-1)", alignItems: "center" }}
-        >
-          <input
-            type="checkbox"
-            checked={autoRefresh}
-            onChange={(e) => setAutoRefresh(e.target.checked)}
-          />
-          auto-refresh
-        </label>
-        <button
-          type="button"
-          className="btn btn-danger"
-          onClick={() => void onClear()}
-          disabled={initialLoad || (data?.total ?? 0) === 0}
-        >
-          Clear log
-        </button>
-        {data !== null ? (
-          <span className="dim">
-            {data.maxRows === 0
-              ? "logging disabled (set mcp.log_max_rows > 0 in Config)"
-              : `showing ${data.entries.length} of ${data.maxRows} retained`}
-          </span>
-        ) : null}
-      </p>
-      </div>
+        <div className="card">
+          <p style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={reload}
+              disabled={initialLoad}
+            >
+              <Icon name="refresh" /> {initialLoad ? "Loading…" : "Refresh"}
+            </button>
+            <label
+              className="dim"
+              style={{ display: "inline-flex", gap: "var(--space-1)", alignItems: "center" }}
+            >
+              <input
+                type="checkbox"
+                checked={autoRefresh}
+                onChange={(e) => setAutoRefresh(e.target.checked)}
+              />
+              auto-refresh
+            </label>
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={() => void onClear()}
+              disabled={initialLoad || (data?.total ?? 0) === 0}
+            >
+              Clear log
+            </button>
+            {data !== null ? (
+              <span className="dim">
+                {data.maxRows === 0
+                  ? "logging disabled (set mcp.log_max_rows > 0 in Config)"
+                  : `showing ${data.entries.length} of ${data.maxRows} retained`}
+              </span>
+            ) : null}
+          </p>
+        </div>
 
-      <div className="card card-flush">
-      {data === null && error === null ? (
-        <AsyncLoading />
-      ) : data === null ? null : (
-        <DataTable<McpLogEntry>
-          className="logs-table"
-          rows={data.entries}
-          rowKey={(r) => String(r.id)}
-          onRowClick={open}
-          emptyMessage={
-            data.maxRows === 0
-              ? "Request logging is disabled."
-              : "No MCP requests logged yet."
-          }
-          columns={[
-            {
-              key: "time",
-              header: "time",
-              dim: true,
-              cell: (r) => new Date(r.requestedAt).toLocaleString(),
-            },
-            { key: "tool", header: "tool", cell: (r) => <code>{r.tool}</code> },
-            {
-              key: "status",
-              header: "status",
-              cell: (r) =>
-                r.ok ? (
-                  <span>
-                    <Icon name="ok" /> ok
-                  </span>
-                ) : (
-                  <span className="err">
-                    <Icon name="err" /> error
-                  </span>
-                ),
-            },
-            {
-              key: "elapsed",
-              header: "ms",
-              numeric: true,
-              cell: (r) => r.elapsedMs,
-            },
-            {
-              key: "request",
-              header: "request",
-              dim: true,
-              cell: (r) => summarizeArguments(r.argumentsJson),
-            },
-          ]}
-        />
-      )}
-      </div>
+        <div className="card card-flush">
+          {data === null && error === null ? (
+            <AsyncLoading />
+          ) : data === null ? null : (
+            <DataTable<McpLogEntry>
+              className="logs-table"
+              rows={data.entries}
+              rowKey={(r) => String(r.id)}
+              onRowClick={open}
+              emptyMessage={
+                data.maxRows === 0 ? "Request logging is disabled." : "No MCP requests logged yet."
+              }
+              columns={[
+                {
+                  key: "time",
+                  header: "time",
+                  dim: true,
+                  cell: (r) => new Date(r.requestedAt).toLocaleString(),
+                },
+                { key: "tool", header: "tool", cell: (r) => <code>{r.tool}</code> },
+                {
+                  key: "status",
+                  header: "status",
+                  cell: (r) =>
+                    r.ok ? (
+                      <span>
+                        <Icon name="ok" /> ok
+                      </span>
+                    ) : (
+                      <span className="err">
+                        <Icon name="err" /> error
+                      </span>
+                    ),
+                },
+                {
+                  key: "elapsed",
+                  header: "ms",
+                  numeric: true,
+                  cell: (r) => r.elapsedMs,
+                },
+                {
+                  key: "request",
+                  header: "request",
+                  dim: true,
+                  cell: (r) => summarizeArguments(r.argumentsJson),
+                },
+              ]}
+            />
+          )}
+        </div>
       </div>
 
       {selected !== null ? (

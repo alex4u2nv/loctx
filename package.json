@@ -36,7 +36,7 @@
   "homepage": "https://github.com/alex4u2nv/loctx",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/alex4u2nv/loctx.git"
+    "url": "git+https://github.com/alex4u2nv/loctx.git"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",

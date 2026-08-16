@@ -2,17 +2,21 @@
  * MCP Streamable HTTP transport mounted on /mcp.
  *
  * Stateless: every request gets a fresh Server + Transport pair connected
- * to the shared Runtime. Identical wire shape to the previous Next.js
- * route, so existing MCP clients keep working unchanged.
+ * to the shared Runtime.
  */
 
-import type { Runtime } from "@loctx/core";
+import { type Runtime, readPackageVersion } from "@loctx/core";
 import { registerTools } from "@loctx/mcp";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { Hono } from "hono";
 
-const SERVER_INFO = { name: "loctx", version: "0.1.0" };
+// Real package version, matching the stdio transport (#481 — a
+// hardcoded "0.1.0" survived here after that fix landed for stdio).
+const SERVER_INFO = {
+  name: "loctx",
+  version: readPackageVersion(new URL("../package.json", import.meta.url)),
+};
 
 export function mountMcp(
   app: Hono,

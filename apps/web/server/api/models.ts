@@ -10,9 +10,9 @@ import { join } from "node:path";
 import {
   type Config,
   EMBEDDING_REGISTRY,
-  LocalEmbeddingProvider,
   findModel,
   isModelTrusted,
+  LocalEmbeddingProvider,
   markModelTrusted,
   setAllowedOutboundReasons,
 } from "@loctx/core";

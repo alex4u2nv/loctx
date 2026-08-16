@@ -48,10 +48,7 @@ export function SnippetModal({
 
   useEffect(() => {
     let alive = true;
-    const hint =
-      language !== undefined && language !== ""
-        ? language
-        : languageFromPath(title);
+    const hint = language !== undefined && language !== "" ? language : languageFromPath(title);
     if (hint === null) {
       setHtml("");
       return;

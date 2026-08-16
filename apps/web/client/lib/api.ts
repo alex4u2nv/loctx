@@ -13,6 +13,7 @@ import type {
   ConfigWriteResponse,
   DefinitionSchemaResponse,
   DoctorPayload,
+  DuplicatesPayload,
   FindLiteralPayload,
   FindUsagesPayload,
   FindUsagesRequest,
@@ -21,6 +22,7 @@ import type {
   ModelsPayload,
   ProjectDetailPayload,
   ProjectsPayload,
+  QualityReportPayload,
   SearchPayload,
   SearchRequestBody,
   StatusPayload,
@@ -28,8 +30,6 @@ import type {
   ToolsInstallResponse,
   ToolsStatusPayload,
   WatchersPayload,
-  DuplicatesPayload,
-  QualityReportPayload,
 } from "@shared/contracts";
 
 /**
@@ -95,8 +95,7 @@ export const api = {
     });
     return (await r.json()) as ToolsInstallResponse;
   },
-  toolsBackfill: (tool: string) =>
-    postJson<ToolsBackfillResponse>("/api/tools/backfill", { tool }),
+  toolsBackfill: (tool: string) => postJson<ToolsBackfillResponse>("/api/tools/backfill", { tool }),
   definitionsAddSchema: (body: { url?: string; content?: string; name?: string }) =>
     postJson<DefinitionSchemaResponse>("/api/definitions/schema", body),
   definitionsGenerateSchema: () =>
@@ -144,8 +143,7 @@ export const api = {
     ),
   modelDownload: (name: string) =>
     postJson<{ ok: true; name: string }>("/api/models/download", { name }),
-  findUsages: (body: FindUsagesRequest) =>
-    postJson<FindUsagesPayload>("/api/find-usages", body),
+  findUsages: (body: FindUsagesRequest) => postJson<FindUsagesPayload>("/api/find-usages", body),
   findLiteral: (body: { pattern: string; path?: string }) =>
     postJson<FindLiteralPayload>("/api/find-literal", body),
   index: (path?: string) =>
@@ -177,7 +175,8 @@ export const api = {
       accepted: Array<{ projectId: string; name: string }>;
       rejected?: Array<{ projectId: string; name: string; reason: string }>;
     }>("/api/rebuild", path !== undefined ? { path } : {}),
-  projectDetail: (id: string) => getJson<ProjectDetailPayload>(`/api/projects/${encodeURIComponent(id)}`),
+  projectDetail: (id: string) =>
+    getJson<ProjectDetailPayload>(`/api/projects/${encodeURIComponent(id)}`),
   activateProject: (path: string) =>
     postJson<{
       ok: true;
@@ -191,8 +190,7 @@ export const api = {
       "/api/projects/deactivate",
       { path },
     ),
-  restart: () =>
-    postJson<{ ok: true; stopped: number; message: string }>("/api/restart", {}),
+  restart: () => postJson<{ ok: true; stopped: number; message: string }>("/api/restart", {}),
   stop: () => postJson<{ ok: true; stopped: number }>("/api/stop", {}),
   logs: () => getJson<McpLogsPayload>("/api/logs"),
   logsClear: () => postJson<{ ok: true }>("/api/logs/clear", {}),

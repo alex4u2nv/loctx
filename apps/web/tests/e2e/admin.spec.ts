@@ -9,11 +9,9 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("loctx admin UI", () => {
-  test("dashboard renders the hero, embedding identity, and the demo project", async ({
-    page,
-  }) => {
+  test("dashboard renders the hero, embedding identity, and the demo project", async ({ page }) => {
     await page.goto("/");
-    // Hero card title (Phoenix-style "INDEX FLOW" headline, rendered
+    // Hero card title ("INDEX FLOW" headline, rendered
     // across two lines).
     await expect(page.getByRole("heading", { name: /Index\s+Flow/ })).toBeVisible();
     // Embedding model surfaces somewhere — in the daemon card and in
@@ -23,9 +21,7 @@ test.describe("loctx admin UI", () => {
     await expect(page.getByText("demo").first()).toBeVisible();
   });
 
-  test("projects page lists the fixture project as active with compact stats", async ({
-    page,
-  }) => {
+  test("projects page lists the fixture project as active with compact stats", async ({ page }) => {
     await page.goto("/projects");
     await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
     const activeRow = page.getByRole("row").filter({ hasText: "demo" });
@@ -49,7 +45,9 @@ test.describe("loctx admin UI", () => {
   });
 
   test("scope label reflects project when search is scoped to a path", async ({ page }) => {
-    await page.goto(`/search?q=rate+limit&path=${encodeURIComponent("/tmp/loctx-pw-fixture/demo")}`);
+    await page.goto(
+      `/search?q=rate+limit&path=${encodeURIComponent("/tmp/loctx-pw-fixture/demo")}`,
+    );
     await page.getByRole("main").getByRole("button", { name: "Search" }).click();
     await expect(page.getByText(/scope:/i).first()).toBeVisible();
     await expect(page.getByText("demo").first()).toBeVisible();
@@ -62,9 +60,7 @@ test.describe("loctx admin UI", () => {
     await expect(page.getByRole("row").filter({ hasText: "embedding" }).first()).toBeVisible();
   });
 
-  test("config editor renders schema sections and source pills", async ({
-    page,
-  }) => {
+  test("config editor renders schema sections and source pills", async ({ page }) => {
     await page.goto("/config");
     await expect(page.getByRole("heading", { name: "Config editor" })).toBeVisible();
     // Sectioned form — at least Embedding and Retrieval render.

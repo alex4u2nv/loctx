@@ -15,7 +15,10 @@ export interface UseFetchState<T> {
   reload(): void;
 }
 
-export function useFetch<T>(fetcher: () => Promise<T>, key: ReadonlyArray<unknown> = []): UseFetchState<T> {
+export function useFetch<T>(
+  fetcher: () => Promise<T>,
+  key: ReadonlyArray<unknown> = [],
+): UseFetchState<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

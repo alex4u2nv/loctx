@@ -85,7 +85,7 @@ export function registerModelCommands(program: Command): void {
       // is forced into `loctx reset index --force` + hours of re-embed.
       if (!opts.yes) {
         const ok = await confirm(
-          `Switch embedding.model to ${info.name}? Existing index will mismatch on next daemon start (CollectionIdentityMismatch) — recovery is \`loctx reset index --force\` + re-index every project, which can take minutes to hours.`,
+          `Switch embedding.model to ${info.name}? The existing index was built with the current model and will be rejected on the next daemon start — recovery is \`loctx reset index --force\` + re-index every project, which can take minutes to hours.`,
         );
         if (!ok) {
           console.error("[loctx model use] cancelled.");
@@ -99,7 +99,9 @@ export function registerModelCommands(program: Command): void {
       console.error(`[loctx model use] switched embedding.model to ${info.name}.`);
       console.error("[loctx model use] the existing index was built for the previous model;");
       console.error("                  run 'loctx reset index' then 'loctx index' to rebuild it,");
-      console.error("                  or expect a CollectionIdentityMismatch on next start.");
+      console.error(
+        "                  or the daemon will reject the mismatched index on next start.",
+      );
       // A running daemon keeps the old model in memory until it restarts.
       // Without this warning, the user assumes the swap took effect, hits
       // the daemon, and gets stale-model results until they happen to

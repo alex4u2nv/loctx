@@ -25,12 +25,16 @@ export function mountDuplicates(app: Hono, getRuntime: () => Promise<Runtime>): 
     const an = rt.config.analyzers;
     let disabled: string | null = null;
     if (!an.backgroundEnabled) {
-      disabled = "analyzers.backgroundEnabled is false in config — enable it and restart the daemon.";
+      disabled =
+        "analyzers.backgroundEnabled is false in config — enable it and restart the daemon.";
     } else if (!an.duplicates.enabled) {
-      disabled = "analyzers.duplicates.enabled is false in config — enable it and restart the daemon.";
+      disabled =
+        "analyzers.duplicates.enabled is false in config — enable it and restart the daemon.";
     }
 
-    const relPathById = new Map(rt.state.listFiles(project.id).map((f) => [f.fileId as string, f.relPath]));
+    const relPathById = new Map(
+      rt.state.listFiles(project.id).map((f) => [f.fileId as string, f.relPath]),
+    );
     const groups = rt.state.findDuplicateGroups(minMembers, project.id).map((g) => ({
       hash: g.hash,
       members: g.members.map((m) => ({

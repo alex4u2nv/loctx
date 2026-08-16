@@ -1,16 +1,16 @@
 import { homedir } from "node:os";
 import {
   type Config,
+  inventoryProjects,
+  makeProject,
   type Project,
   type ProjectId,
   type Runtime,
   StateStore,
+  summarizeUsage,
   type WatcherRegistry,
   WatcherService,
   WorkspaceDiscovery,
-  inventoryProjects,
-  makeProject,
-  summarizeUsage,
 } from "@loctx/core";
 import type { Hono } from "hono";
 import type {
@@ -148,9 +148,7 @@ export function mountProjects(
           rebuildPendingByProject.get(project.id) ?? null,
         );
         const reconciling =
-          reconcileSnap !== null &&
-          reconcileSnap.running &&
-          reconcileSnap.currentProjectId === project.id
+          reconcileSnap?.running && reconcileSnap.currentProjectId === project.id
             ? {
                 indexed: reconcileSnap.currentProjectIndexed,
                 total: reconcileSnap.currentProjectTotal,
@@ -271,8 +269,7 @@ export function mountProjects(
       const fileStats = state.fileStatsForProject(project.id);
       const errors = fileStats.errors;
       const lastIndexed = fileStats.lastIndexed ?? undefined;
-      const watcherEntry =
-        watcherRegistry !== undefined ? watcherRegistry.get(project.id) : null;
+      const watcherEntry = watcherRegistry !== undefined ? watcherRegistry.get(project.id) : null;
       const watcherState = watcherEntry !== null ? watcherEntry.state : null;
       const chunkCounts = state.chunkCountsByProject();
       const rebuild = rebuildTracker.get(project.id);
@@ -286,9 +283,7 @@ export function mountProjects(
         pendingMap.get(project.id) ?? null,
       );
       const detailReconciling =
-        detailReconcileSnap !== null &&
-        detailReconcileSnap.running &&
-        detailReconcileSnap.currentProjectId === project.id
+        detailReconcileSnap?.running && detailReconcileSnap.currentProjectId === project.id
           ? {
               indexed: detailReconcileSnap.currentProjectIndexed,
               total: detailReconcileSnap.currentProjectTotal,
@@ -343,9 +338,7 @@ export function mountProjects(
               }))
             : [],
         reconciling:
-          detailReconcileSnap !== null &&
-          detailReconcileSnap.running &&
-          detailReconcileSnap.currentProjectId === project.id
+          detailReconcileSnap?.running && detailReconcileSnap.currentProjectId === project.id
             ? {
                 indexed: detailReconcileSnap.currentProjectIndexed,
                 total: detailReconcileSnap.currentProjectTotal,
@@ -375,10 +368,7 @@ export function mountProjects(
     // to keep running across the boundary because it carries its own
     // AbortController (see below).
     if (activating.has(project.id)) {
-      return c.json(
-        { error: "activate already in progress for this project" },
-        409,
-      );
+      return c.json({ error: "activate already in progress for this project" }, 409);
     }
     activating.add(project.id);
     try {
@@ -388,10 +378,7 @@ export function mountProjects(
       // Attach a watcher live so the newly-active project gets indexed
       // incrementally without a daemon restart. Idempotent — if a watcher
       // already exists (re-activate after deactivate), we leave it alone.
-      if (
-        watcherRegistry !== undefined &&
-        watcherRegistry.get(project.id as ProjectId) === null
-      ) {
+      if (watcherRegistry !== undefined && watcherRegistry.get(project.id as ProjectId) === null) {
         await attachWatcher(project, rt, config, watcherRegistry);
       }
 
@@ -463,7 +450,7 @@ export function mountProjects(
     const project = makeProject(confined);
     const rt = await getRuntime();
     const ok = rt.state.setProjectActive(project.id, false);
-    if (!ok) return c.json({ error: "no such project" }, 404);
+    if (!ok) return c.json({ error: "project not found or not yet activated" }, 404);
 
     // Abort any in-flight initial index pass kicked off by a prior
     // activate. The indexer checks between files, so this stops further
@@ -498,7 +485,10 @@ export function mountProjects(
       }
     }
 
-    return c.json({ ok: true, project: { id: project.id, name: project.name, root: project.root } });
+    return c.json({
+      ok: true,
+      project: { id: project.id, name: project.name, root: project.root },
+    });
   });
 }
 
@@ -633,7 +623,7 @@ function longestCommonPrefix(paths: ReadonlyArray<string>): string {
   let i = 0;
   while (i < minLen && split.every((s) => s[i] === split[0]?.[i])) i += 1;
   if (i <= 1) return "";
-  return split[0]!.slice(0, i).join("/");
+  return split[0]?.slice(0, i).join("/") ?? "";
 }
 
 /** Per-project chunk count via one SQL aggregate. */
@@ -753,4 +743,3 @@ function extensionOf(relPath: string): string {
   if (lastDot <= lastSlash + 1) return "<none>";
   return relPath.slice(lastDot);
 }
-

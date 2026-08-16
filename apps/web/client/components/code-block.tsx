@@ -25,6 +25,7 @@ export function CodeBlock({
   return (
     <div className="code-block">
       {lines.map((line, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: startLine + i IS the semantic identity of the row — its absolute line number in the source file
         <div className="code-line" key={`${startLine + i}`}>
           <span className="code-gutter" aria-hidden>
             {startLine + i}

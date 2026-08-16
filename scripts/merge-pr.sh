@@ -1,24 +1,22 @@
 #!/usr/bin/env bash
-# Merge gate for PRs (2026-08-06 audit follow-up; see #519).
-#
-# GitHub-side required status checks need Pro (or a public repo), so
-# until the repo goes public the gate lives in the merge path: wait for
-# every check on the PR to report, refuse to merge on any failure.
-# `gh pr checks --watch --fail-fast` exits non-zero the moment a check
-# fails, and `set -e` stops the merge.
-#
-# The session that produced this had two merges land while the ci
-# `verify` job was failing or still pending — both would have been
-# stopped here.
+# Merge gate for PRs (see #519): wait for every check on the PR to
+# report, refuse to merge on any failure. `gh pr checks --watch
+# --fail-fast` exits non-zero the moment a check fails, and `set -e`
+# stops the merge. Merges once landed while the ci `verify` job was
+# red or still pending; this script fails closed on both.
 #
 # Usage: scripts/merge-pr.sh <pr-number>
 # (or:   pnpm run merge:pr -- <pr-number>)
 #
-# When the repo goes public, apply .github/rulesets/main-requires-verify.json
-# via `gh api -X POST repos/{owner}/{repo}/rulesets --input <file>` and
-# this script becomes belt-and-braces rather than the only gate.
+# Server-side enforcement lives in
+# .github/rulesets/main-requires-verify.json (apply via
+# `gh api -X POST repos/{owner}/{repo}/rulesets --input <file>`);
+# this script is the client-side belt-and-braces.
 set -euo pipefail
 
+# pnpm can forward the literal `--` from `pnpm run merge:pr -- <n>` as
+# an argument of its own; tolerate it so both documented forms work.
+if [[ "${1:-}" == "--" ]]; then shift; fi
 pr="${1:?usage: merge-pr.sh <pr-number>}"
 
 # Check runs are registered asynchronously after a push — polling too

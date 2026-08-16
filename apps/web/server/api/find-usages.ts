@@ -5,7 +5,11 @@ import { confinedPath } from "../lib/confined-path.js";
 import { BadRequestError, jsonBody } from "../lib/http-errors.js";
 import { reconcileWarnings } from "../lib/index-health-warnings.js";
 
-export function mountFindUsages(app: Hono, config: Config, getRuntime: () => Promise<Runtime>): void {
+export function mountFindUsages(
+  app: Hono,
+  config: Config,
+  getRuntime: () => Promise<Runtime>,
+): void {
   app.post("/api/find-usages", async (c) => {
     const raw = await jsonBody(c);
     // Shared per-operation input spec (SRV-5) — same bounds + error
@@ -24,7 +28,10 @@ export function mountFindUsages(app: Hono, config: Config, getRuntime: () => Pro
     // MCP tool scoped to the indexed parent and found them.
     const result = findSymbolUsages(rt.discovery, rt.state, symbol, scopePath);
     if (result.kind === "outside-indexed") {
-      return c.json({ error: "path is not inside any indexed project" }, 404);
+      return c.json(
+        { error: "path is not inside any indexed project; omit path to search every project" },
+        404,
+      );
     }
 
     const defs: UsageHit[] = [];

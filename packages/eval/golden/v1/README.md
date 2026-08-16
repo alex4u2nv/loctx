@@ -2,8 +2,8 @@
 
 ## Status
 
-**Seed set, not human-audited.** Authored by an autonomous Claude run
-on 2026-05-23. Every row carries `"provenance": "autonomous-v1"`.
+**Machine-generated seed set, not human-audited.** Built on 2026-05-23;
+every row carries `"provenance": "autonomous-v1"`.
 
 This set is good enough to:
 
@@ -35,7 +35,7 @@ stay frozen for the life of v1.
 
 ## Query distribution
 
-48 queries across the four buckets the plan called for:
+48 queries across four buckets:
 
 | bucket | count |
 | --- | --- |

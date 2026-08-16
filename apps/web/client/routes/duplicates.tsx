@@ -79,7 +79,12 @@ export function DuplicatesPage() {
             style={{ width: "6rem" }}
           />
         </label>
-        <button type="button" className="btn" disabled={running || projectId === ""} onClick={() => void run()}>
+        <button
+          type="button"
+          className="btn"
+          disabled={running || projectId === ""}
+          onClick={() => void run()}
+        >
           {running ? "Scanning…" : "Find duplicates"}
         </button>
       </div>

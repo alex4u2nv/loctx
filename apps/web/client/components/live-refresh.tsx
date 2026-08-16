@@ -101,7 +101,7 @@ export function useLiveRefreshEvent(onEvent: () => void): void {
  * Sharing the single module-level connection matters: every separate
  * `new EventSource()` counts toward Chrome's 6-connection per-origin
  * limit and starves later document/API requests when several admin
- * tabs are open (#TODO-issue).
+ * tabs are open.
  */
 export function useLiveRefreshData<T>(onEvent: (event: T) => void): void {
   useEffect(() => {
@@ -130,8 +130,7 @@ export function LiveRefresh() {
     };
   }, []);
 
-  const dotClass =
-    state === "open" ? "dot-ok" : state === "closed" ? "dot-bad" : "dot-warn";
+  const dotClass = state === "open" ? "dot-ok" : state === "closed" ? "dot-bad" : "dot-warn";
   const tooltip =
     state === "open"
       ? `live · last event: ${lastAt ? new Date(lastAt).toLocaleTimeString() : "—"}`

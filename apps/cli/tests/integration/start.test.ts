@@ -73,8 +73,7 @@ beforeAll(async () => {
     await waitForReady(port, 30_000);
   } catch (err) {
     // Surface diagnostic info so CI failures aren't a black hole.
-    const exit =
-      child.exitCode === null ? "still running" : `exit=${child.exitCode}`;
+    const exit = child.exitCode === null ? "still running" : `exit=${child.exitCode}`;
     console.error(
       `\n[loctx-e2e] daemon failed to come up (${exit}). Dumping captured output:\n` +
         `--- stdout ---\n${stdoutBuffer.slice(-4000) || "(empty)"}\n` +
@@ -167,7 +166,10 @@ async function waitForReady(p: number, timeoutMs: number): Promise<void> {
   throw new Error(`server did not come up on port ${p} in ${timeoutMs}ms`);
 }
 
-async function mcpCall(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function mcpCall(
+  method: string,
+  params?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
   const body = JSON.stringify({
     jsonrpc: "2.0",
     id: Math.floor(Math.random() * 1_000_000),

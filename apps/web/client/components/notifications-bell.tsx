@@ -24,7 +24,9 @@ export function NotificationsBell() {
         type="button"
         className="nav-bell"
         onClick={() => setOpen(true)}
-        title={count === 0 ? "Notifications (none)" : `${count} notification${count === 1 ? "" : "s"}`}
+        title={
+          count === 0 ? "Notifications (none)" : `${count} notification${count === 1 ? "" : "s"}`
+        }
         aria-label={count === 0 ? "Notifications, no new" : `${count} notifications`}
       >
         <Icon name="bell" />
@@ -48,8 +50,8 @@ function NotificationsModal({
     <Modal title="Notifications" titleId="notifications-title" onClose={onClose} maxWidth="640px">
       {notifications.length === 0 ? (
         <p className="modal-body" style={{ color: "var(--muted)" }}>
-          No active notifications. The bell will surface reconcile passes, stuck rebuild flags,
-          and watcher failures as they happen.
+          No active notifications. The bell will surface reconcile passes, stuck rebuild flags, and
+          watcher failures as they happen.
         </p>
       ) : (
         <ul className="notification-list">

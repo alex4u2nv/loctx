@@ -4,7 +4,7 @@
  * a faked searcher/runtime.
  */
 
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,7 +43,9 @@ describe("POST /api/search — validation", () => {
 
   it("400s on a non-string language and a non-boolean coverage", async () => {
     expect((await postJson(app(), "/api/search", { query: "x", language: 7 })).status).toBe(400);
-    expect((await postJson(app(), "/api/search", { query: "x", coverage: "yes" })).status).toBe(400);
+    expect((await postJson(app(), "/api/search", { query: "x", coverage: "yes" })).status).toBe(
+      400,
+    );
   });
 });
 
@@ -125,7 +127,7 @@ describe("POST /api/search — happy path + errors", () => {
       fakeRuntime({
         searcher: {
           search: (async () => {
-            throw new Error("/Users/alex/secret ONNX blew up");
+            throw new Error("/Users/you/secret ONNX blew up");
           }) as never,
         },
       }),

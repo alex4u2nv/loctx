@@ -6,10 +6,12 @@ if [ "${CLAUDE_PRECOMMIT_SKIP:-0}" = "1" ]; then
   exit 0
 fi
 
+# Self-skip when the claude CLI isn't installed (matches lefthook.yml +
+# CONTRIBUTING.md). The review is a maintainer convenience — an outside
+# contributor without Claude Code must still be able to commit.
 if ! command -v claude >/dev/null 2>&1; then
-  echo "Claude CLI was not found on PATH."
-  echo "Install Claude Code or skip with CLAUDE_PRECOMMIT_SKIP=1 git commit ..."
-  exit 1
+  echo "Claude CLI not found on PATH — skipping AI pre-commit review."
+  exit 0
 fi
 
 if git diff --cached --quiet --exit-code; then

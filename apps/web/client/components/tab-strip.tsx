@@ -12,13 +12,7 @@ export interface Tab {
   readonly label: string;
 }
 
-export function TabStrip({
-  tabs,
-  ariaLabel,
-}: {
-  tabs: ReadonlyArray<Tab>;
-  ariaLabel: string;
-}) {
+export function TabStrip({ tabs, ariaLabel }: { tabs: ReadonlyArray<Tab>; ariaLabel: string }) {
   return (
     <nav className="tab-strip" aria-label={ariaLabel}>
       {tabs.map((t) => (

@@ -17,9 +17,7 @@ test("clicking a NavLink swaps the rendered route", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible({ timeout: 5000 });
 });
 
-test("navigated page content is revealed, not left blank at opacity:0 (#438)", async ({
-  page,
-}) => {
+test("navigated page content is revealed, not left blank at opacity:0 (#438)", async ({ page }) => {
   // Scroll-reveal tags every .card with data-reveal (opacity:0) and only the
   // reveal controller flips it to .reveal-visible. A zero-size measurement
   // during the lazy-route mount used to leave above-the-fold cards stuck

@@ -21,7 +21,8 @@ afterEach(async () => {
 });
 
 function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
-  const projects = [{ id: "proj-a", name: "alpha", root: "/ws/alpha" }];
+  const projectA = { id: "proj-a", name: "alpha", root: "/ws/alpha" };
+  const projects = [projectA];
   return {
     config: {
       source: null,
@@ -74,7 +75,17 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
           warnings: [],
         }) satisfies SearchResponse,
     },
-    indexer: { indexProject: async () => ({ project: projects[0]!, indexed: 0, skipped: 0, failed: 0, elapsedSeconds: 0, failures: [], total: 0 }) },
+    indexer: {
+      indexProject: async () => ({
+        project: projectA,
+        indexed: 0,
+        skipped: 0,
+        failed: 0,
+        elapsedSeconds: 0,
+        failures: [],
+        total: 0,
+      }),
+    },
     reconciler: {
       status: () => ({
         running: false,
@@ -192,7 +203,10 @@ describe("MCP Server + registry over in-memory transport", () => {
     const names = (await client.listTools()).tools.map((t) => t.name);
     expect(names).toContain("admin_workspace");
 
-    const result = await client.callTool({ name: "admin_workspace", arguments: { action: "compact" } });
+    const result = await client.callTool({
+      name: "admin_workspace",
+      arguments: { action: "compact" },
+    });
     expect(result.isError).toBeFalsy();
     const payload = JSON.parse(
       (result.content as Array<{ type: string; text: string }>)[0]?.text ?? "{}",
@@ -203,7 +217,10 @@ describe("MCP Server + registry over in-memory transport", () => {
 
   it("refuses an admin_workspace call when admin is disabled even if the name is guessed", async () => {
     const { client } = await connectedPair(adminRuntime(false));
-    const result = await client.callTool({ name: "admin_workspace", arguments: { action: "compact" } });
+    const result = await client.callTool({
+      name: "admin_workspace",
+      arguments: { action: "compact" },
+    });
     expect(result.isError).toBe(true);
   });
 

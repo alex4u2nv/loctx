@@ -33,7 +33,9 @@ export function initScrollReveal(root: HTMLElement): () => void {
       entries
         .filter((e) => e.isIntersecting)
         .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
-        .forEach((e, i) => reveal(e.target as HTMLElement, i));
+        .forEach((e, i) => {
+          reveal(e.target as HTMLElement, i);
+        });
     },
     // Trigger a touch before the element is fully in view so it's settled by
     // the time it reaches reading position.

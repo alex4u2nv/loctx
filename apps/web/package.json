@@ -4,6 +4,13 @@
   "description": "Admin / management UI for loctx (Vite SPA + Hono).",
   "type": "module",
   "private": true,
+  "license": "Apache-2.0",
+  "author": "Alex Mahabir",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alex4u2nv/loctx.git",
+    "directory": "apps/web"
+  },
   "engines": {
     "node": ">=22"
   },

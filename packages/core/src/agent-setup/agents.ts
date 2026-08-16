@@ -201,7 +201,3 @@ export const AGENTS: ReadonlyArray<AgentDef> = [
     ],
   },
 ];
-
-export function agentById(id: string): AgentDef | undefined {
-  return AGENTS.find((a) => a.id === id);
-}

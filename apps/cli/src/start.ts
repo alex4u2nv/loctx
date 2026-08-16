@@ -522,7 +522,7 @@ function warnIfNofileLow(projectCount: number): void {
     `[loctx start] WARNING: open-files limit is ${status.current} (recommended >= ${status.recommended}).`,
   );
   console.error(
-    `[loctx start] chokidar opens ~1-2 fds per watched dir; with ${projectCount} project(s) this will likely flood with EMFILE.`,
+    `[loctx start] the file watcher holds open-file handles per watched project; with ${projectCount} project(s) the current limit is likely to be exhausted.`,
   );
   console.error(prefixedNofileHint());
 }
@@ -740,7 +740,7 @@ function healLastIndexedAt(
     }
   }
   if (healed > 0) {
-    console.error(`[loctx start] backfilled last_indexed_at for ${healed} project(s) (#275)`);
+    console.error(`[loctx start] restored missing index timestamps for ${healed} project(s).`);
   }
 }
 

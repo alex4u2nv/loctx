@@ -15,8 +15,8 @@ import { SnippetModal } from "../components/snippet-modal";
 import { api } from "../lib/api";
 import { SEARCH_DEFAULT_LIMIT, type SearchQuery, searchCodec } from "../lib/query-codecs";
 import { useFetch } from "../lib/use-fetch";
-import { useUrlQuery } from "../lib/use-url-query";
 import { useSnippetSelection } from "../lib/use-snippet-selection";
+import { useUrlQuery } from "../lib/use-url-query";
 
 export function SearchPage() {
   // URL-driven query state machine (audit WEB-2): params→state, submit
@@ -52,84 +52,84 @@ export function SearchPage() {
       <SearchTabs />
 
       <div className="card-stack">
-      <div className="card" id="search-query">
-      <QueryForm
-        // Re-mount when URL params change so the uncontrolled inputs pick
-        // up fresh defaultValues (e.g. after "narrow to this subtree").
-        key={`${query}|${path}|${limit}|${language}|${coverage}`}
-        busy={busy}
-        submitLabel="Search"
-        busyLabel="Searching…"
-        fields={[
-          {
-            id: "q",
-            name: "q",
-            label: "query",
-            defaultValue: query,
-            placeholder: "natural language or code fragment",
-          },
-          {
-            id: "path",
-            name: "path",
-            label: "path",
-            datalist: PROJECT_PATHS_DATALIST_ID,
-            defaultValue: path,
-            placeholder: "project root or subtree",
-          },
-          {
-            id: "limit",
-            name: "limit",
-            label: "limit",
-            type: "number",
-            min: 1,
-            max: 100,
-            defaultValue: String(limit),
-            width: "5rem",
-          },
-          {
-            id: "language",
-            name: "language",
-            label: "language",
-            placeholder: "any",
-            defaultValue: language,
-            width: "8rem",
-          },
-          {
-            id: "coverage",
-            name: "coverage",
-            label: "coverage",
-            type: "checkbox",
-            defaultChecked: coverage,
-            title:
-              "Expand top hits with their callers + importers via the symbol cross-reference graph. Useful for refactor planning ('what else touches X')",
-          },
-        ]}
-        onSubmit={(values) =>
-          submit({
-            q: values["q"] ?? "",
-            path: values["path"] ?? "",
-            limit:
-              Number.parseInt(values["limit"] ?? String(SEARCH_DEFAULT_LIMIT), 10) ||
-              SEARCH_DEFAULT_LIMIT,
-            language: values["language"] ?? "",
-            coverage: values["coverage"] === "on",
-          })
-        }
-      />
-      <ProjectPathsDatalist projects={projectsCall.data?.active} />
-      </div>
+        <div className="card" id="search-query">
+          <QueryForm
+            // Re-mount when URL params change so the uncontrolled inputs pick
+            // up fresh defaultValues (e.g. after "narrow to this subtree").
+            key={`${query}|${path}|${limit}|${language}|${coverage}`}
+            busy={busy}
+            submitLabel="Search"
+            busyLabel="Searching…"
+            fields={[
+              {
+                id: "q",
+                name: "q",
+                label: "query",
+                defaultValue: query,
+                placeholder: "natural language or code fragment",
+              },
+              {
+                id: "path",
+                name: "path",
+                label: "path",
+                datalist: PROJECT_PATHS_DATALIST_ID,
+                defaultValue: path,
+                placeholder: "project root or subtree",
+              },
+              {
+                id: "limit",
+                name: "limit",
+                label: "limit",
+                type: "number",
+                min: 1,
+                max: 100,
+                defaultValue: String(limit),
+                width: "5rem",
+              },
+              {
+                id: "language",
+                name: "language",
+                label: "language",
+                placeholder: "any",
+                defaultValue: language,
+                width: "8rem",
+              },
+              {
+                id: "coverage",
+                name: "coverage",
+                label: "coverage",
+                type: "checkbox",
+                defaultChecked: coverage,
+                title:
+                  "Expand top hits with their callers + importers via the symbol cross-reference graph. Useful for refactor planning ('what else touches X')",
+              },
+            ]}
+            onSubmit={(values) =>
+              submit({
+                q: values["q"] ?? "",
+                path: values["path"] ?? "",
+                limit:
+                  Number.parseInt(values["limit"] ?? String(SEARCH_DEFAULT_LIMIT), 10) ||
+                  SEARCH_DEFAULT_LIMIT,
+                language: values["language"] ?? "",
+                coverage: values["coverage"] === "on",
+              })
+            }
+          />
+          <ProjectPathsDatalist projects={projectsCall.data?.active} />
+        </div>
 
-      {error !== null ? <AsyncError error={error} /> : null}
+        {error !== null ? <AsyncError error={error} /> : null}
 
-      <div className="card" id="search-results">
-      {error !== null ? null : data === null ? (
-        query ? null /* URL-driven submit is in flight; brief blank is OK */ : (
-          <p className="pullquote">Enter a query to search the locally-indexed workspace.</p>
-        )
-      ) : (
-        <Results response={data} />
-      )}
-      </div>
+        <div className="card" id="search-results">
+          {error !== null ? null : data === null ? (
+            query ? null /* URL-driven submit is in flight; brief blank is OK */ : (
+              <p className="pullquote">Enter a query to search the locally-indexed workspace.</p>
+            )
+          ) : (
+            <Results response={data} />
+          )}
+        </div>
       </div>
       {data !== null ? (
         <SectionNav
@@ -334,8 +334,8 @@ function NoResults({ response }: { response: SearchPayload }) {
   if (scope.mode === "all") {
     return (
       <p className="pullquote">
-        No results across every indexed project. The query may be too specific, or the term may
-        not appear in indexed content.
+        No results across every indexed project. The query may be too specific, or the term may not
+        appear in indexed content.
       </p>
     );
   }
@@ -348,9 +348,8 @@ function NoResults({ response }: { response: SearchPayload }) {
   // here.
   return (
     <p className="pullquote">
-      No results in <code>{scopeLabel}</code>. Try removing the path filter to search every
-      project, or check the query spelling.
+      No results in <code>{scopeLabel}</code>. Try removing the path filter to search every project,
+      or check the query spelling.
     </p>
   );
 }
-

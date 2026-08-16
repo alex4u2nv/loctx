@@ -67,8 +67,7 @@ export function localDaemonGuard(opts: SecurityMiddlewareOptions): MiddlewareHan
     }
 
     const origin = c.req.header("origin");
-    const originValue =
-      origin !== undefined && origin !== "" && origin !== "null" ? origin : null;
+    const originValue = origin !== undefined && origin !== "" && origin !== "null" ? origin : null;
     if (originValue !== null && !allowedOrigins.has(originValue.toLowerCase())) {
       // MCP clients (Claude Code, Cursor, Windsurf, …) connect with
       // their own identifier as Origin (e.g. "claude-code"). They are

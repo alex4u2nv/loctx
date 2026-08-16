@@ -11,8 +11,8 @@
  * the bell badge updates in step with the rest of the admin UI.
  */
 
-import { useCallback, useEffect, useState } from "react";
 import type { ProjectsPayload, StatusPayload, ToolsStatusPayload } from "@shared/contracts";
+import { useCallback, useEffect, useState } from "react";
 import { useLiveRefreshEvent } from "../components/live-refresh";
 import { api } from "./api";
 
@@ -114,7 +114,7 @@ function deriveNotifications(
   // In-flight compaction (warn): the background maintenance pass is CPU/IO
   // heavy. Surface it so an operator who notices the daemon spike knows
   // it's loctx reclaiming index disk, not a stuck process.
-  if (status !== null && status.maintenance?.running) {
+  if (status?.maintenance?.running) {
     out.push({
       id: `compact:${status.maintenance.startedAt ?? "unknown"}`,
       kind: "warn",
@@ -170,7 +170,10 @@ function deriveNotifications(
   const reconcileRunning = status?.reconciliation.running ?? false;
   if (!reconcileRunning) {
     for (const p of projects.active) {
-      if (p.rebuildPendingAt !== null && (p.rebuilding === null || p.rebuilding.status !== "running")) {
+      if (
+        p.rebuildPendingAt !== null &&
+        (p.rebuilding === null || p.rebuilding.status !== "running")
+      ) {
         out.push({
           id: `rebuild-pending:${p.id}:${p.rebuildPendingAt}`,
           kind: "info",

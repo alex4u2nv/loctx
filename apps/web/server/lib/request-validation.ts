@@ -24,11 +24,7 @@ export interface SanitizedError {
 }
 
 /** Generic error-response builder. Logs the full error to stderr. */
-export function sanitizeError(
-  label: string,
-  err: unknown,
-  hint?: string,
-): SanitizedError {
+export function sanitizeError(label: string, err: unknown, hint?: string): SanitizedError {
   const message = err instanceof Error ? err.message : String(err);
   console.error(`[api:${label}] ${message}`);
   return Object.freeze({

@@ -248,13 +248,11 @@ describe.skipIf(process.env["LOCTX_E2E_NETWORK"] !== "1")(
       expect(indexed.status).toBe(0);
       expect(indexed.stdout).toMatch(/indexed=2/);
 
-      const searched = runCli(
-        ["search", "rate limit middleware", "--path", ctx.project],
-        { LOCTX_EMBEDDING_PROVIDER: "" },
-      );
+      const searched = runCli(["search", "rate limit middleware", "--path", ctx.project], {
+        LOCTX_EMBEDDING_PROVIDER: "",
+      });
       expect(searched.status).toBe(0);
       expect(searched.stdout).toContain("src/rate-limit.ts");
     }, 120_000);
   },
 );
-

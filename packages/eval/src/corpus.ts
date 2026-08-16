@@ -7,8 +7,7 @@
  * `git clone` + `checkout` otherwise) and runs loctx's indexer against
  * it. Determinism check: hashes the chunk-boundary set after indexing
  * and surfaces the digest in the run JSON so two runs against the same
- * corpus can be compared byte-for-byte. See "Chunking determinism" in
- * the eval-harness plan.
+ * corpus can be compared byte-for-byte.
  */
 
 import { execFile, execFileSync } from "node:child_process";
@@ -267,7 +266,7 @@ export async function snapshotCorpus(
  * temp dir scoped to this corpus run. Forces `LOCTX_EMBEDDING_PROVIDER=fake`
  * for now: ONNX model downloads aren't a meaningful signal in eval, and
  * the deterministic fake provider is bit-exact across runs (covers the
- * "embedder nondeterminism" risk in the plan).
+ * "embedder nondeterminism" risk: real models can differ across platforms).
  *
  * The caller owns the returned runtime + dataDir cleanup — invoke
  * `closeRuntime()` to release both.
