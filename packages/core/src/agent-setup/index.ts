@@ -7,5 +7,16 @@
 
 export * from "./agents.js";
 export * from "./setup.js";
+export {
+  applySkillsInstall,
+  type BundledSkill,
+  type BundledSkillName,
+  defaultUserSkillsDir,
+  listBundledSkills,
+  planSkillsInstall,
+  type SkillInstallPlan,
+  type SkillsInstallOptions,
+  type SkillsInstallResult,
+} from "./skills.js";
 export * from "./templates.js";
 export * from "./writers.js";
