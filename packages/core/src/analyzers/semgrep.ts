@@ -22,8 +22,7 @@
  * names, `start_line`/`end_line` instead of nested `start.line`.
  */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { execFileAsync as exec } from "../proc.js";
 import {
   capFindings,
   detectCommand,
@@ -33,8 +32,6 @@ import {
 } from "./rule-pack.js";
 
 export const SEMGREP_VERSION = 1;
-
-const exec = promisify(execFile);
 
 export async function detectSemgrep(command = "semgrep"): Promise<string | null> {
   // semgrep is a heavy Python app; `--version` cold-starts the

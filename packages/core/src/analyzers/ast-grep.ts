@@ -29,13 +29,12 @@
  * the rest of the codebase.
  */
 
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+import { execFileAsync as exec } from "../proc.js";
 import {
   capFindings,
   detectCommand,
@@ -50,8 +49,6 @@ import {
 // ~10k rows that failed under the old invocation get re-run (and now
 // succeed) on the next backfill/reconcile instead of staying failed.
 export const AST_GREP_VERSION = 2;
-
-const exec = promisify(execFile);
 
 /**
  * Generate (once per unique ruleDirs set, cached for the process) a

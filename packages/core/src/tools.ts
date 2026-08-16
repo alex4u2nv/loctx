@@ -19,13 +19,11 @@
  * provisions the binary. lizard runs with no extra config.
  */
 
-import { execFile } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { promisify } from "node:util";
 import type { Config } from "./config.js";
+import { execFileAsync as exec } from "./proc.js";
 
-const exec = promisify(execFile);
 const isWin = process.platform === "win32";
 
 export type ToolName = "lizard" | "semgrep" | "ast-grep";
