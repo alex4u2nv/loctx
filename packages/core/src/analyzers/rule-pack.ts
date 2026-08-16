@@ -7,10 +7,7 @@
  * binary produced a hit.
  */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const exec = promisify(execFile);
+import { execFileAsync as exec } from "../proc.js";
 
 /**
  * Probe an external analyzer binary by running `<command> --version`

@@ -18,8 +18,7 @@
  * older than 1.17 omit some columns; the parser tolerates short rows.
  */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { execFileAsync as exec } from "../proc.js";
 import { detectCommand } from "./rule-pack.js";
 
 export const LIZARD_VERSION = 1;
@@ -38,8 +37,6 @@ export interface LizardFileResult {
   readonly file: string;
   readonly functions: ReadonlyArray<LizardFunctionMetric>;
 }
-
-const exec = promisify(execFile);
 
 /**
  * Resolve the lizard command. Defaults to `lizard` on PATH; users

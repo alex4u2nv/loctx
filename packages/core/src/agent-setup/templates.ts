@@ -5,10 +5,7 @@
  * every agent format in `agents.ts` renders from here.
  */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const exec = promisify(execFile);
+import { execFileAsync as exec } from "../proc.js";
 
 /** Markers bracket loctx-owned blocks in shared files (CLAUDE.md, AGENTS.md,
  *  copilot-instructions.md) so we update only our block, never the rest. */

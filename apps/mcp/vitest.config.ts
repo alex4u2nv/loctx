@@ -1,8 +1,4 @@
 import { defineConfig } from "vitest/config";
+import { workspaceTest } from "../../vitest.shared";
 
-export default defineConfig({
-  test: {
-    include: ["tests/**/*.test.ts"],
-    testTimeout: 15_000,
-  },
-});
+export default defineConfig({ test: workspaceTest({ testTimeout: 15_000 }) });
