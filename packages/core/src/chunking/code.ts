@@ -306,14 +306,30 @@ function fillCoverageGaps(
   for (const c of sorted) {
     if (c.startLine - 1 >= cursor + GAP_THRESHOLD_LINES - 1) {
       out.push(
-        ...chunkLineRange(document, lines, GAP_FILL_CHUNKER, cursor, c.startLine - 1, language),
+        ...chunkLineRange({
+          document,
+          lines,
+          chunker: GAP_FILL_CHUNKER,
+          startLine: cursor,
+          endLine: c.startLine - 1,
+          language,
+        }),
       );
     }
     out.push(c);
     cursor = Math.max(cursor, c.endLine + 1);
   }
   if (totalLines - cursor + 1 >= GAP_THRESHOLD_LINES) {
-    out.push(...chunkLineRange(document, lines, GAP_FILL_CHUNKER, cursor, totalLines, language));
+    out.push(
+      ...chunkLineRange({
+        document,
+        lines,
+        chunker: GAP_FILL_CHUNKER,
+        startLine: cursor,
+        endLine: totalLines,
+        language,
+      }),
+    );
   }
   return out.sort((a, b) => a.startLine - b.startLine);
 }
@@ -329,14 +345,23 @@ function fillCoverageGaps(
  * starts/ends mid-construct, top-level call/import nodes still
  * yield extractable refs.
  */
-function chunkLineRange(
-  document: SourceDocument,
-  lines: ReadonlyArray<string>,
-  chunker: Chunker,
-  startLine: number,
-  endLine: number,
-  language: string,
-): CodeChunk[] {
+interface LineRangeInput {
+  readonly document: SourceDocument;
+  readonly lines: ReadonlyArray<string>;
+  readonly chunker: Chunker;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly language: string;
+}
+
+function chunkLineRange({
+  document,
+  lines,
+  chunker,
+  startLine,
+  endLine,
+  language,
+}: LineRangeInput): CodeChunk[] {
   const slice = lines.slice(startLine - 1, endLine).join("\n");
   if (slice.trim() === "") return [];
   const sliceDoc: SourceDocument = {
