@@ -143,10 +143,29 @@ export function resolveGitSource(
   return { kind: "url", url: repo };
 }
 
+/**
+ * process.env minus git's repo-override variables (#530). Hooks run
+ * from a linked worktree (lefthook pre-push) export GIT_DIR /
+ * GIT_WORK_TREE / GIT_INDEX_FILE, and those OVERRIDE `-C` — every git
+ * call below would silently operate on the hook's repo instead of the
+ * one it was pointed at, making resolveGitSource report "sha not
+ * found" and fall back to a URL clone.
+ */
+function gitEnv(): NodeJS.ProcessEnv {
+  const { GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, ...rest } = process.env;
+  void GIT_DIR;
+  void GIT_WORK_TREE;
+  void GIT_INDEX_FILE;
+  return rest;
+}
+
 /** True when `root` is a git repo whose object DB contains `sha` as a commit. */
 function repoContainsCommit(root: string, sha: string): boolean {
   try {
-    execFileSync("git", ["-C", root, "cat-file", "-e", `${sha}^{commit}`], { stdio: "ignore" });
+    execFileSync("git", ["-C", root, "cat-file", "-e", `${sha}^{commit}`], {
+      stdio: "ignore",
+      env: gitEnv(),
+    });
     return true;
   } catch {
     return false;
@@ -192,15 +211,11 @@ export async function snapshotCorpus(
   const worktreePath = join(tmpRoot, "checkout");
   if (source.kind === "local") {
     try {
-      await execFileAsync("git", [
-        "-C",
-        source.path,
-        "worktree",
-        "add",
-        "--detach",
-        worktreePath,
-        corpus.sha,
-      ]);
+      await execFileAsync(
+        "git",
+        ["-C", source.path, "worktree", "add", "--detach", worktreePath, corpus.sha],
+        { env: gitEnv() },
+      );
     } catch (err) {
       const msg = errorMessage(err);
       throw new CorpusError(
@@ -218,6 +233,7 @@ export async function snapshotCorpus(
         try {
           execFileSync("git", ["-C", source.path, "worktree", "remove", "--force", worktreePath], {
             stdio: "ignore",
+            env: gitEnv(),
           });
         } catch {
           // Intentional — see comment above.
@@ -231,8 +247,10 @@ export async function snapshotCorpus(
   // sha may not be the tip; a full clone is simpler than `--depth 1`
   // + `git fetch <sha>` (the latter requires uploadpack.allowReachableSHA1InWant).
   try {
-    await execFileAsync("git", ["clone", source.url, worktreePath]);
-    await execFileAsync("git", ["-C", worktreePath, "checkout", "--detach", corpus.sha]);
+    await execFileAsync("git", ["clone", source.url, worktreePath], { env: gitEnv() });
+    await execFileAsync("git", ["-C", worktreePath, "checkout", "--detach", corpus.sha], {
+      env: gitEnv(),
+    });
   } catch (err) {
     throw new CorpusError(
       `git clone ${source.url} → ${worktreePath} (sha ${corpus.sha}) failed: ${errorMessage(err)}`,
