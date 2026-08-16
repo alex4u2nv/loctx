@@ -43,6 +43,10 @@ import {
   type QualityReport,
   type QualityReportPorts,
 } from "./analyzers/quality-report.js";
+import {
+  findSemanticDuplicateGroups,
+  type SemanticDuplicatesResult,
+} from "./analyzers/semantic-duplicates.js";
 import type { Config } from "./config.js";
 import { DEFAULT_PROJECT_MARKERS, type MarkerSpec, WorkspaceDiscovery } from "./discovery.js";
 import {
@@ -53,7 +57,7 @@ import {
 import { type FilteringRules, loadFilteringRules, ProjectFilter } from "./filtering.js";
 import { combinedGitignore } from "./gitignore.js";
 import { ProjectIndexer, Reconciler } from "./indexing/index.js";
-import type { FileId, Project } from "./models.js";
+import type { FileId, Project, ProjectId } from "./models.js";
 import { applyNetworkSettings } from "./network.js";
 import { WorkspaceSearcher } from "./retrieval/index.js";
 import { createVectorStore, StateStore, type VectorStore } from "./storage/index.js";
@@ -678,6 +682,65 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
       state.close();
     },
   });
+}
+
+/**
+ * Semantic near-duplicate pass (#523) shared by the MCP find_duplicates
+ * tool and the web duplicates inspector, so the two surfaces cannot
+ * drift on gating, caps, or truncation semantics. Gated ONLY by
+ * `analyzers.duplicates.semantic` — the background-queue knobs control
+ * write-time analyzers, which this query-time pass never touches.
+ */
+export async function runSemanticDuplicates(
+  runtime: Pick<Runtime, "config" | "vectors">,
+  projectId: ProjectId | null,
+  minMembers: number,
+): Promise<{
+  readonly semantic: SemanticDuplicatesResult | null;
+  readonly semanticDisabled: string | null;
+  /** Truncation warning text when the scan cap was hit; null otherwise. */
+  readonly warning: string | null;
+}> {
+  const dup = runtime.config.analyzers.duplicates;
+  if (!dup.semantic) {
+    return {
+      semantic: null,
+      semanticDisabled:
+        "analyzers.duplicates.semantic is false in config — enable it to include embedding-based near-duplicate groups.",
+      warning: null,
+    };
+  }
+  const cap = dup.semanticMaxChunks;
+  try {
+    // One extra row makes the truncation signal exact: a corpus of
+    // exactly `cap` chunks is a complete scan, not a truncated one.
+    const scanned = await runtime.vectors.scanChunks({
+      ...(projectId !== null ? { projectId } : {}),
+      limit: cap + 1,
+    });
+    const truncated = scanned.length > cap;
+    const semantic = await findSemanticDuplicateGroups(scanned.slice(0, cap), {
+      threshold: dup.semanticThreshold / 100,
+      truncated,
+      minFiles: Math.max(2, minMembers),
+    });
+    return {
+      semantic,
+      semanticDisabled: null,
+      warning: truncated
+        ? `semantic scan capped at ${cap} chunks (analyzers.duplicates.semanticMaxChunks) — coverage is partial and group membership can shift between calls; scope with 'path' or raise the cap.`
+        : null,
+    };
+  } catch (err) {
+    // Vector store unavailable (native bindings, corrupt dir, …) must
+    // not take down the SQLite-backed exact groups — degrade to the
+    // disabled-with-reason convention.
+    return {
+      semantic: null,
+      semanticDisabled: `vector store unavailable for the semantic pass: ${(err as Error).message}`,
+      warning: null,
+    };
+  }
 }
 
 /**

@@ -19,7 +19,6 @@ import {
   effectiveSettings,
   estimateQueryValue,
   FIND_LITERAL_COVERAGE_NOTE,
-  findSemanticDuplicateGroups,
   findSymbolUsages,
   inventoryProjects,
   isValueTool,
@@ -34,6 +33,7 @@ import {
   resolveProjectScope,
   resolveUnderWorkspaceRoots,
   runQualityReport,
+  runSemanticDuplicates,
   type SearchResponse,
   type SemanticDuplicatesResult,
   type SymbolRefHit,
@@ -588,44 +588,15 @@ export const tools = {
 
     const groups = runtime.state.findDuplicateGroups(Math.max(2, minMembers), projectId);
 
-    // Semantic near-duplicates (#523): a query-time pairwise pass over
-    // vectors the index already stores. Gated ONLY by its own knob —
-    // backgroundEnabled/duplicates.enabled control the write-time
-    // analyzer queue, which this pass never touches (the vectors are
-    // written by the embedding pipeline regardless).
-    let semantic: SemanticDuplicatesResult | null = null;
-    let semanticDisabled: string | null = null;
-    if (!an.duplicates.semantic) {
-      semanticDisabled =
-        "analyzers.duplicates.semantic is false in config — enable it to include embedding-based near-duplicate groups.";
-    } else {
-      const cap = an.duplicates.semanticMaxChunks;
-      try {
-        // One extra row makes the truncation signal exact: a corpus of
-        // exactly `cap` chunks is a complete scan, not a truncated one.
-        const scanned = await runtime.vectors.scanChunks({
-          ...(projectId !== null ? { projectId: projectId as ProjectId } : {}),
-          limit: cap + 1,
-        });
-        const truncated = scanned.length > cap;
-        semantic = await findSemanticDuplicateGroups(scanned.slice(0, cap), {
-          threshold: an.duplicates.semanticThreshold / 100,
-          truncated,
-          // Mirror the exact-match groups' min_members contract.
-          minFiles: Math.max(2, minMembers),
-        });
-        if (truncated) {
-          warnings.push(
-            `semantic scan capped at ${cap} chunks (analyzers.duplicates.semanticMaxChunks) — coverage is partial and group membership can shift between calls; scope with 'path' or raise the cap.`,
-          );
-        }
-      } catch (err) {
-        // Vector store unavailable (native bindings, corrupt dir, …) must
-        // not take down the SQLite-backed exact groups above — degrade to
-        // the same disabled-with-reason convention.
-        semanticDisabled = `vector store unavailable for the semantic pass: ${(err as Error).message}`;
-      }
-    }
+    // Semantic near-duplicates (#523): shared query-time pass — the
+    // web duplicates inspector runs the identical code, so gating,
+    // caps, and truncation semantics cannot drift between surfaces.
+    const {
+      semantic,
+      semanticDisabled,
+      warning: semanticWarning,
+    } = await runSemanticDuplicates(runtime, (projectId as ProjectId | null) ?? null, minMembers);
+    if (semanticWarning !== null) warnings.push(semanticWarning);
 
     return Object.freeze({
       groups: Object.freeze(groups),

@@ -646,14 +646,37 @@ function UsageTable({ hits }: { hits: ReadonlyArray<UsageHit> }) {
  * Provisioning lives on the Analyzers tab; this only reads.
  */
 function QualitySection({ projectId }: { projectId: string }) {
-  const fetched = useFetch(() => api.projectQuality(projectId), [projectId]);
+  const [rule, setRule] = useState("");
+  const [limit, setLimit] = useState(20);
+  const fetched = useFetch(
+    () => api.projectQuality(projectId, limit, rule),
+    [projectId, limit, rule],
+  );
   const data = fetched.data;
   if (fetched.loading && data === null) return null;
   if (fetched.error !== null || data === null) return null;
   const hasFindings = data.files.length > 0;
+  const ruleIds = [...new Set(data.files.flatMap((f) => f.findings.map((x) => x.ruleId)))].sort();
   return (
     <>
       <h2 id="pd-quality">Quality</h2>
+      <p style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
+        <select value={rule} onChange={(e) => setRule(e.target.value)}>
+          <option value="">all rules</option>
+          {ruleIds.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+        <select value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
+          {[10, 20, 50, 100].map((n) => (
+            <option key={n} value={n}>
+              top {n} files
+            </option>
+          ))}
+        </select>
+      </p>
       {data.disabled !== null ? (
         <Banner tone="warn" soft>
           {data.disabled} Configure on the Analyzers tab.

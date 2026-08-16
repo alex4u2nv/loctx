@@ -35,6 +35,7 @@ export const ROUTES: ReadonlyArray<AppRoute> = [
   },
   { path: "/find-usages", label: "Find usages", icon: "usages", group: "search" },
   { path: "/find-literal", label: "Find literal", icon: "literal", group: "search" },
+  { path: "/duplicates", label: "Duplicates", icon: "copy", group: "search" },
   { path: "/admin", label: "Admin", icon: "admin", group: "admin" },
   { path: "/config", label: "Config", icon: "config", group: "admin" },
   { path: "/analyzers", label: "Analyzers", icon: "analyzers", group: "admin" },
