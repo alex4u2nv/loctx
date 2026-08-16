@@ -410,7 +410,7 @@ export const CONFIG_SCHEMA: ReadonlyArray<SectionSchema> = Object.freeze([
         label: "semantic_max_chunks",
         help: "Row cap on the vector scan feeding the pairwise pass; the response flags truncation when hit. The pass is O(n²) in this cap — keep it where find_duplicates stays interactive.",
         type: "int",
-        default: 1500,
+        default: 3000,
         min: 100,
         max: 5000,
       },

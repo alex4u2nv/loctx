@@ -210,7 +210,8 @@ export async function buildQualityReport(
   if (truncated) {
     notes.push(`cohesion scan capped at ${scanCap} chunks — coverage is partial`);
   }
-  for (const flag of cohesionFlags(computeFileCohesion(scanned.slice(0, scanCap)))) {
+  const cohesionInput = scanned.slice(0, scanCap).filter((c) => !isLicenseLikePath(c.relPath));
+  for (const flag of cohesionFlags(computeFileCohesion(cohesionInput))) {
     if (!relPathById.has(flag.fileId)) continue;
     add(flag.fileId, flag.finding);
   }

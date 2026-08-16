@@ -76,7 +76,7 @@ function semgrepOnlyAnalyzers(semgrep: {
       minUniqueTokens: 15,
       semantic: false,
       semanticThreshold: 92,
-      semanticMaxChunks: 1500,
+      semanticMaxChunks: 3000,
     }),
     semgrep: Object.freeze({
       enabled: semgrep.enabled ?? true,
@@ -490,6 +490,51 @@ describe("quality analyzer end-to-end (#522)", () => {
       // Drift is a query-time rule (#525) — it must NOT appear in the
       // enrichment row (cross-file signals don't persist per file).
       expect((payload.findings ?? []).some((f) => f.ruleId === "quality/doc-drift")).toBe(false);
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it("backfill deletes the stale enrichment row of a now-skipped file (#547)", async () => {
+    const projectRoot = join(tmp, "demo");
+    writeDemoProject(projectRoot, join("src", "app.ts"), "export const answer = 42;\n");
+    writeFileSync(join(projectRoot, "LICENSE"), "MIT License\n".repeat(60));
+    const project = Object.freeze({ id: projectId("demo-1"), name: "demo", root: projectRoot });
+    const licenseId = fileIdFor(project, "LICENSE");
+
+    const analyzers = Object.freeze({
+      ...qualityOnlyAnalyzers({ enabled: false }),
+      duplicates: Object.freeze({
+        enabled: true,
+        windowSize: 5,
+        minUniqueTokens: 1,
+        semantic: false,
+        semanticThreshold: 92,
+        semanticMaxChunks: 3000,
+      }),
+    });
+    const runtime = await buildRuntime(
+      makeTestConfig(projectRoot, join(tmp, "data"), { analyzers }),
+    );
+    try {
+      await runtime.indexer.indexProject(project);
+      await runtime.enrichments.drainAll();
+      // Simulate a pre-skip-rule row: the v2 skip means indexing wrote
+      // nothing for LICENSE, so plant a stale v1 row directly.
+      runtime.state.upsertFileEnrichment({
+        fileId: licenseId,
+        analyzer: "duplicates",
+        analyzerVersion: 1,
+        contentSha: "stale",
+        status: "complete",
+        payloadJson: JSON.stringify({ windows: [], windowSize: 5, minUniqueTokens: 1 }),
+      });
+      expect(runtime.state.getFileEnrichment(licenseId, "duplicates")).not.toBeNull();
+
+      await runtime.backfillAnalyzers(["duplicates"]);
+      await runtime.enrichments.drainAll();
+      // The skip rule fired during backfill and swept the stale row.
+      expect(runtime.state.getFileEnrichment(licenseId, "duplicates")).toBeNull();
     } finally {
       await runtime.close();
     }

@@ -392,7 +392,7 @@ const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
     minUniqueTokens: 15,
     semantic: false,
     semanticThreshold: 92,
-    semanticMaxChunks: 1500,
+    semanticMaxChunks: 3000,
   }),
   semgrep: Object.freeze({
     enabled: true,

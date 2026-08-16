@@ -417,6 +417,7 @@ function enqueueFileAnalyzers(
   tools: ToolProbeCache,
   params: AnalyzerEnqueueParams,
   only?: ReadonlySet<string>,
+  onSkipped?: (analyzerName: string, fileId: FileId) => void,
 ): number {
   if (!config.analyzers.backgroundEnabled) return 0;
   let enqueued = 0;
@@ -426,7 +427,13 @@ function enqueueFileAnalyzers(
     const command = analyzer.command(config);
     if (command !== null && !tools.ready(analyzer.name, command)) continue;
     const task = analyzer.buildTask(config, params);
-    if (task === null) continue;
+    if (task === null) {
+      // The analyzer deliberately skips this file (glob filter, license
+      // skip, …). Let the caller clear any stale stored row (#547) so
+      // pre-skip-rule enrichments can't feed query-time aggregations.
+      onSkipped?.(analyzer.name, params.fileId);
+      continue;
+    }
     enrichments.enqueue(task);
     enqueued++;
   }
@@ -588,7 +595,14 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
 
   const indexer = new ProjectIndexer(state, vectors, embeddings, filterFor, {
     afterFileIndexed: (p) => {
-      enqueueFileAnalyzers(config, enrichments, tools, { ...p, index: qualityIndex });
+      enqueueFileAnalyzers(
+        config,
+        enrichments,
+        tools,
+        { ...p, index: qualityIndex },
+        undefined,
+        (name, fileId) => state.deleteFileEnrichment(fileId, name),
+      );
     },
   });
   const reconciler = new Reconciler(state, indexer);
@@ -651,6 +665,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
                 index: qualityIndex,
               },
               new Set([a.name]),
+              (name, skippedId) => state.deleteFileEnrichment(skippedId, name),
             );
           }
         }
@@ -726,7 +741,11 @@ export async function runSemanticDuplicates(
       limit: cap + 1,
     });
     const truncated = scanned.length > cap;
-    const semantic = await findSemanticDuplicateGroups(scanned.slice(0, cap), {
+    // License chunks live in the vector store regardless of the
+    // duplicates analyzer's skip — filter them here so every semantic
+    // surface (MCP, web, report) ignores them (#547).
+    const usable = scanned.slice(0, cap).filter((c) => !isLicenseLikePath(c.relPath));
+    const semantic = await findSemanticDuplicateGroups(usable, {
       threshold: dup.semanticThreshold / 100,
       truncated,
       minFiles: Math.max(2, minMembers),
