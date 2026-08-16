@@ -38,12 +38,13 @@
 
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import type { AnalyzerMetadata, FileId } from "../models.js";
+import { join } from "node:path";
+import type { AnalyzerMetadata, FileId, ProjectId } from "../models.js";
 import type { LizardFileResult } from "./lizard.js";
 import { isMarkdownPath, runMarkdownStaleRefs } from "./quality-markdown.js";
 import { capFindings, type RulePackFileResult, type RulePackFinding } from "./rule-pack.js";
 
-export const QUALITY_VERSION = 2; // v2: markdown context rules (#527)
+export const QUALITY_VERSION = 3; // v3: stale-ref suffix resolution + path-heuristic fixes
 
 /** One chunk of the analyzed file: line range + optional AST metadata. */
 export interface QualityChunkInfo {
@@ -67,6 +68,13 @@ export interface QualityIndexReader {
    * from the file's previous version must not shape current findings).
    */
   lizardForFile(fileId: FileId, contentSha: string): LizardFileResult | null;
+  /**
+   * Resolve a docs-shorthand reference (`components/modal.tsx`) to an
+   * indexed file's relPath by path-suffix match; null when nothing in
+   * the project matches. Keeps `quality/stale-ref` from flagging the
+   * shorthand convention docs actually use.
+   */
+  resolveFileSuffix(projectId: ProjectId, refPath: string): string | null;
 }
 
 export interface QualityThresholds {
@@ -115,6 +123,7 @@ export interface QualityOptions {
 }
 
 export interface QualityMarkdownOptions {
+  readonly projectId: ProjectId;
   readonly projectRoot: string;
 }
 
@@ -163,7 +172,10 @@ export async function runQuality(
   );
   const md = opts.markdown;
   if (md === undefined || !isMarkdownPath(absPath)) return base;
-  const mdFindings = runMarkdownStaleRefs(content, absPath, md.projectRoot, existsSync);
+  const mdFindings = runMarkdownStaleRefs(content, absPath, md.projectRoot, existsSync, (ref) => {
+    const relPath = index.resolveFileSuffix(md.projectId, ref);
+    return relPath === null ? null : join(md.projectRoot, relPath);
+  });
   if (mdFindings.length === 0) return base;
   return Object.freeze({
     ...base,

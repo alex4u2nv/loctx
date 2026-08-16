@@ -26,6 +26,7 @@
 import { join } from "node:path";
 import type { ProjectId } from "../models.js";
 import { cohesionFlags, computeFileCohesion } from "./cohesion.js";
+import { isLicenseLikePath } from "./duplicates.js";
 import {
   type DuplicateGroupLike,
   extractCandidates,
@@ -159,6 +160,18 @@ export async function buildQualityReport(
 
   const files = ports.listFiles(opts.projectId);
   const relPathById = new Map(files.map((f) => [f.fileId, f.relPath]));
+  // Suffix resolver for docs-shorthand refs, built once from the file
+  // list (exact path beats suffix; shortest suffix match wins).
+  const relPaths = files.map((f) => f.relPath);
+  const relPathSet = new Set(relPaths);
+  const resolveSuffix = (ref: string): string | null => {
+    if (relPathSet.has(ref)) return join(opts.projectRoot, ref);
+    let best: string | null = null;
+    for (const rp of relPaths) {
+      if (rp.endsWith(`/${ref}`) && (best === null || rp.length < best.length)) best = rp;
+    }
+    return best === null ? null : join(opts.projectRoot, best);
+  };
 
   // 1. Stored per-file findings from the quality analyzer's rows.
   for (const row of ports.qualityEnrichments(opts.projectId)) {
@@ -175,7 +188,11 @@ export async function buildQualityReport(
 
   // 2. extract-candidate: third-caller duplication over query-time groups.
   for (const c of extractCandidates(ports.duplicateGroups(3, opts.projectId))) {
-    if (!relPathById.has(c.fileId)) continue; // group member no longer indexed
+    const relPath = relPathById.get(c.fileId);
+    if (relPath === undefined) continue; // group member no longer indexed
+    // Legacy duplicates rows may predate the license skip — filter here
+    // too so old enrichments can't reintroduce the noise.
+    if (isLicenseLikePath(relPath)) continue;
     add(c.fileId, c.finding);
   }
 
@@ -214,6 +231,7 @@ export async function buildQualityReport(
         projectRoot: opts.projectRoot,
         driftFloor: opts.driftFloor,
         exists: ports.exists,
+        resolveSuffix,
         vectors: ports.vectors,
       });
       if (drift !== null) add(doc.fileId, drift);

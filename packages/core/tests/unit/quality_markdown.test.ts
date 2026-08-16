@@ -37,6 +37,13 @@ describe("extractPathRefs", () => {
     expect(extractPathRefs(content)).toEqual([]);
   });
 
+  it("rejects version specs — a numeric 'extension' is not a file", () => {
+    expect(extractPathRefs("pinned to `@lancedb/lancedb@0.27` for now")).toEqual([]);
+    expect(extractPathRefs("see `packages/core/src/config.ts` for keys")).toEqual([
+      { raw: "packages/core/src/config.ts", line: 1 },
+    ]);
+  });
+
   it("dedupes an identical ref on the same line", () => {
     const refs = extractPathRefs("`a/b.ts` then `a/b.ts` again");
     expect(refs).toHaveLength(1);
@@ -57,6 +64,32 @@ describe("resolvePathRefs + staleRefFindings", () => {
     );
     expect(resolved[0]?.absPath).toBe("/proj/packages/core/src/a.ts");
     expect(staleRefFindings(resolved)).toEqual([]);
+  });
+
+  it("resolves docs shorthand through the suffix resolver instead of flagging", () => {
+    // `components/modal.tsx` written from repo root — dogfooding found
+    // 44 of 47 stale-ref flags were this shorthand convention.
+    const resolved = resolvePathRefs(
+      [{ raw: "components/modal.tsx", line: 4 }],
+      docDir,
+      root,
+      () => false,
+      (ref) =>
+        ref === "components/modal.tsx" ? "/proj/apps/web/client/components/modal.tsx" : null,
+    );
+    expect(resolved[0]?.absPath).toBe("/proj/apps/web/client/components/modal.tsx");
+    expect(staleRefFindings(resolved)).toEqual([]);
+  });
+
+  it("still flags a reference the suffix resolver can't place", () => {
+    const resolved = resolvePathRefs(
+      [{ raw: "data/filtering.yaml", line: 9 }],
+      docDir,
+      root,
+      () => false,
+      () => null,
+    );
+    expect(staleRefFindings(resolved)).toHaveLength(1);
   });
 
   it("flags a reference that resolves under neither base", () => {
