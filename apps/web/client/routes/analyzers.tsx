@@ -38,6 +38,13 @@ const CFG = {
   dupEnabled: "analyzers.duplicates.enabled",
   dupWindowSize: "analyzers.duplicates.windowSize",
   dupMinUniqueTokens: "analyzers.duplicates.minUniqueTokens",
+  dupSemantic: "analyzers.duplicates.semantic",
+  dupSemanticThreshold: "analyzers.duplicates.semanticThreshold",
+  dupSemanticMaxChunks: "analyzers.duplicates.semanticMaxChunks",
+  qualityEnabled: "analyzers.quality.enabled",
+  qualityMarkdownRules: "analyzers.quality.markdownRules",
+  qualityMaxFindings: "analyzers.quality.maxFindingsPerFile",
+  qualityDocDriftFloor: "analyzers.quality.docDriftFloor",
   defEnabled: "analyzers.definitions.enabled",
   defOkfDefault: "analyzers.definitions.okfDefault",
   defRequireFrontmatter: "analyzers.definitions.requireFrontmatter",
@@ -177,6 +184,7 @@ export function AnalyzersPage() {
           onReindex={reindex}
         />
         <DuplicatesCard reader={reader} writer={writer} />
+        <QualityCard reader={reader} writer={writer} onReindex={reindex} />
         <DefinitionsCard reader={reader} writer={writer} onReindex={reindex} />
       </div>
     </section>
@@ -338,10 +346,89 @@ function ToolsCard({
   );
 }
 
+const QUALITY_KEYS: ReadonlyArray<string> = [
+  CFG.qualityEnabled,
+  CFG.qualityMarkdownRules,
+  CFG.qualityMaxFindings,
+  CFG.qualityDocDriftFloor,
+];
+
+/**
+ * Heuristic quality rules (#522/#527) + the quality report they feed
+ * (#525). Pure JS — nothing to install; thresholds beyond these live
+ * in YAML (analyzers.quality.*).
+ */
+function QualityCard({
+  reader,
+  writer,
+  onReindex,
+}: CardProps & { readonly onReindex: (name: string) => Promise<unknown> }) {
+  const disabled = busyIn(writer.busy, QUALITY_KEYS);
+  return (
+    <div className="card">
+      <p className="card-section-title">Quality heuristics</p>
+      <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
+        god-file, long-params, deep-nesting, fan-out, stale markdown refs — plus the cross-file
+        report rules (fan-in, extract-candidate, cohesion, doc-drift). No binary to install.
+      </p>
+      <SettingRow label="Enabled" help="Run the quality analyzer during analysis.">
+        <Switch
+          checked={reader.bool(CFG.qualityEnabled)}
+          disabled={disabled}
+          onChange={(v) =>
+            void writer.save(CFG.qualityEnabled, v, v ? "Quality rules on." : "Quality rules off.")
+          }
+        />
+      </SettingRow>
+      <SettingRow label="Markdown rules" help="Flag stale path references in indexed markdown.">
+        <Switch
+          checked={reader.bool(CFG.qualityMarkdownRules)}
+          disabled={disabled}
+          onChange={(v) => void writer.save(CFG.qualityMarkdownRules, v)}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Doc-drift floor"
+        help="Report flags docs below this doc/code similarity percent."
+      >
+        <NumField
+          value={reader.num(CFG.qualityDocDriftFloor, 35)}
+          min={5}
+          max={95}
+          disabled={disabled}
+          onSave={(v) => void writer.save(CFG.qualityDocDriftFloor, v)}
+        />
+      </SettingRow>
+      <SettingRow label="Max findings / file" help="Cap persisted findings per file.">
+        <NumField
+          value={reader.num(CFG.qualityMaxFindings, 50)}
+          min={1}
+          max={10_000}
+          disabled={disabled}
+          onSave={(v) => void writer.save(CFG.qualityMaxFindings, v)}
+        />
+      </SettingRow>
+      <SettingRow label="Reindex" help="Re-run quality over already-indexed files.">
+        <button
+          type="button"
+          className="btn"
+          disabled={disabled}
+          onClick={() => void onReindex("quality")}
+        >
+          Reindex
+        </button>
+      </SettingRow>
+    </div>
+  );
+}
+
 const DUPLICATES_KEYS: ReadonlyArray<string> = [
   CFG.dupEnabled,
   CFG.dupWindowSize,
   CFG.dupMinUniqueTokens,
+  CFG.dupSemantic,
+  CFG.dupSemanticThreshold,
+  CFG.dupSemanticMaxChunks,
 ];
 
 function DuplicatesCard({ reader, writer }: CardProps) {
@@ -381,6 +468,46 @@ function DuplicatesCard({ reader, writer }: CardProps) {
           max={1000}
           disabled={disabled}
           onSave={(v) => void writer.save(CFG.dupMinUniqueTokens, v)}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Semantic groups"
+        help="Also report embedding-based near-duplicates ('same meaning, different text') in find_duplicates. Query-time; reads stored vectors."
+      >
+        <Switch
+          checked={reader.bool(CFG.dupSemantic)}
+          disabled={disabled}
+          onChange={(v) =>
+            void writer.save(
+              CFG.dupSemantic,
+              v,
+              v ? "Semantic near-duplicates on." : "Semantic near-duplicates off.",
+            )
+          }
+        />
+      </SettingRow>
+      <SettingRow
+        label="Semantic threshold"
+        help="Cosine-similarity floor as a percent (92 = 0.92)."
+      >
+        <NumField
+          value={reader.num(CFG.dupSemanticThreshold, 92)}
+          min={50}
+          max={100}
+          disabled={disabled}
+          onSave={(v) => void writer.save(CFG.dupSemanticThreshold, v)}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Semantic scan cap"
+        help="Max chunks fed to the semantic pass per call. O(n²) in this cap — responses flag truncation when hit."
+      >
+        <NumField
+          value={reader.num(CFG.dupSemanticMaxChunks, 1500)}
+          min={100}
+          max={5000}
+          disabled={disabled}
+          onSave={(v) => void writer.save(CFG.dupSemanticMaxChunks, v)}
         />
       </SettingRow>
     </div>

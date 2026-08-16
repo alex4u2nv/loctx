@@ -190,7 +190,7 @@ export interface SearchResultEnrichments {
 }
 
 export interface RulePackFindingEnrichment {
-  /** Analyzer name (`semgrep` | `ast-grep`). */
+  /** Analyzer name (`semgrep` | `ast-grep` | `quality`). */
   readonly analyzer: string;
   readonly ruleId: string;
   readonly severity: "error" | "warning" | "info";
@@ -1001,7 +1001,7 @@ function readRulePackFindings(
 ): RulePackFindingEnrichment[] | null {
   const out: RulePackFindingEnrichment[] = [];
   let any = false;
-  for (const analyzer of ["semgrep", "ast-grep"]) {
+  for (const analyzer of ["semgrep", "ast-grep", "quality"]) {
     const row = state.getFileEnrichment(fileId, analyzer);
     if (row === null) continue;
     any = true;

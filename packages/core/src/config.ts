@@ -20,6 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, parse as parsePath, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { BOOL, INT_NON_NEG, type Spec, STR, STR_ARRAY, Validator } from "./_validate.js";
+import { DEFAULT_QUALITY_THRESHOLDS } from "./analyzers/quality.js";
 import {
   defaultPaths,
   ensurePaths,
@@ -104,6 +105,41 @@ export interface AnalyzerConfig {
   readonly astGrep: RulePackAnalyzerConfig;
   /** Definition validator (#okf) — schema-checks agent/skill/knowledge .md. */
   readonly definitions: DefinitionsAnalyzerConfig;
+  /** Heuristic quality analyzer (#522). Pure-JS rules over indexed signals. */
+  readonly quality: QualityAnalyzerConfig;
+}
+
+/**
+ * Heuristic code-quality rules (#522) computed from data the index
+ * already holds (AST metadata, lizard metrics, symbol refs). Pure JS,
+ * no external binary. The threshold fields mirror
+ * `analyzers/quality.ts`'s QualityThresholds one-to-one.
+ */
+export interface QualityAnalyzerConfig {
+  /** Opt-out. Enabled by default — the rules are cheap local reads. */
+  readonly enabled: boolean;
+  /** `god-file` fires when non-empty lines AND exports both exceed their thresholds. */
+  readonly godFileNloc: number;
+  readonly godFileExports: number;
+  /** `long-params`: flag functions with more parameters than this. */
+  readonly maxParams: number;
+  /** `deep-nesting`: flag chunks nested at or beyond this depth. */
+  readonly maxNestingDepth: number;
+  /** `deep-nesting` escalates to warning when overlapping CCN exceeds this. */
+  readonly escalateCcn: number;
+  /** `high-fan-out`: flag files importing from more modules than this. */
+  readonly maxFanOut: number;
+  /** `high-fan-in`: flag files referenced by more files than this. */
+  readonly maxFanIn: number;
+  /** Cap on findings persisted per file. */
+  readonly maxFindingsPerFile: number;
+  /** Markdown context rules (#527): stale-ref + doc-drift for indexed .md. */
+  readonly markdownRules: boolean;
+  /**
+   * `doc-drift` cosine floor as a percent (35 → 0.35). Evaluated at
+   * query time by the quality report (#525) — cross-file signal.
+   */
+  readonly docDriftFloor: number;
 }
 
 /**
@@ -142,6 +178,22 @@ export interface DuplicatesAnalyzerConfig {
   readonly windowSize: number;
   /** Minimum distinct tokens required for a window to count. Filters boilerplate. */
   readonly minUniqueTokens: number;
+  /**
+   * Include embedding-based near-duplicate groups in `find_duplicates`
+   * (#523). Query-time only — reads vectors the index already stores;
+   * nothing extra runs during indexing. Off by default in v1.
+   */
+  readonly semantic: boolean;
+  /**
+   * Cosine-similarity floor for a semantic pair, as a PERCENT (92 →
+   * 0.92). Integer because config leaves are int/bool/string only.
+   */
+  readonly semanticThreshold: number;
+  /**
+   * Row cap on the vector scan feeding the pairwise pass. The response
+   * flags `truncated` when hit — bigger finds more at O(n²) cost.
+   */
+  readonly semanticMaxChunks: number;
 }
 
 /**
@@ -338,6 +390,9 @@ const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
     enabled: true,
     windowSize: 50,
     minUniqueTokens: 15,
+    semantic: false,
+    semanticThreshold: 92,
+    semanticMaxChunks: 1500,
   }),
   semgrep: Object.freeze({
     enabled: true,
@@ -374,6 +429,15 @@ const DEFAULT_ANALYZERS: AnalyzerConfig = Object.freeze({
     requireFrontmatter: false,
     checkLinks: true,
     maxFindingsPerFile: 50,
+  }),
+  // Thresholds come from the analyzer's own DEFAULT_QUALITY_THRESHOLDS
+  // so the shipped defaults and the rule module can't drift.
+  quality: Object.freeze({
+    enabled: true,
+    ...DEFAULT_QUALITY_THRESHOLDS,
+    maxFindingsPerFile: 50,
+    markdownRules: true,
+    docDriftFloor: 35,
   }),
 });
 
@@ -823,6 +887,9 @@ function mergeAnalyzers(
         { key: "enabled", kind: "bool" },
         { key: "windowSize", kind: "int" },
         { key: "minUniqueTokens", kind: "int" },
+        { key: "semantic", kind: "bool" },
+        { key: "semanticThreshold", kind: "int" },
+        { key: "semanticMaxChunks", kind: "int" },
       ],
     ),
     semgrep: mergeSection(
@@ -854,6 +921,25 @@ function mergeAnalyzers(
         { key: "requireFrontmatter", kind: "bool" },
         { key: "checkLinks", kind: "bool" },
         { key: "maxFindingsPerFile", kind: "int" },
+      ],
+    ),
+    quality: mergeSection(
+      section("quality"),
+      sources,
+      "analyzers.quality",
+      DEFAULT_ANALYZERS.quality,
+      [
+        { key: "enabled", kind: "bool" },
+        { key: "godFileNloc", kind: "int" },
+        { key: "godFileExports", kind: "int" },
+        { key: "maxParams", kind: "int" },
+        { key: "maxNestingDepth", kind: "int" },
+        { key: "escalateCcn", kind: "int" },
+        { key: "maxFanOut", kind: "int" },
+        { key: "maxFanIn", kind: "int" },
+        { key: "maxFindingsPerFile", kind: "int" },
+        { key: "markdownRules", kind: "bool" },
+        { key: "docDriftFloor", kind: "int" },
       ],
     ),
   });
@@ -969,6 +1055,12 @@ analyzers:
     enabled: true
     # command: ast-grep
     # rule_dirs: [~/rules/ast-grep]
+  # Heuristic quality rules (god-file, long-params, deep-nesting,
+  # fan-in/out) computed from data the index already holds. Pure JS.
+  quality:
+    enabled: true
+    # god_file_nloc: 400
+    # max_params: 5
 
 mcp:
   # Rolling row cap on the MCP request log (the admin "logs" page).

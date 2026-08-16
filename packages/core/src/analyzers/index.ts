@@ -8,6 +8,14 @@ export {
   sgConfigForRuleDirs,
 } from "./ast-grep.js";
 export {
+  type CohesionFlag,
+  type CohesionFlagOptions,
+  type CohesionOptions,
+  cohesionFlags,
+  computeFileCohesion,
+  type FileCohesionScore,
+} from "./cohesion.js";
+export {
   compileDefinitionSchema,
   DEFINITIONS_VERSION,
   type DefinitionSchemaSpec,
@@ -40,6 +48,40 @@ export {
   runLizard,
 } from "./lizard.js";
 export {
+  computeQualityFindings,
+  DEFAULT_QUALITY_THRESHOLDS,
+  type DuplicateGroupLike,
+  type ExtractCandidate,
+  extractCandidates,
+  fanInFinding,
+  QUALITY_VERSION,
+  type QualityChunkInfo,
+  type QualityIndexReader,
+  type QualityInput,
+  type QualityOptions,
+  type QualityThresholds,
+  runQuality,
+} from "./quality.js";
+export {
+  docDriftFinding,
+  extractPathRefs,
+  isMarkdownPath,
+  type MarkdownVectorPort,
+  type PathRef,
+  type ResolvedRef,
+  resolvePathRefs,
+  runDocDrift,
+  runMarkdownStaleRefs,
+  staleRefFindings,
+} from "./quality-markdown.js";
+export {
+  buildQualityReport,
+  type QualityReport,
+  type QualityReportFile,
+  type QualityReportOptions,
+  type QualityReportPorts,
+} from "./quality-report.js";
+export {
   EnrichmentQueue,
   type EnrichmentQueueOptions,
   type EnrichmentResult,
@@ -54,9 +96,18 @@ export {
   type RulePackFinding,
 } from "./rule-pack.js";
 export {
+  findSemanticDuplicateGroups,
+  type SemanticChunk,
+  type SemanticDuplicateGroup,
+  type SemanticDuplicateMember,
+  type SemanticDuplicatesOptions,
+  type SemanticDuplicatesResult,
+} from "./semantic-duplicates.js";
+export {
   detectSemgrep,
   parseSemgrepJson,
   type RunSemgrepOptions,
   runSemgrep,
   SEMGREP_VERSION,
 } from "./semgrep.js";
+export { dot, round4, toUnit } from "./vector-math.js";

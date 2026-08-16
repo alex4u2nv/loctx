@@ -10,7 +10,13 @@
  * Loads from `GET /api/projects/:id`. 404 routes back to /projects.
  */
 
-import type { ProjectDetailPayload, SearchHit, SearchPayload, UsageHit } from "@shared/contracts";
+import type {
+  ProjectDetailPayload,
+  QualityReportPayload,
+  SearchHit,
+  SearchPayload,
+  UsageHit,
+} from "@shared/contracts";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AsyncError, AsyncLoading, AsyncNoData } from "../components/async-boundary";
@@ -139,6 +145,8 @@ export function ProjectDetailPage() {
       <div id="pd-query">
         <ScopedSearchPanel projectRoot={project.root} />
       </div>
+
+      <QualitySection projectId={project.id} />
 
       <h2 id="pd-files">Recently indexed</h2>
       <FilesTable rows={stats.recentFiles} kind="recent" />
@@ -623,3 +631,89 @@ function UsageTable({ hits }: { hits: ReadonlyArray<UsageHit> }) {
     </>
   );
 }
+
+/**
+ * Read-only quality report (#525): stored quality findings merged with
+ * the query-time cross-file rules, files ranked by severity weight.
+ * Provisioning lives on the Analyzers tab; this only reads.
+ */
+function QualitySection({ projectId }: { projectId: string }) {
+  const [rule, setRule] = useState("");
+  const [limit, setLimit] = useState(20);
+  const fetched = useFetch(
+    () => api.projectQuality(projectId, limit, rule),
+    [projectId, limit, rule],
+  );
+  const data = fetched.data;
+  if (fetched.loading && data === null) return null;
+  if (fetched.error !== null || data === null) return null;
+  const hasFindings = data.files.length > 0;
+  const ruleIds = [...new Set(data.files.flatMap((f) => f.findings.map((x) => x.ruleId)))].sort();
+  return (
+    <>
+      <h2 id="pd-quality">Quality</h2>
+      <p style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
+        <select value={rule} onChange={(e) => setRule(e.target.value)}>
+          <option value="">all rules</option>
+          {ruleIds.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+        <select value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
+          {[10, 20, 50, 100].map((n) => (
+            <option key={n} value={n}>
+              top {n} files
+            </option>
+          ))}
+        </select>
+      </p>
+      {data.disabled !== null ? (
+        <Banner tone="warn" soft>
+          {data.disabled} Configure on the Analyzers tab.
+        </Banner>
+      ) : null}
+      {data.notes.map((n) => (
+        <p key={n} className="dim" style={{ fontSize: "0.85rem" }}>
+          {n}
+        </p>
+      ))}
+      {hasFindings ? (
+        <DataTable columns={qualityColumns} rows={[...data.files]} rowKey={(r) => r.fileId} />
+      ) : (
+        <p className="dim">
+          {data.disabled !== null
+            ? "No query-time findings."
+            : "No quality findings — nothing over the configured thresholds."}
+        </p>
+      )}
+    </>
+  );
+}
+
+type QualityRow = QualityReportPayload["files"][number];
+
+const qualityColumns: ReadonlyArray<Column<QualityRow>> = [
+  { key: "relPath", header: "file", cell: (r) => <code>{r.relPath}</code> },
+  { key: "weight", header: "weight", numeric: true, cell: (r) => r.weight },
+  {
+    key: "findings",
+    header: "findings",
+    cell: (r) => (
+      <span>
+        {r.findings.map((f) => (
+          <span
+            key={`${f.ruleId}:${f.lineFrom}:${f.message}`}
+            className={f.severity === "error" ? "err" : f.severity === "warning" ? "warn" : "dim"}
+            style={{ marginRight: "0.5rem", whiteSpace: "nowrap" }}
+            title={f.message}
+          >
+            {f.ruleId.replace("quality/", "")}
+            {f.lineFrom > 1 ? `:${f.lineFrom}` : ""}
+          </span>
+        ))}
+      </span>
+    ),
+  },
+];

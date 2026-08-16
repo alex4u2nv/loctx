@@ -13,6 +13,7 @@ import type {
   ConfigWriteResponse,
   DefinitionSchemaResponse,
   DoctorPayload,
+  DuplicatesPayload,
   FindLiteralPayload,
   FindUsagesPayload,
   FindUsagesRequest,
@@ -21,6 +22,7 @@ import type {
   ModelsPayload,
   ProjectDetailPayload,
   ProjectsPayload,
+  QualityReportPayload,
   SearchPayload,
   SearchRequestBody,
   StatusPayload,
@@ -70,6 +72,14 @@ export const api = {
   projects: () => getJson<ProjectsPayload>("/api/projects"),
   search: (body: SearchRequestBody) => postJson<SearchPayload>("/api/search", body),
   doctor: () => getJson<DoctorPayload>("/api/doctor"),
+  projectQuality: (id: string, limit = 20, rule = "") =>
+    getJson<QualityReportPayload>(
+      `/api/projects/${encodeURIComponent(id)}/quality?limit=${limit}${rule !== "" ? `&rule=${encodeURIComponent(rule)}` : ""}`,
+    ),
+  findDuplicates: (projectId: string, minMembers = 2) =>
+    getJson<DuplicatesPayload>(
+      `/api/find-duplicates?project=${encodeURIComponent(projectId)}&min_members=${minMembers}`,
+    ),
   mcpTools: () => getJson<McpToolsPayload>("/api/mcp-tools"),
   config: () => getJson<ConfigPayload>("/api/config"),
   toolsStatus: () => getJson<ToolsStatusPayload>("/api/tools/status"),

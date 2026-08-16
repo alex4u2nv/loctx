@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { DEFAULT_QUALITY_THRESHOLDS } from "../../src/analyzers/quality.js";
 import type { Config } from "../../src/config.js";
 import { defaultPaths } from "../../src/index.js";
 
@@ -43,7 +44,14 @@ export function makeTestConfig(
       concurrency: 2,
       perTaskTimeoutMs: 60_000,
       lizard: Object.freeze({ enabled: false, command: "lizard" }),
-      duplicates: Object.freeze({ enabled: false, windowSize: 50, minUniqueTokens: 15 }),
+      duplicates: Object.freeze({
+        enabled: false,
+        windowSize: 50,
+        minUniqueTokens: 15,
+        semantic: false,
+        semanticThreshold: 92,
+        semanticMaxChunks: 1500,
+      }),
       semgrep: Object.freeze({
         enabled: false,
         command: "semgrep",
@@ -55,6 +63,13 @@ export function makeTestConfig(
         command: "ast-grep",
         ruleDirs: Object.freeze<string[]>([]),
         maxFindingsPerFile: 50,
+      }),
+      quality: Object.freeze({
+        enabled: false,
+        ...DEFAULT_QUALITY_THRESHOLDS,
+        maxFindingsPerFile: 50,
+        markdownRules: false,
+        docDriftFloor: 35,
       }),
     }),
     network: Object.freeze({ caCert: null, strictSsl: true, proxy: null }),

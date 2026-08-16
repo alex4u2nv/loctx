@@ -26,12 +26,16 @@ import {
   parseFindLiteralToolInput,
   parseFindUsagesToolInput,
   parseSearchToolInput,
+  type QualityReport,
   ReconcileInFlightError,
   type Runtime,
   readActiveDaemon,
   resolveProjectScope,
   resolveUnderWorkspaceRoots,
+  runQualityReport,
+  runSemanticDuplicates,
   type SearchResponse,
+  type SemanticDuplicatesResult,
   type SymbolRefHit,
   summarizeUsage,
   toUsageDeltas,
@@ -211,6 +215,29 @@ export interface FindDuplicatesOutput {
    * exact config knob the user would flip to enable it.
    */
   readonly disabled: string | null;
+  /**
+   * Embedding-based near-duplicate groups (#523), null when the
+   * semantic pass didn't run — `semanticDisabled` says why. Distinct
+   * from `groups` (exact token-window matches): these are "same
+   * meaning, different text" hits over the stored vectors.
+   */
+  readonly semantic: SemanticDuplicatesResult | null;
+  /** Same convention as `disabled`, for the semantic pass alone. */
+  readonly semanticDisabled: string | null;
+}
+
+export interface QualityReportOutput {
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly report: QualityReport;
+  /**
+   * Non-null when the stored per-file quality rules are disabled in
+   * config. The query-time cross-file rules run regardless, so a
+   * non-null value means the report is PARTIAL, not empty.
+   */
+  readonly disabled: string | null;
+  readonly indexHealth: IndexHealth;
+  readonly warnings?: ReadonlyArray<string>;
 }
 
 export interface SearchOutput extends SearchResponse {
@@ -560,10 +587,77 @@ export const tools = {
     }
 
     const groups = runtime.state.findDuplicateGroups(Math.max(2, minMembers), projectId);
+
+    // Semantic near-duplicates (#523): shared query-time pass — the
+    // web duplicates inspector runs the identical code, so gating,
+    // caps, and truncation semantics cannot drift between surfaces.
+    const {
+      semantic,
+      semanticDisabled,
+      warning: semanticWarning,
+    } = await runSemanticDuplicates(runtime, (projectId as ProjectId | null) ?? null, minMembers);
+    if (semanticWarning !== null) warnings.push(semanticWarning);
+
     return Object.freeze({
       groups: Object.freeze(groups),
       indexHealth: currentIndexHealth(runtime),
       disabled,
+      semantic,
+      semanticDisabled,
+      ...(warnings.length > 0 ? { warnings: Object.freeze(warnings) } : {}),
+    });
+  },
+
+  async qualityReport(runtime: Runtime, input: unknown): Promise<QualityReportOutput> {
+    const v = new Validator(ToolError, "quality_report");
+    const data = v.requireRecord(input ?? {}, "arguments");
+    const limitRaw = v.getInt(data, "limit", { nonNegative: true }) ?? 20;
+    const limit = Math.min(Math.max(1, limitRaw), 100);
+    const rule = v.getStr(data, "rule");
+    const path = confinedPath(runtime, v.getStr(data, "path"));
+
+    // The report is per-project (its vector scans and ref counts are
+    // project-scoped). Resolve from `path`, or default when exactly one
+    // project is indexed.
+    const warnings: string[] = [];
+    let project: { id: ProjectId; name: string; root: string };
+    if (path !== undefined) {
+      const scope = resolveProjectScope(runtime.discovery, runtime.state, path, warnings);
+      if (scope.project === null) {
+        throw new ToolError(`path ${path} is not inside any indexed project.`);
+      }
+      project = scope.project;
+    } else {
+      const active = runtime.state.listProjects().filter((p) => p.active);
+      const sole = active.length === 1 ? active[0] : undefined;
+      if (sole === undefined) {
+        throw new ToolError(
+          `quality_report is per-project — pass 'path' to pick one (indexed: ${active
+            .map((p) => p.name)
+            .join(", ")}).`,
+        );
+      }
+      project = sole;
+    }
+
+    const an = runtime.config.analyzers;
+    let disabled: string | null = null;
+    if (!an.backgroundEnabled || !an.quality.enabled) {
+      disabled =
+        "analyzers.quality.enabled (with analyzers.background_enabled) is off — stored per-file rules are missing from this report; the query-time cross-file rules below still ran. Enable and backfill for the full picture.";
+    }
+
+    const report = await runQualityReport(
+      runtime,
+      { id: project.id, name: project.name, root: project.root },
+      { limit, ...(rule !== undefined ? { rule } : {}) },
+    );
+    return Object.freeze({
+      projectId: project.id as string,
+      projectName: project.name,
+      report,
+      disabled,
+      indexHealth: currentIndexHealth(runtime),
       ...(warnings.length > 0 ? { warnings: Object.freeze(warnings) } : {}),
     });
   },
@@ -822,7 +916,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_duplicates",
     description:
-      "**Use when you ask 'where do we have duplicated text across files'** — works on any indexed content (code, runbooks, SOP boilerplate, prompt fragments, copy-pasted doc sections). Pre-refactor, when triaging boilerplate, or auditing for accidental copy-paste. **Beats `grep`** because the comparison is on hashed token-windows, not literal text, so it finds duplicates that aren't byte-identical. Heuristic — labelled as such. Requires `analyzers.background_enabled = true` and `analyzers.duplicates.enabled = true` in config; the response's `disabled` field names which knob is off so an empty `groups` from feature-disabled vs. feature-enabled-but-no-hits is distinguishable. Each group: `hash` and `members` (file_id, start/end line range). Cross-project by default — pass `path` to scope to one project, which you should prefer on large workspaces. Output is capped (top groups by size, members per group). Not useful for finding a specific known duplicate — use `find_literal` or `find_usages` for that.",
+      "**Use when you ask 'where do we have duplicated text across files'** — works on any indexed content (code, runbooks, SOP boilerplate, prompt fragments, copy-pasted doc sections). Pre-refactor, when triaging boilerplate, or auditing for accidental copy-paste. **Beats `grep`** because the comparison is on hashed token-windows, not literal text, so it finds duplicates that aren't byte-identical. Heuristic — labelled as such. Requires `analyzers.background_enabled = true` and `analyzers.duplicates.enabled = true` in config; the response's `disabled` field names which knob is off so an empty `groups` from feature-disabled vs. feature-enabled-but-no-hits is distinguishable. Each group: `hash` and `members` (file_id, start/end line range). When `analyzers.duplicates.semantic = true`, the response also carries `semantic`: embedding-based near-duplicate groups ('same meaning, different text') computed at query time over the stored vectors, each with a cosine `similarity` and chunk members; `semanticDisabled` names the knob when off, and a `truncated` flag plus warning appear when the scan cap cut coverage. Cross-project by default — pass `path` to scope to one project, which you should prefer on large workspaces. Output is capped (top groups by size, members per group). Not useful for finding a specific known duplicate — use `find_literal` or `find_usages` for that.",
     inputSchema: {
       type: "object",
       properties: {
@@ -836,6 +930,32 @@ export const TOOL_DEFINITIONS = [
           type: "string",
           description:
             "Absolute path to scope to one project. Omit to scan every indexed project (can be slow + large on big workspaces).",
+        },
+      },
+    },
+  },
+  {
+    name: "quality_report",
+    description:
+      "**Use when you ask 'what should we refactor / where is the risky or rotting code in this project'** — one ranked view of every quality signal loctx computes. Stored per-file rules (god-file, long-params, deep-nesting, high-fan-out, stale markdown refs) merge with query-time cross-file rules (extract-candidate duplication across 3+ files, high-fan-in blast radius, low-cohesion mixed-concern files, doc-drift for markdown vs the code it cites). Files rank by severity-weighted finding count (error 3, warning 2, info 1). Per-project: pass `path`; defaults to the sole indexed project when only one exists. `rule` filters to one ruleId (e.g. `quality/god-file`); `limit` caps files (default 20, max 100). **Read `report.notes`** — every coverage cap hit is listed there; treat a capped report as partial. `disabled` names the config knobs when the stored rules haven't run (the cross-file rules run regardless, so the report is partial rather than empty). Heuristic prioritisation for refactoring, not a correctness audit — drill into hits with `find_duplicates`, `find_usages`, or `search_workspace`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Absolute path selecting the project to report on. Optional when exactly one project is indexed.",
+        },
+        rule: {
+          type: "string",
+          description: "Only include findings with this exact ruleId (e.g. quality/god-file).",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 100,
+          default: 20,
+          description: "Max files in the report.",
         },
       },
     },
@@ -928,6 +1048,7 @@ const TOOL_HANDLERS = {
   refresh_workspace: tools.refresh,
   find_usages: tools.findUsages,
   find_duplicates: tools.findDuplicates,
+  quality_report: tools.qualityReport,
   find_literal: tools.findLiteral,
 } as const;
 

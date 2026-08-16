@@ -159,6 +159,60 @@ describe("WorkspaceSearcher result enrichment", () => {
     expect(hit?.relPath).toBe("src/a.ts");
   });
 
+  it("attaches quality-analyzer findings overlapping the chunk's range (#522)", async () => {
+    const proj = fakeProject("p1", "demo", "/tmp/demo");
+    const payloadJson = JSON.stringify({
+      analyzer: "quality",
+      toolVersion: "1",
+      findings: [
+        // File-level anchor (line 1) — outside the chunk's 10-20 range.
+        {
+          ruleId: "quality/god-file",
+          severity: "warning",
+          message: "big",
+          category: "architecture",
+          lineFrom: 1,
+          lineTo: 1,
+        },
+        // Overlaps the chunk — must be attached.
+        {
+          ruleId: "quality/deep-nesting",
+          severity: "info",
+          message: "deep",
+          category: "complexity",
+          lineFrom: 12,
+          lineTo: 18,
+        },
+      ],
+    });
+    const state = fakeState();
+    (state as { getFile: unknown }).getFile = () => ({ fileId: "f1" });
+    (state as { getFileEnrichment: unknown }).getFileEnrichment = (
+      _fileId: string,
+      analyzer: string,
+    ) => (analyzer === "quality" ? { status: "complete", payloadJson } : null);
+
+    const searcher = new WorkspaceSearcher(
+      fakeVectors([
+        {
+          chunkId: "c1",
+          score: 0.9,
+          document: "function foo() {}",
+          metadata: { ...baseMeta, project_id: "p1" },
+        },
+      ]),
+      fakeEmbeddings(),
+      fakeDiscovery([proj]),
+      state,
+    );
+
+    const response = await searcher.search({ query: "foo" });
+    const [hit] = response.results;
+    const findings = hit?.enrichments.findings ?? [];
+    expect(findings.map((f) => f.ruleId)).toEqual(["quality/deep-nesting"]);
+    expect(findings[0]?.analyzer).toBe("quality");
+  });
+
   it("works for `all` scope across multiple projects", async () => {
     const a = fakeProject("p1", "alpha", "/tmp/alpha");
     const b = fakeProject("p2", "beta", "/tmp/beta");

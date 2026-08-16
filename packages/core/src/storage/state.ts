@@ -950,6 +950,28 @@ export class StateStore {
     return result;
   }
 
+  /**
+   * One file's chunk ranges with parsed AST metadata, in file order.
+   * Feeds the quality analyzer's reader port (#522); chunks indexed
+   * before v3 carry null metadata and the rules skip them. Shares the
+   * `list_chunks` statement with {@link listChunks} — different
+   * projection, same rows.
+   */
+  listChunksWithMetadata(
+    fileId: FileId,
+  ): Array<{ startLine: number; endLine: number; metadata: AnalyzerMetadata | null }> {
+    const rows = this.readAll<{
+      start_line: number;
+      end_line: number;
+      metadata_json: string | null;
+    }>("list_chunks", [fileId]);
+    return rows.map((r) => ({
+      startLine: r.start_line,
+      endLine: r.end_line,
+      metadata: analyzerMetadataFromJson(r.metadata_json),
+    }));
+  }
+
   // ---- duplicates aggregation (#65) -----------------------------------
 
   /**
@@ -1051,6 +1073,32 @@ export class StateStore {
       ...(row.completed_at !== null ? { completedAt: row.completed_at } : {}),
     };
     return out;
+  }
+
+  /**
+   * Complete `quality` payloads for one project (#525). One join; the
+   * report parses payload JSON in JS with per-row error isolation.
+   */
+  listQualityEnrichments(
+    projectId: ProjectId,
+  ): Array<{ readonly fileId: string; readonly payloadJson: string }> {
+    const rows = this.readAll<{ file_id: string; payload_json: string }>(
+      "list_quality_enrichments_for_project",
+      [projectId],
+    );
+    return rows.map((r) => ({ fileId: r.file_id, payloadJson: r.payload_json }));
+  }
+
+  /**
+   * Live inbound-reference counts per defining file (#525,
+   * `quality/high-fan-in`). One batch GROUP BY per report call instead
+   * of a query per file.
+   */
+  fanInCounts(projectId: ProjectId): Map<string, number> {
+    const rows = this.readAll<{ file_id: string; n: number }>("fan_in_counts_for_project", [
+      projectId,
+    ]);
+    return new Map(rows.map((r) => [r.file_id, Number(r.n)]));
   }
 
   // ---- MCP request log (#380-era) -------------------------------------

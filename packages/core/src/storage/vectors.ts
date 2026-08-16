@@ -54,6 +54,17 @@ export interface VectorMatch {
   readonly document: string;
 }
 
+/** One row of {@link VectorStore.scanChunks}: chunk identity + its vector. */
+export interface ScannedChunk {
+  readonly chunkId: string;
+  readonly fileId: string;
+  readonly relPath: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  /** Float32 view, passed through zero-copy where Lance already gives one. */
+  readonly vector: Float32Array;
+}
+
 export function collectionNameFor(identity: EmbeddingIdentity): string {
   return `${TABLE_PREFIX}${collectionSuffix(identity)}`;
 }
@@ -76,6 +87,7 @@ interface LanceTable {
       };
     };
   };
+  query(): LanceQueryBuilder;
   search(vector: ReadonlyArray<number>): {
     distanceType(t: "l2" | "cosine" | "dot"): {
       where(predicate: string): {
@@ -84,6 +96,14 @@ interface LanceTable {
       limit(n: number): { toArray(): Promise<Array<Record<string, unknown>>> };
     };
   };
+}
+
+/** Chainable non-vector scan (lancedb `table.query()`), minimally sketched. */
+interface LanceQueryBuilder {
+  where(predicate: string): LanceQueryBuilder;
+  select(columns: ReadonlyArray<string>): LanceQueryBuilder;
+  limit(n: number): LanceQueryBuilder;
+  toArray(): Promise<Array<Record<string, unknown>>>;
 }
 
 interface LanceConnection {
@@ -107,6 +127,19 @@ export interface VectorStore {
   readonly deleteFileChunks: (projectId: ProjectId, relPath: string) => Promise<void>;
   readonly deleteProjectChunks: (projectId: ProjectId) => Promise<void>;
   readonly query: (request: VectorQuery) => Promise<VectorMatch[]>;
+  /**
+   * Non-vector scan returning chunk identities WITH their embeddings,
+   * for query-time analysis over the stored vectors (semantic
+   * near-duplicates, #523). Row-capped by `limit` — callers must treat
+   * a full page as "possibly truncated" and say so. Read-only; does not
+   * take the writer mutex.
+   */
+  readonly scanChunks: (opts: {
+    readonly projectId?: ProjectId;
+    /** Narrow to one file's chunks (doc-drift, #527). */
+    readonly fileId?: string;
+    readonly limit: number;
+  }) => Promise<ScannedChunk[]>;
   /**
    * Build a vector index (LanceDB picks the kind — typically IVF_PQ
    * or HNSW depending on dimension) when the corpus has grown past
@@ -208,6 +241,22 @@ export function createVectorStore(
       const stage = request.where !== undefined ? search.where(request.where) : search;
       const rows = await stage.limit(limit).toArray();
       return rows.map(toMatch);
+    },
+
+    scanChunks: async (opts) => {
+      const t = await ready();
+      const limit = Math.max(1, opts.limit);
+      let builder = t
+        .query()
+        .select(["chunk_id", "file_id", "rel_path", "start_line", "end_line", "vector"]);
+      const predicates: string[] = [];
+      if (opts.projectId !== undefined) predicates.push(`project_id = ${quote(opts.projectId)}`);
+      if (opts.fileId !== undefined) predicates.push(`file_id = ${quote(opts.fileId)}`);
+      if (predicates.length > 0) builder = builder.where(predicates.join(" AND "));
+      const rows = await builder.limit(limit).toArray();
+      // Lance has no ORDER BY on plain scans; sort by chunk_id so the
+      // same fetched set always yields the same output order.
+      return rows.map(toScannedChunk).sort((a, b) => a.chunkId.localeCompare(b.chunkId));
     },
 
     ensureVectorIndex: async (minRowsForIndex = 10_000) => {
@@ -347,6 +396,35 @@ function toMatch(row: Record<string, unknown>): VectorMatch {
 
 function stringOrNull(v: unknown): string | null {
   return typeof v === "string" ? v : null;
+}
+
+/**
+ * Map a scan row to {@link ScannedChunk}. Lance surfaces the
+ * FixedSizeList vector as an iterable (typed array or Arrow vector
+ * depending on version) — Array.from normalizes either.
+ */
+function toScannedChunk(row: Record<string, unknown>): ScannedChunk {
+  return {
+    chunkId: String(row["chunk_id"] ?? ""),
+    fileId: String(row["file_id"] ?? ""),
+    relPath: String(row["rel_path"] ?? ""),
+    startLine: numberOrNull(row["start_line"]) ?? 0,
+    endLine: numberOrNull(row["end_line"]) ?? 0,
+    vector: toFloat32(row["vector"]),
+  };
+}
+
+/** Zero-copy when Lance already hands back a Float32Array; one copy otherwise. */
+function toFloat32(vec: unknown): Float32Array {
+  if (vec instanceof Float32Array) return vec;
+  if (
+    vec !== null &&
+    vec !== undefined &&
+    typeof (vec as Iterable<number>)[Symbol.iterator] === "function"
+  ) {
+    return Float32Array.from(vec as Iterable<number>);
+  }
+  return new Float32Array(0);
 }
 
 /**

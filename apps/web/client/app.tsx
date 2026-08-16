@@ -31,6 +31,9 @@ const FindUsagesPage = lazy(() =>
 const FindLiteralPage = lazy(() =>
   import("./routes/find-literal").then((m) => ({ default: m.FindLiteralPage })),
 );
+const DuplicatesPage = lazy(() =>
+  import("./routes/duplicates").then((m) => ({ default: m.DuplicatesPage })),
+);
 const DoctorPage = lazy(() => import("./routes/doctor").then((m) => ({ default: m.DoctorPage })));
 const ModelsPage = lazy(() => import("./routes/models").then((m) => ({ default: m.ModelsPage })));
 const ConfigPage = lazy(() => import("./routes/config").then((m) => ({ default: m.ConfigPage })));
@@ -118,6 +121,7 @@ function AnimatedRoutes() {
           <Route path="/search" element={<SearchPage />} />
           <Route path="/find-usages" element={<FindUsagesPage />} />
           <Route path="/find-literal" element={<FindLiteralPage />} />
+          <Route path="/duplicates" element={<DuplicatesPage />} />
           <Route path="/doctor" element={<DoctorPage />} />
           <Route path="/models" element={<ModelsPage />} />
           <Route path="/config" element={<ConfigPage />} />

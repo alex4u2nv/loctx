@@ -666,3 +666,77 @@ export interface AgentRefreshResponse {
   readonly filesWritten: number;
   readonly projects: ReadonlyArray<{ readonly root: string; readonly updated: number }>;
 }
+
+// ---- project quality report (#525) --------------------------------------
+
+export interface QualityFindingRow {
+  readonly ruleId: string;
+  readonly severity: "error" | "warning" | "info";
+  readonly message: string;
+  readonly category: string;
+  readonly lineFrom: number;
+  readonly lineTo: number;
+}
+
+export interface QualityReportFileRow {
+  readonly fileId: string;
+  readonly relPath: string;
+  readonly weight: number;
+  readonly findings: ReadonlyArray<QualityFindingRow>;
+}
+
+export interface QualityReportPayload {
+  readonly files: ReadonlyArray<QualityReportFileRow>;
+  readonly totals: {
+    readonly files: number;
+    readonly findings: number;
+    readonly errors: number;
+    readonly warnings: number;
+    readonly infos: number;
+  };
+  /** Coverage caps hit while building the report — never silent. */
+  readonly notes: ReadonlyArray<string>;
+  /** Non-null when the stored quality rules are off; report is partial. */
+  readonly disabled: string | null;
+}
+
+// ---- duplicates inspector (#523 surfacing) ------------------------------
+
+export interface DuplicateMemberRow {
+  readonly fileId: string;
+  readonly relPath: string;
+  readonly startLine: number;
+  readonly endLine: number;
+}
+
+export interface DuplicateGroupRow {
+  readonly hash: string;
+  readonly members: ReadonlyArray<DuplicateMemberRow>;
+}
+
+export interface SemanticGroupRow {
+  readonly similarity: number;
+  readonly files: number;
+  readonly members: ReadonlyArray<{
+    readonly fileId: string;
+    readonly relPath: string;
+    readonly startLine: number;
+    readonly endLine: number;
+  }>;
+}
+
+export interface DuplicatesPayload {
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly groups: ReadonlyArray<DuplicateGroupRow>;
+  readonly semantic: {
+    readonly groups: ReadonlyArray<SemanticGroupRow>;
+    readonly scanned: number;
+    readonly truncated: boolean;
+  } | null;
+  /** Non-null when the semantic pass didn't run — says why. */
+  readonly semanticDisabled: string | null;
+  /** Non-null when the exact-match analyzer is off — says why. */
+  readonly disabled: string | null;
+  readonly warnings: ReadonlyArray<string>;
+}

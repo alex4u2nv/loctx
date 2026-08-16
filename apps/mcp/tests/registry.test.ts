@@ -119,13 +119,14 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
 // ---- tool catalog ---------------------------------------------------
 
 describe("TOOL_DEFINITIONS", () => {
-  it("exposes the six loctx tools", () => {
+  it("exposes the seven loctx tools", () => {
     const names = TOOL_DEFINITIONS.map((t) => t.name);
     expect(names).toEqual([
       "search_workspace",
       "workspace_status",
       "find_usages",
       "find_duplicates",
+      "quality_report",
       "find_literal",
       "refresh_workspace",
     ]);
@@ -319,6 +320,123 @@ describe("indexHealth surfacing", () => {
     });
     const out = await tools.findDuplicates(runtime, {});
     expect(out.disabled).toMatch(/duplicates\.enabled/);
+  });
+
+  it("find_duplicates names duplicates.semantic when the semantic pass is off (#523)", async () => {
+    const out = await tools.findDuplicates(stubRuntime(), {});
+    expect(out.semantic).toBeNull();
+    expect(out.semanticDisabled).toMatch(/duplicates\.semantic/);
+  });
+
+  /** Stub runtime with the semantic pass on and canned scan rows. */
+  function semanticRuntime(rows: ReadonlyArray<Record<string, unknown>>, maxChunks = 100): Runtime {
+    return stubRuntime({
+      config: {
+        ...(stubRuntime().config as Runtime["config"]),
+        analyzers: {
+          backgroundEnabled: true,
+          duplicates: {
+            enabled: true,
+            semantic: true,
+            semanticThreshold: 92,
+            semanticMaxChunks: maxChunks,
+          },
+        },
+      } as Runtime["config"],
+      vectors: {
+        scanChunks: async () => rows,
+      } as unknown as Runtime["vectors"],
+    });
+  }
+
+  const scanRow = (chunkId: string, fileId: string, vector: number[]) => ({
+    chunkId,
+    fileId,
+    relPath: `src/${fileId}.ts`,
+    startLine: 1,
+    endLine: 10,
+    vector,
+  });
+
+  it("find_duplicates returns semantic groups when the flag is on (#523)", async () => {
+    const out = await tools.findDuplicates(
+      semanticRuntime([
+        scanRow("c1", "f1", [1, 0, 0]),
+        scanRow("c2", "f2", [1, 0, 0]),
+        scanRow("c3", "f3", [0, 1, 0]),
+      ]),
+      {},
+    );
+    expect(out.semanticDisabled).toBeNull();
+    expect(out.semantic?.groups).toHaveLength(1);
+    expect(out.semantic?.groups[0]?.similarity).toBe(1);
+    expect(out.semantic?.truncated).toBe(false);
+    expect(out.warnings).toBeUndefined();
+  });
+
+  it("find_duplicates flags truncation only when rows exceed the cap (#523)", async () => {
+    const rows = [
+      scanRow("c1", "f1", [1, 0, 0]),
+      scanRow("c2", "f2", [1, 0, 0]),
+      scanRow("c3", "f3", [0, 1, 0]),
+    ];
+    const truncated = await tools.findDuplicates(semanticRuntime(rows, 2), {});
+    expect(truncated.semantic?.truncated).toBe(true);
+    expect(truncated.warnings?.some((w) => w.includes("semanticMaxChunks"))).toBe(true);
+
+    // Exactly-at-cap is a COMPLETE scan, not a truncated one.
+    const exact = await tools.findDuplicates(semanticRuntime(rows.slice(0, 2), 2), {});
+    expect(exact.semantic?.truncated).toBe(false);
+    expect(exact.warnings).toBeUndefined();
+  });
+
+  it("semantic pass runs independently of the background-queue knobs (#523)", async () => {
+    const runtime = stubRuntime({
+      config: {
+        ...(stubRuntime().config as Runtime["config"]),
+        analyzers: {
+          backgroundEnabled: false,
+          duplicates: {
+            enabled: false,
+            semantic: true,
+            semanticThreshold: 92,
+            semanticMaxChunks: 100,
+          },
+        },
+      } as Runtime["config"],
+      vectors: {
+        scanChunks: async () => [scanRow("c1", "f1", [1, 0, 0]), scanRow("c2", "f2", [1, 0, 0])],
+      } as unknown as Runtime["vectors"],
+    });
+    const out = await tools.findDuplicates(runtime, {});
+    // Exact groups report their own disabled reason...
+    expect(out.disabled).toMatch(/background_enabled/);
+    // ...but the query-time semantic pass still ran.
+    expect(out.semanticDisabled).toBeNull();
+    expect(out.semantic?.groups).toHaveLength(1);
+  });
+
+  it("semantic honours min_members while exact groups keep theirs (#523)", async () => {
+    const out = await tools.findDuplicates(
+      semanticRuntime([scanRow("c1", "f1", [1, 0, 0]), scanRow("c2", "f2", [1, 0, 0])]),
+      { min_members: 3 },
+    );
+    expect(out.semantic?.groups).toEqual([]);
+  });
+
+  it("a failing vector store degrades to semanticDisabled, keeping exact groups (#523)", async () => {
+    const runtime = stubRuntime({
+      config: (semanticRuntime([]) as Runtime).config,
+      vectors: {
+        scanChunks: async () => {
+          throw new Error("native bindings missing");
+        },
+      } as unknown as Runtime["vectors"],
+    });
+    const out = await tools.findDuplicates(runtime, {});
+    expect(out.groups).toEqual([]);
+    expect(out.semantic).toBeNull();
+    expect(out.semanticDisabled).toMatch(/vector store unavailable/);
   });
 });
 

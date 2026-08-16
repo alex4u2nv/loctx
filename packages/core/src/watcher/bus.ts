@@ -44,7 +44,33 @@ export interface RebuildBusEvent {
   readonly at: number; // epoch ms
 }
 
-export type WatcherEvent = WatcherFsEvent | RebuildBusEvent;
+/** One (analyzer, project) batch inside an {@link AnalyzerBusEvent}. */
+export interface AnalyzerBatch {
+  readonly analyzer: string;
+  readonly projectId: string;
+  /** Tasks in this batch that completed successfully. */
+  readonly completed: number;
+  /** Tasks in this batch that failed. */
+  readonly failed: number;
+}
+
+/**
+ * Emitted when background-analyzer tasks settle (#526). Coalesced by
+ * {@link AnalyzerEventCoalescer}: ONE event per window carrying every
+ * (analyzer, project) batch — a backfill enqueues thousands of tasks,
+ * and both per-file events and per-bucket events would flood the SSE
+ * stream (each SSE message ticks every live-refresh subscriber in the
+ * admin UI, so message count is the cost that matters). Counts are
+ * batch totals, not single-task flags. Consumers today ride the
+ * generic live-refresh tick; nothing branches on this type yet.
+ */
+export interface AnalyzerBusEvent {
+  readonly type: "analyzer";
+  readonly batches: ReadonlyArray<AnalyzerBatch>;
+  readonly at: number; // epoch ms
+}
+
+export type WatcherEvent = WatcherFsEvent | RebuildBusEvent | AnalyzerBusEvent;
 
 /**
  * Closure-bound bus over a private EventEmitter. Exposes a typed
