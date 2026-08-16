@@ -685,8 +685,17 @@ export interface QualityReportFileRow {
   readonly findings: ReadonlyArray<QualityFindingRow>;
 }
 
+export interface QualityRuleSummaryRow {
+  readonly ruleId: string;
+  readonly count: number;
+  readonly files: number;
+  readonly worstSeverity: "error" | "warning" | "info";
+}
+
 export interface QualityReportPayload {
   readonly files: ReadonlyArray<QualityReportFileRow>;
+  /** Full-report rule rollups (stable under the rule filter). */
+  readonly rules: ReadonlyArray<QualityRuleSummaryRow>;
   readonly totals: {
     readonly files: number;
     readonly findings: number;

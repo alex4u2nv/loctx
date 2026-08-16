@@ -80,6 +80,12 @@ describe("buildQualityReport", () => {
     expect(report.totals.findings).toBe(5);
     expect(report.totals.warnings).toBe(4);
     expect(report.totals.infos).toBe(1);
+    // Rule rollup: sorted by count, with file spread + worst severity.
+    expect(report.rules).toEqual([
+      { ruleId: "quality/extract-candidate", count: 3, files: 3, worstSeverity: "warning" },
+      { ruleId: "quality/god-file", count: 1, files: 1, worstSeverity: "warning" },
+      { ruleId: "quality/high-fan-in", count: 1, files: 1, worstSeverity: "info" },
+    ]);
   });
 
   it("fan-in below the threshold does not flag", async () => {
@@ -100,6 +106,11 @@ describe("buildQualityReport", () => {
     );
     expect(report.files).toHaveLength(1);
     expect(report.files[0]?.findings.map((f) => f.ruleId)).toEqual(["quality/high-fan-in"]);
+    // The rollup ignores the filter — widgets stay stable while drilling in.
+    expect(report.rules.map((r) => r.ruleId).sort()).toEqual([
+      "quality/god-file",
+      "quality/high-fan-in",
+    ]);
   });
 
   it("caps the file list at limit but totals count everything", async () => {

@@ -80,6 +80,7 @@ export {
   type QualityReportFile,
   type QualityReportOptions,
   type QualityReportPorts,
+  type QualityRuleSummary,
 } from "./quality-report.js";
 export {
   EnrichmentQueue,

@@ -33,6 +33,7 @@ export function mountQuality(app: Hono, getRuntime: () => Promise<Runtime>): voi
     );
     const payload: QualityReportPayload = {
       files: report.files,
+      rules: report.rules,
       totals: report.totals,
       notes: report.notes,
       disabled,
