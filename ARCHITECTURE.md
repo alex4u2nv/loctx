@@ -126,7 +126,7 @@ canonical absolute root path (SHA-256 truncated to 16 hex chars).
 `filtering.ts` decides whether a path is eligible for indexing.
 
 Inputs:
-- bundled `data/filtering.yaml` baseline
+- baseline rules inlined in `filtering-defaults.ts` (a TS literal, no filesystem read)
 - alphabetical override files in `~/.loctx/config_overrides/*.{yaml,yml}`
 - `.gitignore` (project + global) — additive only; cannot un-ignore secrets
 
