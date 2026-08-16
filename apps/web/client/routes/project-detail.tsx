@@ -648,27 +648,40 @@ function QualitySection({ projectId }: { projectId: string }) {
   if (fetched.loading && data === null) return null;
   if (fetched.error !== null || data === null) return null;
   const hasFindings = data.files.length > 0;
-  const ruleIds = [...new Set(data.files.flatMap((f) => f.findings.map((x) => x.ruleId)))].sort();
   return (
     <>
       <h2 id="pd-quality">Quality</h2>
-      <p style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
-        <select value={rule} onChange={(e) => setRule(e.target.value)}>
-          <option value="">all rules</option>
-          {ruleIds.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-        <select value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
-          {[10, 20, 50, 100].map((n) => (
-            <option key={n} value={n}>
-              top {n} files
-            </option>
-          ))}
-        </select>
-      </p>
+      <div
+        style={{
+          display: "flex",
+          gap: "var(--space-2)",
+          flexWrap: "wrap",
+          alignItems: "stretch",
+          marginBottom: "var(--space-3)",
+        }}
+      >
+        {data.rules.map((r) => (
+          <RuleTile
+            key={r.ruleId}
+            rule={r}
+            active={rule === r.ruleId}
+            onToggle={() => setRule(rule === r.ruleId ? "" : r.ruleId)}
+          />
+        ))}
+        {data.rules.length > 0 ? (
+          <select
+            value={limit}
+            onChange={(e) => setLimit(Number(e.target.value))}
+            style={{ alignSelf: "center", marginLeft: "auto" }}
+          >
+            {[10, 20, 50, 100].map((n) => (
+              <option key={n} value={n}>
+                top {n} files
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
       {data.disabled !== null ? (
         <Banner tone="warn" soft>
           {data.disabled} Configure on the Analyzers tab.
@@ -689,6 +702,58 @@ function QualitySection({ projectId }: { projectId: string }) {
         </p>
       )}
     </>
+  );
+}
+
+/**
+ * One rule as a clickable mini stat tile: finding count, file spread,
+ * severity-tinted. Click filters the table to that rule (server-side,
+ * so "top N files" is exact for the rule); click again to clear. The
+ * tile row itself is built from the full-report rollup, so counts
+ * don't shift while a filter is active.
+ */
+function RuleTile({
+  rule,
+  active,
+  onToggle,
+}: {
+  rule: QualityReportPayload["rules"][number];
+  active: boolean;
+  onToggle: () => void;
+}) {
+  const sevClass =
+    rule.worstSeverity === "error" ? "err" : rule.worstSeverity === "warning" ? "warn" : "dim";
+  return (
+    <button
+      type="button"
+      className="card"
+      onClick={onToggle}
+      aria-pressed={active}
+      style={{
+        cursor: "pointer",
+        padding: "0.5rem 0.85rem",
+        textAlign: "left",
+        display: "flex",
+        flexDirection: "column",
+        gap: "0.1rem",
+        margin: 0,
+        borderColor: active ? "var(--accent)" : undefined,
+        boxShadow: active ? "inset 0 0 0 1px var(--accent)" : undefined,
+      }}
+      title={`${rule.ruleId}: ${rule.count} findings in ${rule.files} files — click to ${active ? "clear the filter" : "see the top files"}`}
+    >
+      <span className="dim" style={{ fontSize: "0.72rem", letterSpacing: "0.02em" }}>
+        {rule.ruleId.replace("quality/", "")}
+      </span>
+      <span>
+        <strong className={sevClass} style={{ fontSize: "1.05rem" }}>
+          {rule.count.toLocaleString()}
+        </strong>{" "}
+        <span className="dim" style={{ fontSize: "0.78rem" }}>
+          in {rule.files.toLocaleString()} {rule.files === 1 ? "file" : "files"}
+        </span>
+      </span>
+    </button>
   );
 }
 

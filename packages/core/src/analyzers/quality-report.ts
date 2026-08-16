@@ -97,8 +97,24 @@ export interface QualityReportFile {
   readonly findings: ReadonlyArray<RulePackFinding>;
 }
 
+/** Per-rule rollup across the WHOLE report, before any rule filter. */
+export interface QualityRuleSummary {
+  readonly ruleId: string;
+  /** Total findings for this rule. */
+  readonly count: number;
+  /** Distinct files carrying it. */
+  readonly files: number;
+  readonly worstSeverity: RulePackFinding["severity"];
+}
+
 export interface QualityReport {
   readonly files: ReadonlyArray<QualityReportFile>;
+  /**
+   * Rule rollups sorted by count, computed BEFORE `ruleFilter` — a
+   * filtered request still sees the full distribution, so UI widgets
+   * built on this stay stable while drilling into one rule.
+   */
+  readonly rules: ReadonlyArray<QualityRuleSummary>;
   readonly totals: {
     readonly files: number;
     readonly findings: number;
@@ -204,6 +220,29 @@ export async function buildQualityReport(
     }
   }
 
+  // Per-rule rollup over the FULL merge, before the rule filter.
+  const ruleAgg = new Map<string, { count: number; fileIds: Set<string>; worst: number }>();
+  for (const [fileId, all] of byFile.entries()) {
+    if (!relPathById.has(fileId)) continue;
+    for (const f of all) {
+      const agg = ruleAgg.get(f.ruleId) ?? { count: 0, fileIds: new Set<string>(), worst: 2 };
+      agg.count += 1;
+      agg.fileIds.add(fileId);
+      agg.worst = Math.min(agg.worst, SEVERITY_ORDER[f.severity]);
+      ruleAgg.set(f.ruleId, agg);
+    }
+  }
+  const severityAt = (order: number): RulePackFinding["severity"] =>
+    order === 0 ? "error" : order === 1 ? "warning" : "info";
+  const rules = [...ruleAgg.entries()]
+    .map(([ruleId, a]) => ({
+      ruleId,
+      count: a.count,
+      files: a.fileIds.size,
+      worstSeverity: severityAt(a.worst),
+    }))
+    .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.ruleId.localeCompare(b.ruleId)));
+
   // Rank: severity-weighted per file, findings sorted severity → line.
   const ranked: QualityReportFile[] = [];
   const totals = { files: 0, findings: 0, errors: 0, warnings: 0, infos: 0 };
@@ -244,6 +283,7 @@ export async function buildQualityReport(
 
   return Object.freeze({
     files: Object.freeze(ranked.slice(0, Math.max(1, opts.limit))),
+    rules: Object.freeze(rules),
     totals,
     notes: Object.freeze(notes),
   });
