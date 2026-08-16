@@ -91,9 +91,10 @@ function isPathLike(candidate: string): boolean {
   if (isExternalOrAnchor(candidate)) return false;
   if (!/^[\w.@~/-]+$/.test(candidate)) return false;
   const last = candidate.split("/").at(-1) ?? "";
-  // Final segment needs an extension: `a/b` is usually prose or an
-  // identifier; `a/b.ts` is a file reference. Globs are not checkable.
-  return /\.[A-Za-z0-9]+$/.test(last) && !candidate.includes("*");
+  // Final segment needs a real extension starting with a letter:
+  // `a/b` is usually prose, and `@pkg/name@0.27` is a version spec,
+  // not a file. Globs are not checkable.
+  return /\.[A-Za-z][A-Za-z0-9]*$/.test(last) && !candidate.includes("*");
 }
 
 function isExternalOrAnchor(target: string): boolean {
@@ -102,13 +103,24 @@ function isExternalOrAnchor(target: string): boolean {
 
 export interface ResolvedRef {
   readonly ref: PathRef;
-  /** First base (docDir, then projectRoot) under which the path exists; null when neither. */
+  /** Resolved absolute path (base-relative or suffix match); null when dangling. */
   readonly absPath: string | null;
 }
 
 /**
+ * Resolve a shorthand reference to an absolute path by matching it as
+ * a path SUFFIX of an indexed file (docs routinely write
+ * `components/modal.tsx` for `apps/web/client/components/modal.tsx`).
+ * Returns the absolute path, or null when nothing matches.
+ */
+export type SuffixResolver = (ref: string) => string | null;
+
+/**
  * Resolve each reference against the doc's directory, then the project
- * root (bare `packages/...` mentions are root-relative). Home-prefixed
+ * root (bare `packages/...` mentions are root-relative), then — when a
+ * resolver is supplied — as a path suffix of any indexed file. The
+ * suffix pass is what keeps docs shorthand from false-positiving
+ * (dogfooding found 44 of 47 flags were shorthand). Home-prefixed
  * (`~/...`) references are outside the project and skipped entirely.
  */
 export function resolvePathRefs(
@@ -116,6 +128,7 @@ export function resolvePathRefs(
   docDir: string,
   projectRoot: string,
   exists: (absPath: string) => boolean,
+  resolveSuffix?: SuffixResolver,
 ): ResolvedRef[] {
   return refs
     .filter((ref) => !ref.raw.startsWith("~"))
@@ -126,6 +139,10 @@ export function resolvePathRefs(
         // root (../../elsewhere) is not ours to judge.
         if (!abs.startsWith(projectRoot)) continue;
         if (exists(abs)) return { ref, absPath: abs };
+      }
+      if (resolveSuffix !== undefined) {
+        const abs = resolveSuffix(ref.raw);
+        if (abs !== null) return { ref, absPath: abs };
       }
       return { ref, absPath: null };
     });
@@ -183,9 +200,10 @@ export function runMarkdownStaleRefs(
   absPath: string,
   projectRoot: string,
   exists: (candidate: string) => boolean,
+  resolveSuffix?: SuffixResolver,
 ): RulePackFinding[] {
   return staleRefFindings(
-    resolvePathRefs(extractPathRefs(content), dirname(absPath), projectRoot, exists),
+    resolvePathRefs(extractPathRefs(content), dirname(absPath), projectRoot, exists, resolveSuffix),
   );
 }
 
@@ -208,6 +226,7 @@ export async function runDocDrift(
     readonly projectRoot: string;
     readonly driftFloor: number;
     readonly exists: (candidate: string) => boolean;
+    readonly resolveSuffix?: SuffixResolver;
     readonly vectors: MarkdownVectorPort;
   },
 ): Promise<RulePackFinding | null> {
@@ -216,6 +235,7 @@ export async function runDocDrift(
     dirname(absPath),
     ctx.projectRoot,
     ctx.exists,
+    ctx.resolveSuffix,
   );
   const live = resolved.filter((r) => r.absPath !== null).slice(0, MAX_RESOLVED_REFS);
   if (live.length === 0) return null;

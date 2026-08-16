@@ -348,6 +348,17 @@ INSERT OR IGNORE INTO chunks (
 )
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
+-- quality/stale-ref suffix resolution: does any indexed file of the
+-- project end with this path (exact match or '/'-boundary suffix)?
+-- Caller escapes LIKE metacharacters; shortest match wins so a
+-- shorthand resolves to the most specific plausible file.
+-- :name resolve_file_suffix
+SELECT rel_path FROM files
+WHERE project_id = ?
+  AND (rel_path = ? OR rel_path LIKE '%/' || ? ESCAPE '\')
+ORDER BY LENGTH(rel_path) ASC
+LIMIT 1;
+
 -- Serves both StateStore.listChunks and listChunksWithMetadata (#522);
 -- one statement so the two projections can't drift.
 -- :name list_chunks

@@ -38,6 +38,7 @@ export {
   type DuplicatesOptions,
   type DuplicatesPayload,
   type DuplicateWindow,
+  isLicenseLikePath,
 } from "./duplicates.js";
 export {
   detectLizard,
@@ -72,6 +73,7 @@ export {
   resolvePathRefs,
   runDocDrift,
   runMarkdownStaleRefs,
+  type SuffixResolver,
   staleRefFindings,
 } from "./quality-markdown.js";
 export {

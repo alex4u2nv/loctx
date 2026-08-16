@@ -1076,6 +1076,21 @@ export class StateStore {
   }
 
   /**
+   * Path-suffix lookup for docs-shorthand references (quality/stale-ref):
+   * the indexed relPath that this ref resolves to, or null. Exact match
+   * beats suffix; shortest suffix match wins.
+   */
+  resolveFileSuffix(projectId: ProjectId, refPath: string): string | null {
+    const escaped = refPath.replace(/[\\%_]/g, (m) => `\\${m}`);
+    const row = this.readOne<{ rel_path: string }>("resolve_file_suffix", [
+      projectId,
+      refPath,
+      escaped,
+    ]);
+    return row === undefined ? null : row.rel_path;
+  }
+
+  /**
    * Complete `quality` payloads for one project (#525). One join; the
    * report parses payload JSON in JS with per-row error isolation.
    */

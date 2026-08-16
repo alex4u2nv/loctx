@@ -19,7 +19,18 @@
 
 import { createHash } from "node:crypto";
 
-export const DUPLICATES_VERSION = 1;
+export const DUPLICATES_VERSION = 2; // v2: license-like files skipped
+
+/**
+ * License texts are identical across packages by DESIGN — flagging
+ * them as duplication is pure noise (they were 800 of 979 findings on
+ * loctx's own first report). Matched by basename, any case, with or
+ * without an extension.
+ */
+export function isLicenseLikePath(path: string): boolean {
+  const base = path.split(/[\\/]/).at(-1) ?? "";
+  return /^(licen[cs]e|notice|copying)(\..*)?$/i.test(base);
+}
 
 export interface DuplicateWindow {
   /** Hex-encoded sha1 of the joined token sequence. */

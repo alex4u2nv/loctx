@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { computeDuplicateWindows } from "../../src/analyzers/duplicates.js";
+import { computeDuplicateWindows, isLicenseLikePath } from "../../src/analyzers/duplicates.js";
 
 describe("computeDuplicateWindows", () => {
   it("emits a window for content longer than the window size", () => {
@@ -58,5 +58,25 @@ describe("computeDuplicateWindows", () => {
     const first = result.windows[0];
     expect(first?.startLine).toBeGreaterThanOrEqual(1);
     expect(first?.endLine).toBeGreaterThan(first?.startLine ?? 0);
+  });
+});
+
+describe("isLicenseLikePath", () => {
+  it("matches license-family basenames, any case, with or without extension", () => {
+    for (const p of [
+      "LICENSE",
+      "license",
+      "LICENCE.md",
+      "apps/mcp/LICENSE",
+      "NOTICE",
+      "COPYING.txt",
+    ]) {
+      expect(isLicenseLikePath(p)).toBe(true);
+    }
+  });
+  it("does not match ordinary files", () => {
+    for (const p of ["licenses.ts", "src/license-check.ts", "README.md", "noticeable.md"]) {
+      expect(isLicenseLikePath(p)).toBe(false);
+    }
   });
 });

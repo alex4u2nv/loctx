@@ -24,6 +24,7 @@ import {
   detectLizard,
   detectSemgrep,
   EnrichmentQueue,
+  isLicenseLikePath,
   LIZARD_VERSION,
   matchesDefinitionGlobs,
   QUALITY_VERSION,
@@ -249,6 +250,9 @@ export const ANALYZERS: ReadonlyArray<AnalyzerDescriptor> = [
     isActive: (c) => c.analyzers.duplicates.enabled,
     command: () => null,
     buildTask: (config, { project, fileId, absPath, contentSha }) => {
+      // License texts are identical by design; their windows flooded
+      // extract-candidate with 800 findings on this repo's own report.
+      if (isLicenseLikePath(absPath)) return null;
       const dupOpts = {
         windowSize: config.analyzers.duplicates.windowSize,
         minUniqueTokens: config.analyzers.duplicates.minUniqueTokens,
@@ -387,7 +391,9 @@ export const ANALYZERS: ReadonlyArray<AnalyzerDescriptor> = [
           runQuality(absPath, fileId, contentSha, index, {
             thresholds: q,
             maxFindingsPerFile: q.maxFindingsPerFile,
-            ...(q.markdownRules ? { markdown: { projectRoot: project.root } } : {}),
+            ...(q.markdownRules
+              ? { markdown: { projectId: project.id, projectRoot: project.root } }
+              : {}),
           }),
       });
     },
@@ -509,6 +515,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
   // AnalyzerEnqueueParams so the descriptor table stays state-free.
   const qualityIndex: QualityIndexReader = {
     chunksForFile: (fileId) => state.listChunksWithMetadata(fileId),
+    resolveFileSuffix: (projectId, refPath) => state.resolveFileSuffix(projectId, refPath),
     lizardForFile: (fileId, contentSha) => {
       const row = state.getFileEnrichment(fileId, "lizard");
       // A lizard row computed from different content (the file's previous
