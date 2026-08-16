@@ -6,12 +6,16 @@
       "**/packages/**/*/tests/**/*",
       "**/packages/**/*/test/**/*",
       "**/apps/cli/src/**/*",
+      "**/apps/cli/tests/**/*",
       "**/apps/mcp/src/**/*",
-      "**/apps/web/app/**/*",
-      "**/apps/web/lib/**/*",
+      "**/apps/mcp/tests/**/*",
+      "**/apps/web/client/**/*",
+      "**/apps/web/server/**/*",
+      "**/apps/web/shared/**/*",
+      "**/apps/web/tests/**/*",
       "!**/dist",
-      "!**/.next",
-      "!**/node_modules"
+      "!**/node_modules",
+      "!**/*.css"
     ]
   },
   "formatter": {

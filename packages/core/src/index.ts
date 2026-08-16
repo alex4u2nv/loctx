@@ -2,7 +2,10 @@
  * Public API barrel.
  */
 
-export * from "./_validate.js";
+// Deliberately narrow: the Spec constants (INT, STR, BOOL, …) are
+// internal building blocks with names too generic to freeze as public
+// API. Consumers get the Validator and the Spec contract only.
+export { type Spec, Validator } from "./_validate.js";
 export * from "./agent-setup/index.js";
 export * from "./analyzers/index.js";
 export * from "./chunking/index.js";

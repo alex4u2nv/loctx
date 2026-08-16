@@ -55,11 +55,7 @@ describe("localDaemonGuard — Host check", () => {
 
   it("accepts every loopback alias on the bound port", async () => {
     const app = makeApp();
-    for (const host of [
-      `127.0.0.1:${PORT}`,
-      `localhost:${PORT}`,
-      `[::1]:${PORT}`,
-    ]) {
+    for (const host of [`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]) {
       const res = await app.request("/api/status", { headers: { host } });
       expect(res.status, host).toBe(200);
     }

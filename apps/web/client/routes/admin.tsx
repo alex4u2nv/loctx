@@ -122,7 +122,9 @@ export function AdminPage() {
 
       <div className="card-stack">
         <div className="card">
-          <p className="card-section-title" id="admin-index">Index</p>
+          <p className="card-section-title" id="admin-index">
+            Index
+          </p>
           <p>
             <IconButton
               icon="index"
@@ -174,7 +176,9 @@ export function AdminPage() {
         </div>
 
         <div className="card">
-          <p className="card-section-title" id="admin-agents">Agents</p>
+          <p className="card-section-title" id="admin-agents">
+            Agents
+          </p>
           <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
             Re-stamp the loctx rules + skill in every already-wired project under your workspace
             roots, propagating the latest usage playbook. Won't wire new projects or change MCP
@@ -197,7 +201,9 @@ export function AdminPage() {
         </div>
 
         <div className="card">
-          <p className="card-section-title" id="admin-daemon">Daemon</p>
+          <p className="card-section-title" id="admin-daemon">
+            Daemon
+          </p>
           <p>
             <IconButton
               icon="refresh"

@@ -9,14 +9,14 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { serveStatic } from "@hono/node-server/serve-static";
 import {
+  buildRuntime,
   type Config,
+  loadConfig,
   type Runtime,
   type WatcherRegistry,
-  buildRuntime,
-  loadConfig,
 } from "@loctx/core";
-import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { mountApi } from "./api/index.js";

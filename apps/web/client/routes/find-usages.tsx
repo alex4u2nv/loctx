@@ -8,8 +8,8 @@ import { SectionNav } from "../components/section-nav";
 import { SnippetModal } from "../components/snippet-modal";
 import { api } from "../lib/api";
 import { type FindUsagesQuery, findUsagesCodec } from "../lib/query-codecs";
-import { useUrlQuery } from "../lib/use-url-query";
 import { useSnippetSelection } from "../lib/use-snippet-selection";
+import { useUrlQuery } from "../lib/use-url-query";
 
 export function FindUsagesPage() {
   // URL-driven query state machine (audit WEB-2): submit mirrors into
@@ -29,8 +29,8 @@ export function FindUsagesPage() {
       <span className="eyebrow">Cross-reference</span>
       <h1 className="display">Find usages</h1>
       <p className="subtitle">
-        Exact-match symbol jump. Returns every definition and call/import/reference of a name
-        across the indexed projects.
+        Exact-match symbol jump. Returns every definition and call/import/reference of a name across
+        the indexed projects.
       </p>
 
       <SearchTabs />
@@ -112,8 +112,8 @@ function Results({
       {empty ? (
         scopedPath !== "" ? (
           <p className="pullquote">
-            No matches for <code>{r.symbol}</code> in <code>{scopedPath}</code>. The symbol may
-            be defined in another project —{" "}
+            No matches for <code>{r.symbol}</code> in <code>{scopedPath}</code>. The symbol may be
+            defined in another project —{" "}
             <button type="button" className="btn-link" onClick={onClearScope}>
               clear the path filter
             </button>{" "}
@@ -121,8 +121,8 @@ function Results({
           </p>
         ) : (
           <p className="pullquote">
-            No matches for <code>{r.symbol}</code> across every indexed project. The symbol may
-            not exist, or its file isn't indexed (check <code>.gitignore</code> /
+            No matches for <code>{r.symbol}</code> across every indexed project. The symbol may not
+            exist, or its file isn't indexed (check <code>.gitignore</code> /
             <code>.loctxignore</code> / language filter).
           </p>
         )
@@ -146,57 +146,57 @@ function UsageTable({ hits }: { hits: ReadonlyArray<UsageHit> }) {
   // independent <table>s would otherwise auto-size per their content.
   return (
     <>
-    <DataTable
-      className="usage-table"
-      rows={hits}
-      rowKey={(h, i) => `${h.projectId}-${h.relPath}-${h.chunkStartLine}-${i}`}
-      onRowClick={open}
-      columns={[
-        {
-          key: "project",
-          header: "project",
-          dim: true,
-          colClassName: "col-project",
-          cell: (h) => <span title={h.projectId}>{h.projectName}</span>,
-        },
-        {
-          key: "file",
-          header: "file",
-          colClassName: "col-file",
-          cell: (h) => h.relPath,
-        },
-        {
-          key: "kind",
-          header: "kind",
-          dim: true,
-          colClassName: "col-kind",
-          cell: (h) => h.kind,
-        },
-        {
-          key: "lines",
-          header: "lines",
-          numeric: true,
-          colClassName: "col-lines",
-          cell: (h) => `${h.chunkStartLine}-${h.chunkEndLine}`,
-        },
-      ]}
-    />
-    {selected !== null ? (
-      <SnippetModal
-        title={selected.relPath}
-        snippet={selected.snippet}
-        onClose={close}
-        meta={
-          <span className="dim">
-            lines {selected.chunkStartLine}-{selected.chunkEndLine}
-            <span className="sep">·</span>
-            kind: {selected.kind}
-            <span className="sep">·</span>
-            project: {selected.projectName}
-          </span>
-        }
+      <DataTable
+        className="usage-table"
+        rows={hits}
+        rowKey={(h, i) => `${h.projectId}-${h.relPath}-${h.chunkStartLine}-${i}`}
+        onRowClick={open}
+        columns={[
+          {
+            key: "project",
+            header: "project",
+            dim: true,
+            colClassName: "col-project",
+            cell: (h) => <span title={h.projectId}>{h.projectName}</span>,
+          },
+          {
+            key: "file",
+            header: "file",
+            colClassName: "col-file",
+            cell: (h) => h.relPath,
+          },
+          {
+            key: "kind",
+            header: "kind",
+            dim: true,
+            colClassName: "col-kind",
+            cell: (h) => h.kind,
+          },
+          {
+            key: "lines",
+            header: "lines",
+            numeric: true,
+            colClassName: "col-lines",
+            cell: (h) => `${h.chunkStartLine}-${h.chunkEndLine}`,
+          },
+        ]}
       />
-    ) : null}
+      {selected !== null ? (
+        <SnippetModal
+          title={selected.relPath}
+          snippet={selected.snippet}
+          onClose={close}
+          meta={
+            <span className="dim">
+              lines {selected.chunkStartLine}-{selected.chunkEndLine}
+              <span className="sep">·</span>
+              kind: {selected.kind}
+              <span className="sep">·</span>
+              project: {selected.projectName}
+            </span>
+          }
+        />
+      ) : null}
     </>
   );
 }

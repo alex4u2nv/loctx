@@ -3,9 +3,9 @@ import { join } from "node:path";
 import {
   type Config,
   type Runtime,
-  WorkspaceDiscovery,
   readActiveDaemon,
   summarizeUsage,
+  WorkspaceDiscovery,
 } from "@loctx/core";
 import type { Hono } from "hono";
 import type { StatusPayload, ValueMetrics } from "../../shared/contracts.js";
@@ -59,11 +59,7 @@ function indexSizeBytes(config: Config): number {
   ].reduce((total, path) => total + pathSizeBytes(path), 0);
 }
 
-export function mountStatus(
-  app: Hono,
-  config: Config,
-  getRuntime: () => Promise<Runtime>,
-): void {
+export function mountStatus(app: Hono, config: Config, getRuntime: () => Promise<Runtime>): void {
   // One discovery instance for the server's lifetime instead of one per
   // request (#455) — /api/status is polled every 3-8s by the admin UI.
   const discovery = new WorkspaceDiscovery(config.workspaceRoots);

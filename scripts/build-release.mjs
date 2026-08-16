@@ -46,6 +46,11 @@ if (existsSync(join(stage, "node_modules/@loctx/mcp/dist/server.js"))) {
 // Bundle the installer so a tarball can self-update (`loctx update` re-runs
 // it; recipients can also re-run it directly to pull the latest release).
 cpSync(join(repoRoot, "scripts/install-release.sh"), join(stage, "install-release.sh"));
+// Apache-2.0 §4(a): every recipient of the artifact gets the License.
+// NOTICE carries the third-party attributions (Font Awesome CC BY 4.0,
+// bundled libvips LGPL) that live nowhere else in the tarball.
+cpSync(join(repoRoot, "LICENSE"), join(stage, "LICENSE"));
+cpSync(join(repoRoot, "NOTICE"), join(stage, "NOTICE"));
 writeFileSync(
   join(stage, "loctx-release.json"),
   JSON.stringify({ version, bins, builtFor: platformTag(), builtAt: null }, null, 2),

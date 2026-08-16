@@ -30,7 +30,8 @@ export function registerConfigCommands(program: Command): void {
     )
     .option("--force", "Overwrite an existing file.", false)
     .action(async (opts: { force: boolean }) => {
-      const { existsSync, writeFileSync } = await import("node:fs");
+      const { existsSync, mkdirSync, writeFileSync } = await import("node:fs");
+      const { dirname } = await import("node:path");
       const { CONFIG_TEMPLATE } = await import("@loctx/core");
       const ctx = getCtx();
       const target = ctx.configPath;
@@ -40,6 +41,9 @@ export function registerConfigCommands(program: Command): void {
         );
         process.exit(EXIT.error);
       }
+      // First run on a fresh machine: the config directory doesn't exist
+      // yet and writeFileSync won't create parents.
+      mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, CONFIG_TEMPLATE, "utf-8");
       console.error(`[loctx config init] wrote ${target}`);
     });

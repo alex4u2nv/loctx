@@ -61,10 +61,7 @@ async function getHighlighter(): Promise<Highlighter> {
  * null when the language isn't supported and we should fall back to
  * plain text. Never throws — unknown language errors resolve to null.
  */
-export async function highlightCode(
-  code: string,
-  language: string | null,
-): Promise<string | null> {
+export async function highlightCode(code: string, language: string | null): Promise<string | null> {
   const lang = normalizeLanguage(language);
   if (lang === null) return null;
   try {

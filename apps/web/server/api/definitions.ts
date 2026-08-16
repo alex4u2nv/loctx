@@ -76,7 +76,10 @@ export function mountDefinitions(
     if (typeof body?.url === "string" && body.url.trim() !== "") {
       const url = body.url.trim();
       if (!/^https?:\/\//i.test(url)) {
-        return c.json({ ok: false, error: "url must be http(s)" } satisfies DefinitionSchemaResponse, 400);
+        return c.json(
+          { ok: false, error: "url must be http(s)" } satisfies DefinitionSchemaResponse,
+          400,
+        );
       }
       try {
         const r = await fetch(url, { headers: { "user-agent": "loctx" } });
@@ -89,7 +92,10 @@ export function mountDefinitions(
         text = await r.text();
       } catch (err) {
         return c.json(
-          { ok: false, error: `fetch failed: ${(err as Error).message}` } satisfies DefinitionSchemaResponse,
+          {
+            ok: false,
+            error: `fetch failed: ${(err as Error).message}`,
+          } satisfies DefinitionSchemaResponse,
           400,
         );
       }
@@ -104,16 +110,25 @@ export function mountDefinitions(
           ? body.name
           : `upload-${createHash("sha1").update(text).digest("hex").slice(0, 8)}`;
     } else {
-      return c.json({ ok: false, error: "provide `url` or `content`" } satisfies DefinitionSchemaResponse, 400);
+      return c.json(
+        { ok: false, error: "provide `url` or `content`" } satisfies DefinitionSchemaResponse,
+        400,
+      );
     }
 
     const schema = parseSchema(text);
     if (schema === null) {
-      return c.json({ ok: false, error: "not valid JSON or YAML" } satisfies DefinitionSchemaResponse, 400);
+      return c.json(
+        { ok: false, error: "not valid JSON or YAML" } satisfies DefinitionSchemaResponse,
+        400,
+      );
     }
     const err = compileDefinitionSchema(schema);
     if (err !== null) {
-      return c.json({ ok: false, error: `not a valid JSON Schema: ${err}` } satisfies DefinitionSchemaResponse, 400);
+      return c.json(
+        { ok: false, error: `not a valid JSON Schema: ${err}` } satisfies DefinitionSchemaResponse,
+        400,
+      );
     }
     const path = storeSchema(config, schema, name);
     return c.json({ ok: true, path } satisfies DefinitionSchemaResponse);
@@ -128,7 +143,10 @@ export function mountDefinitions(
       const rt = await getRuntime();
       roots = rt.state.listProjects().map((p) => p.root);
     } catch {
-      return c.json({ ok: false, error: "runtime not ready" } satisfies DefinitionSchemaResponse, 503);
+      return c.json(
+        { ok: false, error: "runtime not ready" } satisfies DefinitionSchemaResponse,
+        503,
+      );
     }
     const samples: Record<string, unknown>[] = [];
     let scanned = 0;
@@ -147,7 +165,12 @@ export function mountDefinitions(
         if (!matchesDefinitionGlobs(relPosix, globs)) continue;
         try {
           const fm = extractFrontmatter(readFileSync(join(root, rel), "utf8"));
-          if (fm.present && fm.parseError === null && fm.data !== null && typeof fm.data === "object") {
+          if (
+            fm.present &&
+            fm.parseError === null &&
+            fm.data !== null &&
+            typeof fm.data === "object"
+          ) {
             samples.push(fm.data as Record<string, unknown>);
           }
         } catch {

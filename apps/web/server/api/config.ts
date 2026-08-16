@@ -32,7 +32,7 @@ export function mountConfig(
     const raw = await jsonBody(c);
     const parsed = parseRequest(raw);
     if (parsed === null) {
-      return c.json({ error: "expected { patch }" }, 400);
+      return c.json({ error: "body must be a JSON object with a `patch` field" }, 400);
     }
 
     const path = config.source ?? defaultGlobalPath(config);
@@ -123,4 +123,3 @@ function parseRequest(body: unknown): ConfigWriteRequest | null {
   if (patch === null || typeof patch !== "object" || Array.isArray(patch)) return null;
   return { patch: patch as Record<string, unknown> };
 }
-

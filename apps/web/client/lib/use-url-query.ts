@@ -53,7 +53,9 @@ export interface UrlQueryHandle<Req, Res> extends Omit<QueryHandle<Req, Res>, "s
 
 /** Core machine shared by both hooks. `run` is kept in a ref so callers
  * can pass inline closures without re-arming effects. */
-function useQueryMachine<Req, Res>(run: (req: Req) => Promise<Res>): {
+function useQueryMachine<Req, Res>(
+  run: (req: Req) => Promise<Res>,
+): {
   readonly state: QueryState<Res>;
   readonly fire: (req: Req) => void;
   readonly clear: () => void;

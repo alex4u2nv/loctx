@@ -9,7 +9,7 @@
 import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Runtime, makeProject } from "@loctx/core";
+import { makeProject, type Runtime } from "@loctx/core";
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mountProjects } from "../../../server/api/projects.js";

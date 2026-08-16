@@ -59,19 +59,15 @@ export function Modal({
   }, [onClose]);
 
   return createPortal(
-    <div
-      className="modal-backdrop"
-      onClick={onClose}
-      // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard handled at window level above
-      role="presentation"
-    >
+    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-to-close is a pointer-only affordance; keyboard dismissal is the window-level Escape listener above
+    <div className="modal-backdrop" onClick={onClose} role="presentation">
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: this click handler only stops backdrop propagation; it performs no user action */}
       <div
         className={className !== undefined ? `modal ${className}` : "modal"}
         role="dialog"
         aria-modal="true"
         aria-labelledby={title !== undefined ? titleId : undefined}
         onClick={(e) => e.stopPropagation()}
-        // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard handled at window level above
         {...(maxWidth !== undefined ? { style: { maxWidth } } : {})}
       >
         {title !== undefined ? (

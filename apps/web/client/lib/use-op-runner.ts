@@ -37,7 +37,11 @@ export function useOpRunner(onSuccess?: () => void): OpRunner {
   const [message, setMessage] = useState<string | null>(null);
 
   const run = useCallback(
-    async <T>(label: string, fn: () => Promise<T>, opts?: RunOptions<T>): Promise<T | undefined> => {
+    async <T>(
+      label: string,
+      fn: () => Promise<T>,
+      opts?: RunOptions<T>,
+    ): Promise<T | undefined> => {
       setBusy(label);
       setMessage(null);
       try {

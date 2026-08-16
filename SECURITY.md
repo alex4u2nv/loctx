@@ -4,7 +4,8 @@
 
 **Do not file public GitHub issues for vulnerabilities.**
 
-Email the maintainer listed on the [`@loctx/core`](packages/core/package.json) author field with:
+Use GitHub's private vulnerability reporting: the **Security** tab of
+this repository → **Report a vulnerability**. Include:
 
 - A description and impact.
 - Steps to reproduce, or a minimal proof of concept.

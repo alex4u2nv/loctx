@@ -78,7 +78,12 @@ export function ConnectEditorModal({
 
       {req.data !== null
         ? req.data.agents.map((a) => (
-            <AgentRow key={a.id} agent={a} checked={selected.has(a.id)} onToggle={() => toggle(a.id)} />
+            <AgentRow
+              key={a.id}
+              agent={a}
+              checked={selected.has(a.id)}
+              onToggle={() => toggle(a.id)}
+            />
           ))
         : null}
 
@@ -118,7 +123,9 @@ function AgentRow({
   const cls = agent.registered ? "ok" : agent.present ? "warn" : "dim";
   return (
     <div className="tool-row" style={{ alignItems: "flex-start", flexDirection: "column" }}>
-      <label style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", cursor: "pointer" }}>
+      <label
+        style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", cursor: "pointer" }}
+      >
         <input type="checkbox" checked={checked} onChange={onToggle} />
         <span className="metric-value" style={{ minWidth: "11rem" }}>
           {agent.label}

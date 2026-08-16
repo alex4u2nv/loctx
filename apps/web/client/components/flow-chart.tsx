@@ -131,41 +131,41 @@ export function FlowChart({
 
   return (
     <div className="flow-chart-wrap">
-    <svg
-      className="flow-chart"
-      viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-      preserveAspectRatio="xMidYMid meet"
-      role="img"
-      aria-label={`Index flow: ${totalChunks.toLocaleString()} chunks across ${projects.length} projects`}
-    >
-      <defs>
-        <linearGradient id="flow-link-active" x1="0" x2="1">
-          <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.95" />
-          <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.55" />
-        </linearGradient>
-        <linearGradient id="flow-link-ready" x1="0" x2="1">
-          <stop offset="0%" stopColor="var(--primary-dim)" stopOpacity="0.85" />
-          <stop offset="100%" stopColor="var(--primary-dim)" stopOpacity="0.5" />
-        </linearGradient>
-        <linearGradient id="flow-link-paused" x1="0" x2="1">
-          <stop offset="0%" stopColor="var(--warn)" stopOpacity="0.9" />
-          <stop offset="100%" stopColor="var(--warn)" stopOpacity="0.45" />
-        </linearGradient>
-        <linearGradient id="flow-link-failed" x1="0" x2="1">
-          <stop offset="0%" stopColor="var(--bad)" stopOpacity="0.9" />
-          <stop offset="100%" stopColor="var(--bad)" stopOpacity="0.45" />
-        </linearGradient>
-        <linearGradient id="flow-link-indexing" x1="0" x2="1">
-          <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.7" />
-          <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.3" />
-        </linearGradient>
-        <linearGradient id="flow-link-dim" x1="0" x2="1">
-          <stop offset="0%" stopColor="var(--border-strong)" stopOpacity="0.7" />
-          <stop offset="100%" stopColor="var(--border-strong)" stopOpacity="0.4" />
-        </linearGradient>
-      </defs>
+      <svg
+        className="flow-chart"
+        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+        preserveAspectRatio="xMidYMid meet"
+        role="img"
+        aria-label={`Index flow: ${totalChunks.toLocaleString()} chunks across ${projects.length} projects`}
+      >
+        <defs>
+          <linearGradient id="flow-link-active" x1="0" x2="1">
+            <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.95" />
+            <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.55" />
+          </linearGradient>
+          <linearGradient id="flow-link-ready" x1="0" x2="1">
+            <stop offset="0%" stopColor="var(--primary-dim)" stopOpacity="0.85" />
+            <stop offset="100%" stopColor="var(--primary-dim)" stopOpacity="0.5" />
+          </linearGradient>
+          <linearGradient id="flow-link-paused" x1="0" x2="1">
+            <stop offset="0%" stopColor="var(--warn)" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="var(--warn)" stopOpacity="0.45" />
+          </linearGradient>
+          <linearGradient id="flow-link-failed" x1="0" x2="1">
+            <stop offset="0%" stopColor="var(--bad)" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="var(--bad)" stopOpacity="0.45" />
+          </linearGradient>
+          <linearGradient id="flow-link-indexing" x1="0" x2="1">
+            <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.7" />
+            <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.3" />
+          </linearGradient>
+          <linearGradient id="flow-link-dim" x1="0" x2="1">
+            <stop offset="0%" stopColor="var(--border-strong)" stopOpacity="0.7" />
+            <stop offset="100%" stopColor="var(--border-strong)" stopOpacity="0.4" />
+          </linearGradient>
+        </defs>
 
-      {/* Render order matters:
+        {/* Render order matters:
           1. Source rect (so links visibly emerge over its right edge —
              without this, a perfectly horizontal middle link gets
              absorbed by the rect's body and drop-shadow glow).
@@ -175,107 +175,100 @@ export function FlowChart({
              from the cube rather than fanning along its full height.
           3. Source text labels last so they sit on top of the link
              stubs that pass under them. */}
-      <g className="flow-chart-node source">
-        <rect
-          x={SOURCE_X}
-          y={sourceY}
-          width={SOURCE_WIDTH}
-          height={sourceHeight}
-          rx={8}
-        />
-        <title>
-          Index source · {totalChunks.toLocaleString()} chunks across {projects.length} project
-          {projects.length === 1 ? "" : "s"}
-        </title>
-      </g>
+        <g className="flow-chart-node source">
+          <rect x={SOURCE_X} y={sourceY} width={SOURCE_WIDTH} height={sourceHeight} rx={8} />
+          <title>
+            Index source · {totalChunks.toLocaleString()} chunks across {projects.length} project
+            {projects.length === 1 ? "" : "s"}
+          </title>
+        </g>
 
-      {outputs.map((o, i) => {
-        const srcY = sourceFanY(i, outputs.length, sourceCy);
-        const linkClass =
-          o.kind === "indexing" ? "flow-chart-link indexing" : "flow-chart-link";
-        const link = linkPath({
-          sourceX: SOURCE_X + SOURCE_WIDTH - LINK_OVERLAP,
-          sourceY: srcY,
-          targetX: OUTPUT_X + OUTPUT_LINK_OVERLAP,
-          targetY: o.cy,
-          index: i,
-          total: outputs.length,
-        });
-        return (
-          <path
-            key={`link-${o.key}`}
-            className={linkClass}
-            d={link}
-            stroke={linkGradient(o)}
-            strokeWidth={o.thickness}
-            fill="none"
-          />
-        );
-      })}
-
-      <g className="flow-chart-node source labels">
-        <text
-          className="flow-chart-source-label"
-          x={SOURCE_X + 12}
-          y={sourceCy - 8}
-          textAnchor="start"
-          dominantBaseline="middle"
-        >
-          OUTPUT
-        </text>
-        <text
-          className="flow-chart-source-value"
-          x={SOURCE_X + 12}
-          y={sourceCy + 10}
-          textAnchor="start"
-          dominantBaseline="middle"
-        >
-          {totalChunks.toLocaleString()}
-        </text>
-      </g>
-
-      {/* Output nodes */}
-      {outputs.map((o) => {
-        const nodeHeight = Math.max(o.thickness + 4, 10);
-        return (
-          <g key={`node-${o.key}`} className={nodeClass(o)}>
-            <rect
-              x={OUTPUT_X}
-              y={o.cy - nodeHeight / 2}
-              width={OUTPUT_NODE_WIDTH}
-              height={nodeHeight}
-              rx={3}
+        {outputs.map((o, i) => {
+          const srcY = sourceFanY(i, outputs.length, sourceCy);
+          const linkClass = o.kind === "indexing" ? "flow-chart-link indexing" : "flow-chart-link";
+          const link = linkPath({
+            sourceX: SOURCE_X + SOURCE_WIDTH - LINK_OVERLAP,
+            sourceY: srcY,
+            targetX: OUTPUT_X + OUTPUT_LINK_OVERLAP,
+            targetY: o.cy,
+            index: i,
+            total: outputs.length,
+          });
+          return (
+            <path
+              key={`link-${o.key}`}
+              className={linkClass}
+              d={link}
+              stroke={linkGradient(o)}
+              strokeWidth={o.thickness}
+              fill="none"
             />
-            <text
-              className="flow-chart-name"
-              x={OUTPUT_X + OUTPUT_NODE_WIDTH + 10}
-              y={o.cy - 7}
-              textAnchor="start"
-              dominantBaseline="middle"
-            >
-              {o.label}
-            </text>
-            <text
-              className="flow-chart-value"
-              x={OUTPUT_X + OUTPUT_NODE_WIDTH + 10}
-              y={o.cy + 8}
-              textAnchor="start"
-              dominantBaseline="middle"
-            >
-              {o.hiddenCount !== undefined
-                ? `${o.hiddenCount} hidden`
-                : `${o.chunks.toLocaleString()} chunks`}
-            </text>
-            <title>
-              {o.hiddenCount !== undefined
-                ? `${o.hiddenCount} more projects collapsed`
-                : `${o.label} · ${o.chunks.toLocaleString()} chunks`}
-            </title>
-          </g>
-        );
-      })}
-    </svg>
-    <Legend counts={counts} />
+          );
+        })}
+
+        <g className="flow-chart-node source labels">
+          <text
+            className="flow-chart-source-label"
+            x={SOURCE_X + 12}
+            y={sourceCy - 8}
+            textAnchor="start"
+            dominantBaseline="middle"
+          >
+            OUTPUT
+          </text>
+          <text
+            className="flow-chart-source-value"
+            x={SOURCE_X + 12}
+            y={sourceCy + 10}
+            textAnchor="start"
+            dominantBaseline="middle"
+          >
+            {totalChunks.toLocaleString()}
+          </text>
+        </g>
+
+        {/* Output nodes */}
+        {outputs.map((o) => {
+          const nodeHeight = Math.max(o.thickness + 4, 10);
+          return (
+            <g key={`node-${o.key}`} className={nodeClass(o)}>
+              <rect
+                x={OUTPUT_X}
+                y={o.cy - nodeHeight / 2}
+                width={OUTPUT_NODE_WIDTH}
+                height={nodeHeight}
+                rx={3}
+              />
+              <text
+                className="flow-chart-name"
+                x={OUTPUT_X + OUTPUT_NODE_WIDTH + 10}
+                y={o.cy - 7}
+                textAnchor="start"
+                dominantBaseline="middle"
+              >
+                {o.label}
+              </text>
+              <text
+                className="flow-chart-value"
+                x={OUTPUT_X + OUTPUT_NODE_WIDTH + 10}
+                y={o.cy + 8}
+                textAnchor="start"
+                dominantBaseline="middle"
+              >
+                {o.hiddenCount !== undefined
+                  ? `${o.hiddenCount} hidden`
+                  : `${o.chunks.toLocaleString()} chunks`}
+              </text>
+              <title>
+                {o.hiddenCount !== undefined
+                  ? `${o.hiddenCount} more projects collapsed`
+                  : `${o.label} · ${o.chunks.toLocaleString()} chunks`}
+              </title>
+            </g>
+          );
+        })}
+      </svg>
+      <Legend counts={counts} />
     </div>
   );
 }

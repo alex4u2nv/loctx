@@ -56,7 +56,7 @@ describe("safeLog", () => {
     expect(stderr[0]).toContain("<external>/etc/passwd");
     expect(stderr[0]).not.toContain("/etc/passwd ");
 
-    safeLog("info", "Tool error /Users/alex/.config/loctx/file.yaml", {
+    safeLog("info", "Tool error /Users/you/.config/loctx/file.yaml", {
       projectRoot: "/tmp/repo",
     });
     expect(stderr[1]).toContain("<external>/loctx/file.yaml");

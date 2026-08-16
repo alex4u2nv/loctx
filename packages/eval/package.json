@@ -3,6 +3,12 @@
   "version": "0.4.1",
   "description": "Offline retrieval-quality eval harness for loctx. Versioned gold sets, TREC run files, Hit/MRR/nDCG/Recall metrics, Markdown reports.",
   "private": true,
+  "author": "Alex Mahabir",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alex4u2nv/loctx.git",
+    "directory": "packages/eval"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

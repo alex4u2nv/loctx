@@ -537,7 +537,7 @@ export const tools = {
     let disabled: string | null = null;
     if (!an.backgroundEnabled) {
       disabled =
-        "analyzers.backgroundEnabled is false in config — enable it and restart the daemon.";
+        "analyzers.background_enabled is false in config — enable it and restart the daemon.";
     } else if (!an.duplicates.enabled) {
       disabled =
         "analyzers.duplicates.enabled is false in config — enable it and restart the daemon.";
@@ -822,7 +822,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_duplicates",
     description:
-      "**Use when you ask 'where do we have duplicated text across files'** — works on any indexed content (code, runbooks, SOP boilerplate, prompt fragments, copy-pasted doc sections). Pre-refactor, when triaging boilerplate, or auditing for accidental copy-paste. **Beats `grep`** because the comparison is on hashed token-windows, not literal text, so it finds duplicates that aren't byte-identical. Heuristic — labelled as such. Requires `analyzers.backgroundEnabled = true` and `analyzers.duplicates.enabled = true` in config; the response's `disabled` field names which knob is off so an empty `groups` from feature-disabled vs. feature-enabled-but-no-hits is distinguishable. Each group: `hash` and `members` (file_id, start/end line range). Cross-project by default — pass `path` to scope to one project, which you should prefer on large workspaces. Output is capped (top groups by size, members per group). Not useful for finding a specific known duplicate — use `find_literal` or `find_usages` for that.",
+      "**Use when you ask 'where do we have duplicated text across files'** — works on any indexed content (code, runbooks, SOP boilerplate, prompt fragments, copy-pasted doc sections). Pre-refactor, when triaging boilerplate, or auditing for accidental copy-paste. **Beats `grep`** because the comparison is on hashed token-windows, not literal text, so it finds duplicates that aren't byte-identical. Heuristic — labelled as such. Requires `analyzers.background_enabled = true` and `analyzers.duplicates.enabled = true` in config; the response's `disabled` field names which knob is off so an empty `groups` from feature-disabled vs. feature-enabled-but-no-hits is distinguishable. Each group: `hash` and `members` (file_id, start/end line range). Cross-project by default — pass `path` to scope to one project, which you should prefer on large workspaces. Output is capped (top groups by size, members per group). Not useful for finding a specific known duplicate — use `find_literal` or `find_usages` for that.",
     inputSchema: {
       type: "object",
       properties: {

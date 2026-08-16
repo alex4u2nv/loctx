@@ -230,9 +230,7 @@ function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () => void }
 
 function Header({ onMenu, onMcp }: { onMenu: () => void; onMcp: () => void }) {
   return (
-    <header
-      className="sticky top-0 z-20 flex h-16 items-center gap-3 bg-[var(--nav-bg)] px-4 lg:px-6"
-    >
+    <header className="sticky top-0 z-20 flex h-16 items-center gap-3 bg-[var(--nav-bg)] px-4 lg:px-6">
       <button
         type="button"
         aria-label="Toggle menu"

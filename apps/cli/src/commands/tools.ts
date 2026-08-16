@@ -182,7 +182,7 @@ export function registerToolsCommands(program: Command): void {
           "[loctx watch]   To watch in foreground only: `loctx stop` first, then `loctx watch`.",
         );
         console.error(
-          "[loctx watch]   To see daemon activity: `loctx status` or http://localhost:3022/.",
+          `[loctx watch]   To see daemon activity: \`loctx status\` or http://${config.daemon.hostname}:${config.daemon.port}/.`,
         );
         process.exit(EXIT.error);
       }

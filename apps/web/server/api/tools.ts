@@ -8,16 +8,16 @@ import {
   installTool,
   managedToolCommand,
   type Runtime,
-  type ToolName,
   TOOL_NAMES,
+  type ToolName,
   writeConfigPatch,
 } from "@loctx/core";
 import type { Hono } from "hono";
 import type {
+  ToolStatus,
   ToolsBackfillResponse,
   ToolsInstallResponse,
   ToolsStatusPayload,
-  ToolStatus,
 } from "../../shared/contracts.js";
 import { jsonBody } from "../lib/http-errors.js";
 
@@ -110,8 +110,7 @@ export function mountTools(
           managedPath: managedToolCommand(config, s.name),
           // Inert only when it's a rule-pack tool with neither local rules
           // nor a registry fallback (semgrep's p/default keeps it runnable).
-          needsRules:
-            ruleDirs !== null && ruleDirs.length === 0 && (registryConfig ?? "") === "",
+          needsRules: ruleDirs !== null && ruleDirs.length === 0 && (registryConfig ?? "") === "",
           ruleDirs,
           registryConfig,
         };
@@ -145,10 +144,18 @@ export function mountTools(
     try {
       const rt = await getRuntime();
       const { enqueued } = await rt.backfillAnalyzers([requested]);
-      return c.json({ ok: true, tool: requested, backfilled: enqueued } satisfies ToolsBackfillResponse);
+      return c.json({
+        ok: true,
+        tool: requested,
+        backfilled: enqueued,
+      } satisfies ToolsBackfillResponse);
     } catch (err) {
       return c.json(
-        { ok: false, tool: requested, error: (err as Error).message } satisfies ToolsBackfillResponse,
+        {
+          ok: false,
+          tool: requested,
+          error: (err as Error).message,
+        } satisfies ToolsBackfillResponse,
         503,
       );
     }
@@ -160,7 +167,11 @@ export function mountTools(
     const spec = SPECS.find((s) => s.name === requested);
     if (spec === undefined) {
       return c.json(
-        { ok: false, tool: String(requested), error: `unknown tool; expected one of ${TOOL_NAMES.join(", ")}` } satisfies ToolsInstallResponse,
+        {
+          ok: false,
+          tool: String(requested),
+          error: `unknown tool; expected one of ${TOOL_NAMES.join(", ")}`,
+        } satisfies ToolsInstallResponse,
         400,
       );
     }
@@ -169,7 +180,9 @@ export function mountTools(
     const result = await installTool(config, spec.name);
     if (result.log) console.error(`[loctx tools] ${spec.name} install log:\n${result.log}`);
     if (!result.ok || result.command === undefined) {
-      console.error(`[loctx tools] ${spec.name} install failed: ${result.error ?? "install failed"}`);
+      console.error(
+        `[loctx tools] ${spec.name} install failed: ${result.error ?? "install failed"}`,
+      );
       return c.json(
         {
           ok: false,
@@ -205,7 +218,14 @@ export function mountTools(
     const path = config.source ?? join(config.paths.configDir, "config.yaml");
     const w = writeConfigPatch(path, patch);
     if (!w.ok) {
-      return c.json({ ok: false, tool: spec.name, error: "config write rejected" } satisfies ToolsInstallResponse, 500);
+      return c.json(
+        {
+          ok: false,
+          tool: spec.name,
+          error: "config write rejected",
+        } satisfies ToolsInstallResponse,
+        500,
+      );
     }
     await onConfigWrite?.();
     let backfilled = 0;
@@ -215,15 +235,15 @@ export function mountTools(
     } catch {
       // runtime not ready — startup/next reconcile backfill catches up.
     }
-    console.error(`[loctx tools] ${spec.name} installed (${result.command}); backfill enqueued ${backfilled}`);
-    return c.json(
-      {
-        ok: true,
-        tool: spec.name,
-        command: result.command,
-        backfilled,
-        ...(result.log !== undefined ? { log: result.log } : {}),
-      } satisfies ToolsInstallResponse,
+    console.error(
+      `[loctx tools] ${spec.name} installed (${result.command}); backfill enqueued ${backfilled}`,
     );
+    return c.json({
+      ok: true,
+      tool: spec.name,
+      command: result.command,
+      backfilled,
+      ...(result.log !== undefined ? { log: result.log } : {}),
+    } satisfies ToolsInstallResponse);
   });
 }

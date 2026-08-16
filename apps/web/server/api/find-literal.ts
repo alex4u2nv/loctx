@@ -13,8 +13,8 @@
 import {
   type Config,
   FIND_LITERAL_COVERAGE_NOTE,
-  parseFindLiteralToolInput,
   type ProjectId,
+  parseFindLiteralToolInput,
   type Runtime,
 } from "@loctx/core";
 import type { Hono } from "hono";

@@ -74,9 +74,7 @@ export function DataTable<T>({
   tableLayout,
 }: DataTableProps<T>) {
   const tableClass = className !== undefined ? `data-table ${className}` : "data-table";
-  const hasCols = columns.some(
-    (c) => c.colStyle !== undefined || c.colClassName !== undefined,
-  );
+  const hasCols = columns.some((c) => c.colStyle !== undefined || c.colClassName !== undefined);
   const clickable = onRowClick !== undefined;
   return (
     <table

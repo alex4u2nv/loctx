@@ -37,8 +37,7 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
       discoverProjects: () => projects,
       discoverWithMarkers: () =>
         projects.map((p) => ({ project: p, marker: ".git", markerKind: "git" })),
-      resolveProject: (path: string) =>
-        projects.find((p) => path.startsWith(p.root)) ?? null,
+      resolveProject: (path: string) => projects.find((p) => path.startsWith(p.root)) ?? null,
       findAbsorbedMarkers: () => [],
       invalidate: () => {},
       configuredRoots: ["/ws"] as ReadonlyArray<string>,
@@ -64,23 +63,24 @@ function stubRuntime(overrides: Partial<Runtime> = {}): Runtime {
       applyUsageDeltas: () => {},
     },
     searcher: {
-      search: async () => ({
-        resolvedScope: { mode: "all", project: null, relPrefix: null, inputPath: null },
-        results: [
-          {
-            projectId: "proj-a",
-            relPath: "src/app.ts",
-            startLine: 1,
-            endLine: 10,
-            score: 0.9,
-            snippet: "function hello() {}",
-            language: "typescript",
-            kind: "function",
-            symbols: ["hello"],
-          },
-        ],
-        warnings: [],
-      }) satisfies (req: unknown) => Promise<SearchResponse>,
+      search: async () =>
+        ({
+          resolvedScope: { mode: "all", project: null, relPrefix: null, inputPath: null },
+          results: [
+            {
+              projectId: "proj-a",
+              relPath: "src/app.ts",
+              startLine: 1,
+              endLine: 10,
+              score: 0.9,
+              snippet: "function hello() {}",
+              language: "typescript",
+              kind: "function",
+              symbols: ["hello"],
+            },
+          ],
+          warnings: [],
+        }) satisfies (req: unknown) => Promise<SearchResponse>,
     },
     indexer: {
       indexProject: async (project: { id: string }) => ({
@@ -302,7 +302,9 @@ describe("indexHealth surfacing", () => {
       } as Runtime["config"],
     });
     const out = await tools.findDuplicates(runtime, {});
-    expect(out.disabled).toMatch(/backgroundEnabled/);
+    // The message names the YAML key (snake_case) — the spelling a user
+    // must actually put in config.yaml.
+    expect(out.disabled).toMatch(/background_enabled/);
   });
 
   it("find_duplicates names duplicates.enabled when only that knob is off", async () => {
@@ -515,9 +517,9 @@ describe("tools.findLiteral", () => {
 
   it("rejects an absurdly long pattern", async () => {
     const runtime = stubRuntime();
-    await expect(
-      tools.findLiteral(runtime, { pattern: "x".repeat(1100) }),
-    ).rejects.toBeInstanceOf(ToolError);
+    await expect(tools.findLiteral(runtime, { pattern: "x".repeat(1100) })).rejects.toBeInstanceOf(
+      ToolError,
+    );
   });
 
   it("returns matches with coverageNote + fileCount derived from the hits", async () => {

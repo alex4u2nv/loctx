@@ -77,6 +77,8 @@ describe("findUsagesCodec", () => {
   });
 
   it("returns null without a symbol — an empty submit clears instead of firing", () => {
-    expect(findUsagesCodec.decode(findUsagesCodec.encode({ symbol: "", path: "/repo" }))).toBeNull();
+    expect(
+      findUsagesCodec.decode(findUsagesCodec.encode({ symbol: "", path: "/repo" })),
+    ).toBeNull();
   });
 });

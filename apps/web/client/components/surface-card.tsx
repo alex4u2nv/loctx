@@ -37,9 +37,7 @@ export function SurfaceCard({ eyebrow, title, subtitle, children }: SurfaceCardP
           {eyebrow}
         </p>
       ) : null}
-      {title !== undefined ? (
-        <p style={{ margin: 0, fontWeight: 600 }}>{title}</p>
-      ) : null}
+      {title !== undefined ? <p style={{ margin: 0, fontWeight: 600 }}>{title}</p> : null}
       {subtitle !== undefined ? (
         <p className="dim" style={{ margin: "0 0 var(--space-2)", fontSize: "0.75rem" }}>
           {subtitle}

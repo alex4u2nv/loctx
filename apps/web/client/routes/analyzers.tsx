@@ -202,8 +202,8 @@ function EngineCard({ reader, writer }: CardProps) {
     <div className="card">
       <p className="card-section-title">Engine</p>
       <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
-        Master switch and scheduling for the background analyzer queue. Tools below only run
-        while this is on.
+        Master switch and scheduling for the background analyzer queue. Tools below only run while
+        this is on.
       </p>
       <SettingRow label="Background analysis" help="Master switch for the analyzer queue.">
         <Switch
@@ -290,9 +290,9 @@ function ToolsCard({
     <div className="card">
       <p className="card-section-title">Tools</p>
       <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
-        <strong>Install &amp; enable</strong> downloads the tool into a loctx-managed location
-        (no system changes), enables it, and backfills your index in one step. semgrep and
-        ast-grep also need rule directories before they produce findings.
+        <strong>Install &amp; enable</strong> downloads the tool into a loctx-managed location (no
+        system changes), enables it, and backfills your index in one step. semgrep and ast-grep also
+        need rule directories before they produce findings.
       </p>
       {tools.map((t) => {
         const keys = TOOL_KEYS[t.name];
@@ -424,7 +424,7 @@ function DefinitionsCard({
           ? `Generated a schema from ${res.scanned ?? 0} definition file(s).`
           : `Generate: ${res.error}`,
     });
-    if (r !== undefined && r.ok) addSchemaPath(r.path);
+    if (r?.ok) addSchemaPath(r.path);
   };
 
   const addSchemaFrom = async (body: {
@@ -435,7 +435,7 @@ function DefinitionsCard({
     const r = await writer.run(DEFINITIONS_OP, () => api.definitionsAddSchema(body), {
       success: (res) => (res.ok ? null : `Schema: ${res.error}`),
     });
-    if (r !== undefined && r.ok) addSchemaPath(r.path);
+    if (r?.ok) addSchemaPath(r.path);
   };
 
   const globsValue = listEdits[CFG.defGlobs] ?? reader.strList(CFG.defGlobs).join(", ");
@@ -446,8 +446,8 @@ function DefinitionsCard({
       <p className="card-section-title">Definitions</p>
       <p className="dim" style={{ marginTop: 0, fontSize: "0.85rem" }}>
         Validates agent / skill / knowledge markdown frontmatter against a schema. Ships with{" "}
-        <strong>Open Knowledge Format (OKF) v0.1</strong> as the zero-config default; layer your
-        own schemas by path or GitHub URL. No binary to install.
+        <strong>Open Knowledge Format (OKF) v0.1</strong> as the zero-config default; layer your own
+        schemas by path or GitHub URL. No binary to install.
       </p>
       <SettingRow label="Enabled" help="Validate matching .md files during analysis.">
         <Switch
@@ -597,9 +597,13 @@ function RulesHint({ tool }: { tool: ToolStatus }) {
       <p className="setting-row-help" style={{ marginTop: "var(--space-1)" }}>
         ast-grep has no community registry, so loctx runs a small{" "}
         <strong>bundled starter ruleset</strong> (no setup needed) — e.g. leftover{" "}
-        <code>debugger</code> / <code>breakpoint()</code> and focused <code>.only</code> tests. Point
-        it at your own rule dirs above to replace them; see{" "}
-        <a href="https://ast-grep.github.io/guide/rule-config.html" target="_blank" rel="noreferrer">
+        <code>debugger</code> / <code>breakpoint()</code> and focused <code>.only</code> tests.
+        Point it at your own rule dirs above to replace them; see{" "}
+        <a
+          href="https://ast-grep.github.io/guide/rule-config.html"
+          target="_blank"
+          rel="noreferrer"
+        >
           ast-grep rule config
         </a>
         .
@@ -667,7 +671,12 @@ function ToolBlock({
           {badge.label}
         </span>
         <span
-          style={{ marginLeft: "auto", display: "inline-flex", gap: "var(--space-3)", alignItems: "center" }}
+          style={{
+            marginLeft: "auto",
+            display: "inline-flex",
+            gap: "var(--space-3)",
+            alignItems: "center",
+          }}
         >
           {tool.installed ? (
             <>
@@ -692,40 +701,50 @@ function ToolBlock({
         </span>
       </div>
       {tool.ruleDirs !== null ? (
-        <>
-          <div
-            style={{
-              display: "flex",
-              gap: "var(--space-2)",
-              alignItems: "center",
-              flexWrap: "wrap",
-              marginTop: "var(--space-3)",
-            }}
-          >
-            <input
-              className="input"
-              placeholder={`${tool.name} rule dirs (comma-separated absolute paths)`}
-              value={dirValue}
-              onChange={(e) => onDirChange(e.target.value)}
-              style={{ fontSize: "0.8125rem", flex: "1 1 18rem" }}
-            />
-            <IconButton
-              className="whitespace-nowrap"
-              label={<>save &amp; reindex</>}
-              disabled={busy}
-              onClick={onSaveDirs}
-            />
-            {maxFindings !== null ? (
-              <label
-                className="dim"
-                style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-2)", fontSize: "0.8rem" }}
-              >
-                max findings/file
-                <NumField value={maxFindings} min={1} max={10000} disabled={busy} onSave={onMaxFindings} />
-              </label>
-            ) : null}
-          </div>
-        </>
+        <div
+          style={{
+            display: "flex",
+            gap: "var(--space-2)",
+            alignItems: "center",
+            flexWrap: "wrap",
+            marginTop: "var(--space-3)",
+          }}
+        >
+          <input
+            className="input"
+            placeholder={`${tool.name} rule dirs (comma-separated absolute paths)`}
+            value={dirValue}
+            onChange={(e) => onDirChange(e.target.value)}
+            style={{ fontSize: "0.8125rem", flex: "1 1 18rem" }}
+          />
+          <IconButton
+            className="whitespace-nowrap"
+            label={<>save &amp; reindex</>}
+            disabled={busy}
+            onClick={onSaveDirs}
+          />
+          {maxFindings !== null ? (
+            // biome-ignore lint/a11y/noLabelWithoutControl: the wrapped <NumField> renders the <input>; the rule can't see through the component boundary
+            <label
+              className="dim"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "var(--space-2)",
+                fontSize: "0.8rem",
+              }}
+            >
+              max findings/file
+              <NumField
+                value={maxFindings}
+                min={1}
+                max={10000}
+                disabled={busy}
+                onSave={onMaxFindings}
+              />
+            </label>
+          ) : null}
+        </div>
       ) : null}
       {tool.ruleDirs !== null ? <RulesHint tool={tool} /> : null}
     </div>
@@ -759,7 +778,9 @@ function ListField({
         <div className="setting-row-label">{label}</div>
         <p className="setting-row-help">{help}</p>
       </div>
-      <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flex: "1 1 22rem" }}>
+      <div
+        style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flex: "1 1 22rem" }}
+      >
         <input
           className="input"
           placeholder={placeholder}

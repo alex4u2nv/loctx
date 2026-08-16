@@ -18,7 +18,7 @@ describe("sanitizeError", () => {
   });
 
   it("returns an opaque shape and never leaks the raw message to the client", () => {
-    const out = sanitizeError("search", new Error("/Users/alex/secret/path exploded"));
+    const out = sanitizeError("search", new Error("/Users/you/secret/path exploded"));
     expect(out).toEqual({ error: "internal_error", code: "search" });
     expect(JSON.stringify(out)).not.toContain("secret");
   });

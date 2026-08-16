@@ -94,9 +94,10 @@ export class NetworkBlockedError extends Error {
 
   private static composeMessage(reason: OutboundReason, detail: string | undefined): string {
     if (reason === "model-download") {
-      const target = detail ?? "<name>";
-      const named = detail !== undefined ? ` for ${target}` : "";
-      return `Outbound network access${named} is blocked by loctx's local-first default. Run \`loctx model download ${target}\` to fetch it, or \`loctx model use <other-name>\` to switch to a model that's already downloaded.`;
+      if (detail === undefined) {
+        return "Outbound network access is blocked by loctx's local-first default. Run `loctx model list` to see available models, then `loctx model download <name>` to fetch one.";
+      }
+      return `Outbound network access for ${detail} is blocked by loctx's local-first default. Run \`loctx model download ${detail}\` to fetch it, or \`loctx model use <other-name>\` to switch to a model that's already downloaded.`;
     }
     const suffix = detail !== undefined ? ` (${detail})` : "";
     return `Outbound network access for "${reason}" is blocked by loctx's local-first default.${suffix}`;

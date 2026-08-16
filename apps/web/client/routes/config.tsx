@@ -393,6 +393,7 @@ function FieldRow({
   const onReset = () => onChange(field.key, field.default);
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: hover/focus only drive the sticky help panel; keyboard users get the same via onFocusCapture on the real controls inside
     <div
       className={`config-field ${pending ? "pending" : ""} ${active ? "active" : ""}`}
       onMouseEnter={() => onActivate(field.key)}

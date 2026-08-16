@@ -65,7 +65,7 @@ function readMaybe(path: string): string | null {
   }
 }
 
-export async function buildSetupContext(opts: PlanOptions): Promise<SetupContext> {
+async function buildSetupContext(opts: PlanOptions): Promise<SetupContext> {
   return {
     projectRoot: opts.projectRoot,
     homeDir: opts.homeDir ?? homedir(),

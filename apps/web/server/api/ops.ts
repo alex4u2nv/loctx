@@ -29,12 +29,12 @@
 
 import { rmSync } from "node:fs";
 import {
-  type Config,
-  ReconcileInFlightError,
-  type Runtime,
   assertNotReconciling,
+  type Config,
   inventoryProjects,
   makeProject,
+  ReconcileInFlightError,
+  type Runtime,
   readActiveDaemon,
   stopActiveDaemon,
 } from "@loctx/core";
@@ -217,8 +217,7 @@ export function mountOps(
     // on the same LanceDB table. Different projects in the same call
     // are fine (the reconciler is sequential).
     const reconcileStatus = rt.reconciler.status();
-    const reconcilingProjectId =
-      reconcileStatus.running ? reconcileStatus.currentProjectId : null;
+    const reconcilingProjectId = reconcileStatus.running ? reconcileStatus.currentProjectId : null;
     const accepted: Array<{ projectId: string; name: string }> = [];
     const rejected: Array<{ projectId: string; name: string; reason: string }> = [];
     for (const project of projects) {
@@ -301,7 +300,11 @@ export function mountOps(
     setTimeout(() => {
       void stopActiveDaemon(config.paths.dataDir);
     }, 100);
-    return c.json({ ok: true, stopped: lock.pid, message: "daemon stopping; relaunch with `loctx start`" });
+    return c.json({
+      ok: true,
+      stopped: lock.pid,
+      message: "daemon stopping; relaunch with `loctx start`",
+    });
   });
 
   app.post("/api/stop", async (c) => {

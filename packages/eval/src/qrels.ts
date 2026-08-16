@@ -6,8 +6,7 @@
  * not to need zod, strict enough to catch authoring slips early.
  *
  * Span-overlap is the matcher (not exact docid equality) because chunk
- * boundaries can shift across re-chunks of the same content. See D2 in
- * the eval-harness plan.
+ * boundaries can shift across re-chunks of the same content.
  */
 
 import { readFileSync } from "node:fs";

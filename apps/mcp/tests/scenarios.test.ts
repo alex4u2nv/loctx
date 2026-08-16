@@ -12,13 +12,13 @@
  * model download), in-memory MCP transport.
  */
 
-import { type Runtime, WorkspaceDiscovery, buildRuntime } from "@loctx/core";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { buildRuntime, type Runtime } from "@loctx/core";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // Shared hermetic Config fixture, deduped from this file + core's eval test.
 import { makeTestConfig } from "../../../packages/core/tests/helpers/config.js";
@@ -33,6 +33,12 @@ interface Harness {
 }
 
 let harness: Harness | null = null;
+
+/** Narrowing accessor — beforeEach guarantees the harness exists. */
+function h(): Harness {
+  if (harness === null) throw new Error("harness not initialized");
+  return harness;
+}
 
 beforeEach(async () => {
   harness = await setupHarness();
@@ -61,8 +67,7 @@ async function setupHarness(): Promise<Harness> {
       "  if (!token) throw new Error('missing bearer token');\n" +
       "  return { userId: token };\n}\n",
     "src/rate-limit.ts":
-      "export function rateLimit(max: number) {\n" +
-      "  return (key: string) => true;\n}\n",
+      "export function rateLimit(max: number) {\n" + "  return (key: string) => true;\n}\n",
   });
   writeProject(workspaceRoot, "beta", {
     "src/ingest.py": "def ingest(record):\n    return record\n",
@@ -71,10 +76,7 @@ async function setupHarness(): Promise<Harness> {
   const config = makeTestConfig(workspaceRoot, dataDir);
   const runtime = await buildRuntime(config);
 
-  const server = new Server(
-    { name: "loctx", version: "test" },
-    { capabilities: { tools: {} } },
-  );
+  const server = new Server({ name: "loctx", version: "test" }, { capabilities: { tools: {} } });
   registerTools(server, runtime);
   const client = new Client({ name: "loctx-scenario-test", version: "test" }, { capabilities: {} });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -114,7 +116,7 @@ async function callTool(client: Client, name: string, args: unknown): Promise<Pa
 
 describe("MCP scenarios — multi-step agent workflows (#98)", () => {
   it("cold-start: status reports 0 indexed → refresh → status reports indexed", async () => {
-    const { client, runtime } = harness!;
+    const { client, runtime } = h();
     // Step 1: status before any indexing.
     const initial = (await callTool(client, "workspace_status", {
       include_indexed_counts: true,
@@ -146,7 +148,7 @@ describe("MCP scenarios — multi-step agent workflows (#98)", () => {
   });
 
   it("search-after-edit: index → mutate file → reindex via watcher.indexFile → search returns new content", async () => {
-    const { client, runtime, workspaceRoot } = harness!;
+    const { client, runtime, workspaceRoot } = h();
     // Step 1: initial index. The fresh symbol we'll edit in below
     // doesn't appear yet — assert via snippet, not just result count
     // (the vector branch always returns its top-k).
@@ -159,14 +161,9 @@ describe("MCP scenarios — multi-step agent workflows (#98)", () => {
 
     // Step 2: mutate a file directly on disk.
     const filePath = join(workspaceRoot, "alpha", "src", "auth.ts");
-    writeFileSync(
-      filePath,
-      "export function newSymbolFromEdit() { return 'fresh content'; }\n",
-    );
+    writeFileSync(filePath, "export function newSymbolFromEdit() { return 'fresh content'; }\n");
     // Bypass the watcher: indexFile directly to simulate the watcher callback.
-    const project = runtime.discovery
-      .discoverProjects()
-      .find((p) => p.name === "alpha");
+    const project = runtime.discovery.discoverProjects().find((p) => p.name === "alpha");
     expect(project).toBeDefined();
     if (project !== undefined) {
       await runtime.indexer.indexFile(project, filePath);
@@ -182,7 +179,7 @@ describe("MCP scenarios — multi-step agent workflows (#98)", () => {
   });
 
   it("scoped-search: all projects → narrow to one project → narrow to subtree, results consistently shrink", async () => {
-    const { client, workspaceRoot } = harness!;
+    const { client, workspaceRoot } = h();
     await callTool(client, "refresh_workspace", {});
 
     const all = (await callTool(client, "search_workspace", {
@@ -208,7 +205,7 @@ describe("MCP scenarios — multi-step agent workflows (#98)", () => {
   });
 
   it("find-usages: define + call sites land in defs / refs (#96 + #98)", async () => {
-    const { client } = harness!;
+    const { client } = h();
     await callTool(client, "refresh_workspace", {});
     const out = (await callTool(client, "find_usages", {
       symbol: "authenticateUser",
@@ -219,7 +216,7 @@ describe("MCP scenarios — multi-step agent workflows (#98)", () => {
   });
 
   it("graceful errors: missing required arg surfaces isError, not transport crash", async () => {
-    const { client } = harness!;
+    const { client } = h();
     // Missing query → search handler throws ToolError; SDK wraps as isError.
     const result = await client.callTool({ name: "search_workspace", arguments: {} });
     expect(result.isError).toBe(true);

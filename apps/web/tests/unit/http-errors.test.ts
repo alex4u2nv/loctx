@@ -60,7 +60,7 @@ describe("registerErrorBoundary", () => {
   it("sanitizes an unexpected throw to an opaque 500 (no internals leaked)", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const app = appWithBoundary(() => {
-      throw new Error("/Users/alex/secret/path exploded");
+      throw new Error("/Users/you/secret/path exploded");
     });
     const { status, body } = await post(app, "{}");
     expect(status).toBe(500);

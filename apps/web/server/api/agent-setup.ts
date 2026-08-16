@@ -7,8 +7,8 @@ import {
   type Config,
   isWired,
   planAgentSetup,
-  refreshAgentSetup,
   type Runtime,
+  refreshAgentSetup,
 } from "@loctx/core";
 import type { Hono } from "hono";
 import type {

@@ -4,7 +4,7 @@ name: release
 # platform + Node major and attaches them to the GitHub Release. Users
 # install/update via scripts/install-release.sh (see README → Install).
 #
-# Why tarballs, not npm: the daemon loads the private @loctx/web build at
+# Why tarballs, not npm: the daemon loads the unpublished workspace-internal @loctx/web build at
 # runtime, and the artifact bundles the already-built native binaries — so
 # users install with no build, no npm install, no compiler. Each tarball is
 # platform + Node-ABI specific; the matrix below is the support set. (npm
