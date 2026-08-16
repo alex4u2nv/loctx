@@ -503,7 +503,7 @@ function DuplicatesCard({ reader, writer }: CardProps) {
         help="Max chunks fed to the semantic pass per call. O(n²) in this cap — responses flag truncation when hit."
       >
         <NumField
-          value={reader.num(CFG.dupSemanticMaxChunks, 1500)}
+          value={reader.num(CFG.dupSemanticMaxChunks, 3000)}
           min={100}
           max={5000}
           disabled={disabled}

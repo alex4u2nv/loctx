@@ -1049,6 +1049,15 @@ export class StateStore {
     ]);
   }
 
+  /**
+   * Drop one (file, analyzer) enrichment row (#547). Backfill calls
+   * this when the analyzer's buildTask now SKIPS the file, so stale
+   * rows from before a skip rule can't feed query-time aggregations.
+   */
+  deleteFileEnrichment(fileId: FileId, analyzer: string): void {
+    this.write("delete_file_enrichment", [fileId, analyzer]);
+  }
+
   getFileEnrichment(fileId: FileId, analyzer: string): FileEnrichmentRow | null {
     const row = this.readOne<{
       analyzer: string;

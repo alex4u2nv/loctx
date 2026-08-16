@@ -496,6 +496,13 @@ FROM win
 WHERE hash IN (SELECT hash FROM win GROUP BY hash HAVING COUNT(DISTINCT file_id) >= ?)
 ORDER BY hash, file_id, start_line;
 
+-- Skip-rule cleanup (#547): when an analyzer's buildTask now returns
+-- null for a file that has a stored row (e.g. license files after the
+-- DUPLICATES v2 skip), backfill deletes the stale row so query-time
+-- aggregations stop reading it.
+-- :name delete_file_enrichment
+DELETE FROM file_enrichments WHERE file_id = ? AND analyzer = ?;
+
 -- :name delete_file_enrichments_for_file
 DELETE FROM file_enrichments WHERE file_id = ?;
 
