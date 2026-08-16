@@ -76,6 +76,30 @@ describe("resolveGitSource (#468)", () => {
     expect(src.url).toBe("https://github.com/some/foreign");
   });
 
+  it("resolves local even when hook-style GIT_DIR/GIT_WORK_TREE point elsewhere (#530)", () => {
+    // lefthook pre-push exports the pushing repo's GIT_DIR/GIT_WORK_TREE
+    // into hook children; git lets those OVERRIDE `-C`, so the
+    // sha-containment probe used to interrogate the WRONG repo and
+    // report "not found" → kind "url". Simulate that environment.
+    const target = makeRepo();
+    const other = makeRepo(); // stands in for the pushing repo
+    const saved = {
+      GIT_DIR: process.env["GIT_DIR"],
+      GIT_WORK_TREE: process.env["GIT_WORK_TREE"],
+    };
+    process.env["GIT_DIR"] = join(other.dir, ".git");
+    process.env["GIT_WORK_TREE"] = other.dir;
+    try {
+      const src = resolveGitSource(target.dir, [], target.sha);
+      expect(src.kind).toBe("local");
+    } finally {
+      if (saved.GIT_DIR === undefined) delete process.env["GIT_DIR"];
+      else process.env["GIT_DIR"] = saved.GIT_DIR;
+      if (saved.GIT_WORK_TREE === undefined) delete process.env["GIT_WORK_TREE"];
+      else process.env["GIT_WORK_TREE"] = saved.GIT_WORK_TREE;
+    }
+  });
+
   it("falls back to a URL clone when no search root contains the sha", () => {
     const src = resolveGitSource(
       "https://github.com/some/foreign",
