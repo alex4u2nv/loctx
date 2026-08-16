@@ -17,10 +17,18 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, parse as parsePath, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { BOOL, INT_NON_NEG, type Spec, STR, STR_ARRAY, Validator } from "./_validate.js";
+import { BOOL, INT_NON_NEG, STR, STR_ARRAY } from "./_validate.js";
 import { DEFAULT_QUALITY_THRESHOLDS } from "./analyzers/quality.js";
+import {
+  ConfigError,
+  type ConfigSource,
+  makePicker,
+  mergeSection,
+  type SectionField,
+  sectionRecord,
+} from "./config-merge.js";
 import {
   defaultPaths,
   ensurePaths,
@@ -43,7 +51,6 @@ const DEFAULT_DAEMON_HOSTNAME = "127.0.0.1";
  * `start.ts` still scans for this name to print a one-time deprecation
  * warning if a user has one lying around.
  */
-export const LEGACY_PROJECT_CONFIG_FILENAME = ".loctx.yaml";
 
 export interface EmbeddingConfig {
   readonly provider: string;
@@ -302,8 +309,6 @@ export interface NetworkConfig {
   readonly proxy: string | null;
 }
 
-export type ConfigSource = "default" | "global" | "env";
-
 /** Where each leaf came from. Keyed by dot-path (e.g. "embedding.model"). */
 export type ConfigSources = Readonly<Record<string, ConfigSource>>;
 
@@ -324,8 +329,6 @@ export interface Config {
   readonly source: string | null;
   readonly sources: ConfigSources;
 }
-
-export class ConfigError extends Error {}
 
 const DEFAULT_EMBEDDING: EmbeddingConfig = Object.freeze({
   provider: "huggingface-transformers",
@@ -499,62 +502,6 @@ export function loadConfig(options?: string | LoadConfigOptions): Config {
     source: globalRaw === null ? null : globalPath,
     sources: Object.freeze(sources),
   });
-}
-
-/**
- * Walk up from `cwd` looking for a legacy `.loctx.yaml`. Returns the
- * first match (closest to cwd) or null. Used by the daemon to surface a
- * deprecation warning — the loader no longer reads these files.
- */
-export function findLegacyProjectConfig(cwd: string): string | null {
-  let cur = resolve(cwd);
-  // Bound: walk ≤ 64 levels in case of weird symlinks. fs root halts naturally.
-  for (let i = 0; i < 64; i += 1) {
-    const candidate = join(cur, LEGACY_PROJECT_CONFIG_FILENAME);
-    if (existsSync(candidate)) return candidate;
-    const parent = parsePath(cur).dir;
-    if (parent === cur) return null;
-    cur = parent;
-  }
-  return null;
-}
-
-/**
- * Parse a legacy `.loctx.yaml` and return a summary of the leaf
- * settings the new loader is ignoring. Used by `warnOnLegacyProjectConfig`
- * to produce an actionable warning (showing what's being dropped vs the
- * old vague "move its contents" prompt). Empty array means "file exists
- * but contains nothing the user would care about" — typical when an
- * old file got truncated to `{}` or has only comments.
- */
-export function summarizeLegacyProjectConfig(path: string): string[] {
-  let text: string;
-  try {
-    text = readFileSync(path, "utf-8");
-  } catch {
-    return [];
-  }
-  let parsed: unknown;
-  try {
-    parsed = parseYaml(text, { merge: false, maxAliasCount: 100 });
-  } catch {
-    return [`<unparseable YAML in ${path}>`];
-  }
-  if (parsed === null || parsed === undefined || typeof parsed !== "object") return [];
-  const out: string[] = [];
-  walkLeaves(parsed as Record<string, unknown>, "", out);
-  return out;
-}
-
-function walkLeaves(obj: Record<string, unknown>, prefix: string, out: string[]): void {
-  for (const [k, v] of Object.entries(obj)) {
-    const key = prefix === "" ? k : `${prefix}.${k}`;
-    if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-      walkLeaves(v as Record<string, unknown>, key, out);
-    } else {
-      out.push(`${key}=${JSON.stringify(v)}`);
-    }
-  }
 }
 
 interface LoctxEnv {
@@ -769,71 +716,6 @@ function mergeDiscovery(
   });
 }
 
-// ---- descriptor-driven analyzer merge (CORE-4) -------------------------
-
-/**
- * Field kinds a section descriptor can declare. The camelCase config
- * key is the single source of truth: the snake_case YAML key is derived
- * mechanically and the fallback comes from the section's defaults
- * object, so a leaf can no longer drift between its three spellings
- * (CORE-4 — mergeAnalyzers used to spell all three out per leaf, 175
- * lines of mechanical picker calls).
- */
-type SectionFieldKind = "bool" | "str" | "int" | "strArray";
-
-interface SectionField<S> {
-  readonly key: Extract<keyof S, string>;
-  readonly kind: SectionFieldKind;
-}
-
-function camelToSnake(key: string): string {
-  return key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
-}
-
-/**
- * Merge one config section: every field in `picked` resolves
- * global-YAML → default via {@link makePicker} (stamping `sources`);
- * fields NOT listed stay pinned to their defaults with no YAML lookup
- * and no source stamp — e.g. `semgrep.bundledRules` and
- * `astGrep.registryConfig`, kept only for RulePackAnalyzerConfig type
- * parity.
- */
-function mergeSection<S extends object>(
-  glo: Record<string, unknown> | null,
-  sources: Record<string, ConfigSource>,
-  trackPrefix: string,
-  defaults: S,
-  picked: ReadonlyArray<SectionField<S>>,
-): S {
-  const pick = makePicker(glo, sources);
-  const overrides: Partial<Record<Extract<keyof S, string>, unknown>> = {};
-  for (const f of picked) {
-    const trackKey = `${trackPrefix}.${f.key}`;
-    const yamlKey = camelToSnake(f.key);
-    const fallback = defaults[f.key];
-    switch (f.kind) {
-      case "bool":
-        overrides[f.key] = pick(trackKey, yamlKey, BOOL, fallback as boolean);
-        break;
-      case "str":
-        overrides[f.key] = pick(trackKey, yamlKey, STR, fallback as string);
-        break;
-      case "int":
-        overrides[f.key] = pick(trackKey, yamlKey, INT_NON_NEG, fallback as number);
-        break;
-      case "strArray":
-        overrides[f.key] = Object.freeze(
-          pick(trackKey, yamlKey, STR_ARRAY, [...(fallback as ReadonlyArray<string>)]),
-        );
-        break;
-    }
-  }
-  // The switch above resolves each field with the Spec matching its
-  // declared kind, so the merged object satisfies S; the cast just
-  // re-attaches the interface the per-key loop erased.
-  return Object.freeze({ ...defaults, ...overrides } as S);
-}
-
 /**
  * Fields shared by both rule-pack analyzers (semgrep, ast-grep). Each
  * analyzer appends its own extra: semgrep picks `registryConfig` (the
@@ -945,46 +827,6 @@ function mergeAnalyzers(
   });
 }
 
-// ---- per-leaf picker ---------------------------------------------------
-
-/**
- * Curry the global mapping + the source-tracking record, then return a
- * generic picker that resolves a single leaf against any `Spec<T>`.
- * Walks global → fallback and stamps the source map as it goes.
- */
-type PickFn = <T>(trackKey: string, yamlKey: string, spec: Spec<T>, fallback: T) => T;
-
-function makePicker(
-  glo: Record<string, unknown> | null,
-  sources: Record<string, ConfigSource>,
-): PickFn {
-  const globalV = new Validator(ConfigError, "<global>");
-  return <T>(trackKey: string, yamlKey: string, spec: Spec<T>, fallback: T): T => {
-    const gloVal = glo === null ? undefined : globalV.get(glo, yamlKey, spec);
-    if (gloVal !== undefined) {
-      sources[trackKey] = "global";
-      return gloVal;
-    }
-    sources[trackKey] = "default";
-    return fallback;
-  };
-}
-
-function sectionRecord(
-  raw: Record<string, unknown> | null,
-  key: string,
-  source: string,
-): Record<string, unknown> | null {
-  if (raw === null) return null;
-  const inner = raw[key];
-  if (inner === undefined) return null;
-  if (inner === null) return {};
-  if (typeof inner !== "object" || Array.isArray(inner)) {
-    throw new ConfigError(`${source}: section '${key}' must be a mapping.`);
-  }
-  return inner as Record<string, unknown>;
-}
-
 function sourcesForPaths(origin: PathOrigin): Record<string, ConfigSource> {
   return {
     "paths.dataDir": origin.dataDirFromEnv ? "env" : "default",
@@ -994,94 +836,12 @@ function sourcesForPaths(origin: PathOrigin): Record<string, ConfigSource> {
   };
 }
 
-// ---- template ----------------------------------------------------------
-
-/**
- * Commented YAML template written by `loctx config init`. Every key is the
- * built-in default, surfaced so users can edit rather than discover.
- */
-export const CONFIG_TEMPLATE = `# loctx global config — $XDG_CONFIG_HOME/loctx/config.yaml
-# Edit here or via the admin UI; this is the single source of truth.
-
-# Roots searched for projects (each top-level dir with a .git/ becomes a project).
-# Defaults to process.cwd() when omitted.
-# workspace_roots:
-#   - ~/Workspaces
-
-embedding:
-  provider: huggingface-transformers
-  model: Xenova/all-MiniLM-L6-v2
-  normalize: true
-
-watcher:
-  debounce_ms: 500
-
-daemon:
-  port: 3022
-  # 127.0.0.1 (literal loopback IP) blocks browser DNS-rebinding attacks.
-  # Use \`localhost\` only if you understand and accept that trade-off.
-  hostname: 127.0.0.1
-
-retrieval:
-  # hybrid (default) | vector | lexical
-  mode: hybrid
-  # Reciprocal rank fusion constant; 60 is the literature default.
-  rrf_k: 60
-
-# Background index maintenance. The vector store is append-only, so a
-# long-lived daemon accumulates dead version history; loctx compacts it
-# automatically on this cadence (and you can trigger it from the admin
-# "Index → compact" button anytime). Set to 0 to disable auto-compaction.
-maintenance:
-  compact_interval_hours: 24
-
-# Background code-analysis queue (runs out of band from indexing/search).
-# All analyzers are ON by default. duplicates is pure-JS and works as-is.
-# lizard/semgrep/astGrep shell out to external binaries — they stay enabled
-# but the indexer skips them automatically until the command is installed
-# (and, for the rule-pack scanners, until you point them at rule_dirs).
-analyzers:
-  background_enabled: true
-  duplicates:
-    enabled: true
-  lizard:
-    enabled: true
-    # command: lizard          # pip install lizard
-  semgrep:
-    enabled: true
-    # command: semgrep
-    # rule_dirs: [~/rules/semgrep]
-  astGrep:
-    enabled: true
-    # command: ast-grep
-    # rule_dirs: [~/rules/ast-grep]
-  # Heuristic quality rules (god-file, long-params, deep-nesting,
-  # fan-in/out) computed from data the index already holds. Pure JS.
-  quality:
-    enabled: true
-    # god_file_nloc: 400
-    # max_params: 5
-
-mcp:
-  # Rolling row cap on the MCP request log (the admin "logs" page).
-  # Oldest rows are trimmed past this count. Set to 0 to disable logging.
-  log_max_rows: 200
-  # Expose the admin_workspace MCP tool so a connected LLM can run
-  # maintenance (compact, analyzer backfill) and read/write this config.
-  # Privileged — leave false unless you trust whatever's on the MCP channel.
-  admin_enabled: false
-
-# Outbound network — set these only behind a TLS-intercepting proxy or
-# corporate firewall (e.g. Socket Firewall). They apply to the embedding
-# model download and to loctx's own updates / tool installs.
-network:
-  # Path to a root CA cert PEM to trust (your org's / proxy's CA). On macOS
-  # you can export the keychain: security find-certificate -a -p \\
-  #   /Library/Keychains/System.keychain \\
-  #   /System/Library/Keychains/SystemRootCertificates.keychain > ca.pem
-  # ca_cert: ~/.config/loctx/ca.pem
-  # HTTP(S) proxy URL, if your network requires one.
-  # proxy: http://proxy.corp:8080
-  # Last resort — disables TLS verification entirely. Prefer ca_cert.
-  strict_ssl: true
-`;
+export {
+  findLegacyProjectConfig,
+  LEGACY_PROJECT_CONFIG_FILENAME,
+  summarizeLegacyProjectConfig,
+} from "./config-legacy.js";
+// Re-exports: these moved out in the #542 split; existing importers
+// keep working through config.ts.
+export { ConfigError, type ConfigSource } from "./config-merge.js";
+export { CONFIG_TEMPLATE } from "./config-template.js";
