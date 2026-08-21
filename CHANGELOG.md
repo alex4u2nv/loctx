@@ -4,9 +4,33 @@
 
 ## [Unreleased]
 
-Cuts from this set become the `0.1.x` line on npm.
+## [0.5.0] - 2026-08-21
+
+First release published to npm (`@loctx/core`, `@loctx/cli`,
+`@loctx/mcp`, `@loctx/web`). Everything below — the full history since
+the project started — ships in this version.
 
 ### Added
+
+- Code-quality inference (#521): a heuristic rule pack runs at
+  enrichment time (god-file, long parameter lists, deep nesting, wide
+  fan-out, stale doc references) and cross-file rules run at query time
+  over the index (high fan-in, extract-candidate, low cohesion,
+  doc-drift). Findings persist per file, attach to search results by
+  line-range overlap, and roll up into a severity-ranked report.
+- `quality_report` and `find_literal` MCP tools — seven tools total.
+- Semantic duplicate detection: embedding-similarity groups across
+  files with diverse-member selection, on top of token-window
+  duplicates. License-like files are excluded (calibration: the first
+  dogfood run was 85% noise; the shipped rules are the corrected set).
+- Admin UI for quality: per-project quality section with clickable
+  rule tiles, a duplicates view, and analyzer provisioning on one tab.
+- `loctx skills` — bundled, sanitized coding-practice skills
+  (code-style, typescript, python) installable to the user-level agent
+  skills directory. Plan-then-apply; never overwrites without --force.
+- Offline retrieval-quality eval harness (`packages/eval`): versioned
+  gold sets, TREC run files, Markdown reports; CI runs it on PRs that
+  touch retrieval paths.
 
 - Tree-sitter chunkers for Python, JavaScript, TypeScript/TSX, Go, Rust, Java. Markdown section chunker. Line-window fallback.
 - Hybrid retrieval: LanceDB vector + SQLite FTS5 lexical, fused via reciprocal rank fusion. Config-driven `retrieval.mode`.
@@ -33,6 +57,9 @@ Cuts from this set become the `0.1.x` line on npm.
 
 ### Changed
 
+- Structural cleanup driven by the tool's own quality report: god-files
+  split across seven PRs with retrieval metrics and the chunk-boundary
+  hash byte-identical before/after.
 - Web stack: replaced Next.js with Vite + React (SPA) + Hono server. ~10× smaller install, faster cold start, no Webpack `Critical dependency` warnings. Embedded daemon mounts the built SPA + API + `/mcp` on `daemon.port` via `@hono/node-server`.
 - Watcher: replaced `chokidar` with [`@parcel/watcher`](https://github.com/parcel-bundler/watcher). One native subscription per project root (FSEvents / inotify / ReadDirectoryChangesW) instead of pinning to chokidar 3's fsevents path.
 - Default `daemon.hostname` is `127.0.0.1` (was `localhost`). Browsers don't rebind literal IPs.
@@ -44,6 +71,9 @@ Cuts from this set become the `0.1.x` line on npm.
 
 ### Fixed
 
+- Eval corpus resolution no longer inherits `GIT_DIR`/`GIT_WORK_TREE`
+  from git hooks, which broke pre-push verify from linked worktrees.
+- `pnpm run merge:pr -- <n>` tolerates the literal `--` argument.
 - `NetworkBlockedError` names the specific model that triggered the block, so users don't run `loctx model download` for the wrong name (#140).
 - Nested `.gitignore` rules now scope to their subdirectory; previously they were either silently dropped or applied workspace-wide.
 - SSE heartbeat in `/api/events` no longer crashes the daemon when a client disconnects mid-tick.
@@ -59,4 +89,5 @@ Cuts from this set become the `0.1.x` line on npm.
 - Privacy and security policy surface: [docs/PRIVACY.md](docs/PRIVACY.md), [SECURITY.md](SECURITY.md), and a "Security model" section in the README.
 - Outbound network calls require per-process opt-in via the egress gate. Trusted-models persistence means the daemon does not re-prompt for downloaded models.
 
-[Unreleased]: https://github.com/alex4u2nv/loctx/compare/main...HEAD
+[Unreleased]: https://github.com/alex4u2nv/loctx/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/alex4u2nv/loctx/releases/tag/v0.5.0

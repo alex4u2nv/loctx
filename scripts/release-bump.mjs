@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Bump core, cli, mcp to the same version. Rewrites the cross-dep range.
+ * Bump core, cli, mcp, web to the same version. Rewrites the cross-dep range.
  * Usage: node scripts/release-bump.mjs <patch|minor|major|X.Y.Z>
  * Prints next git steps. See CONTRIBUTING.md.
  */
@@ -9,7 +9,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
-const PACKAGES = ["packages/core", "apps/cli", "apps/mcp"];
+const PACKAGES = ["packages/core", "apps/cli", "apps/mcp", "apps/web"];
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function fail(msg) {
