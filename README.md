@@ -6,7 +6,18 @@
 
 Local-first code indexing and search for MCP-capable coding agents.
 
-Three publishable npm packages: `@loctx/core` (indexing engine), `@loctx/cli` (`loctx` binary), `@loctx/mcp` (`loctx-mcp` stdio binary). The integrated daemon (`loctx start`) serves a Vite-built React admin UI and the MCP HTTP transport on one port via Hono.
+## Quick start
+
+```bash
+npm install -g @loctx/cli   # or the prebuilt tarball — see Install below
+loctx init                  # interactive: workspace roots, embedding model, port
+loctx start                 # daemon: watcher + admin UI + MCP on one port
+loctx setup-agent           # point your agents (claude, cursor, …) at it
+```
+
+The admin UI is at `http://localhost:<port>` (the port you picked in `init`; default 3022) and agents connect to `http://localhost:<port>/mcp`. First boot downloads the embedding model once (~90 MB); every boot after that runs offline — nothing leaves the machine. Optional: `loctx skills install` adds the bundled coding-quality skills to your user-level agent skills directory.
+
+Four npm packages: `@loctx/cli` (the `loctx` binary — installs the rest), `@loctx/core` (indexing engine), `@loctx/mcp` (`loctx-mcp` stdio binary), `@loctx/web` (admin UI + HTTP server). The integrated daemon (`loctx start`) serves a Vite-built React admin UI and the MCP HTTP transport on one port via Hono.
 
 [ARCHITECTURE.md](ARCHITECTURE.md) covers the design. [docs/MCP.md](docs/MCP.md) covers client setup. [docs/PRIVACY.md](docs/PRIVACY.md) covers what stays local. [CONTRIBUTING.md](CONTRIBUTING.md) covers development. [CHANGELOG.md](CHANGELOG.md) covers releases.
 
