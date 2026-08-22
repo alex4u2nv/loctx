@@ -37,6 +37,8 @@ export interface QualityReportPayload {
     readonly errors: number;
     readonly warnings: number;
     readonly infos: number;
+    /** Findings hidden by .loctx-quality.yaml or the baseline (#566). */
+    readonly suppressed: number;
   };
   /** Coverage caps hit while building the report — never silent. */
   readonly notes: ReadonlyArray<string>;

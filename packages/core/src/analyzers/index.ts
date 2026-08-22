@@ -85,6 +85,19 @@ export {
   type QualityRuleSummary,
 } from "./quality-report.js";
 export {
+  BASELINE_FILE,
+  baselineKey,
+  buildSuppressionMatcher,
+  loadSuppressionState,
+  parseBaseline,
+  parseSuppressions,
+  type QualityBaseline,
+  type QualitySuppression,
+  SUPPRESSIONS_FILE,
+  type SuppressionState,
+  serializeBaseline,
+} from "./quality-suppressions.js";
+export {
   EnrichmentQueue,
   type EnrichmentQueueOptions,
   type EnrichmentResult,

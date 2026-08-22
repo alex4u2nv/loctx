@@ -11,7 +11,7 @@
  * deterministic from a `Config` snapshot.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import {
@@ -44,6 +44,11 @@ import {
   type QualityReport,
   type QualityReportPorts,
 } from "./analyzers/quality-report.js";
+import {
+  BASELINE_FILE,
+  loadSuppressionState,
+  serializeBaseline,
+} from "./analyzers/quality-suppressions.js";
 import {
   findSemanticDuplicateGroups,
   type SemanticDuplicatesResult,
@@ -777,10 +782,60 @@ export async function runSemanticDuplicates(
 export async function runQualityReport(
   runtime: Pick<Runtime, "config" | "state" | "vectors">,
   project: Project,
-  opts: { readonly limit: number; readonly rule?: string },
+  opts: { readonly limit: number; readonly rule?: string; readonly includeSuppressed?: boolean },
 ): Promise<QualityReport> {
+  const q = runtime.config.analyzers.quality;
+  return buildQualityReport(qualityPorts(runtime), {
+    projectId: project.id,
+    projectRoot: project.root,
+    thresholds: q,
+    markdownRules: q.markdownRules,
+    driftFloor: q.docDriftFloor / 100,
+    limit: opts.limit,
+    suppressionState: loadSuppressionState(project.root),
+    ...(opts.includeSuppressed === true ? { includeSuppressed: true } : {}),
+    ...(opts.rule !== undefined ? { ruleFilter: opts.rule } : {}),
+  });
+}
+
+/**
+ * `loctx quality baseline` (#566): snapshot the currently VISIBLE
+ * findings (explicit suppressions honored, any existing baseline
+ * ignored — a re-run recaptures full current debt) as accepted-debt
+ * entries, written to the project root for committing. Reports then
+ * show only findings NOT in the baseline. Per-file display capping
+ * can in principle hide a (rule, path) pair past 50 findings in one
+ * file; the next report surfaces it as new — re-run baseline.
+ */
+export async function runQualityBaseline(
+  runtime: Pick<Runtime, "config" | "state" | "vectors">,
+  project: Project,
+): Promise<{ readonly path: string; readonly entries: number; readonly files: number }> {
+  const q = runtime.config.analyzers.quality;
+  const loaded = loadSuppressionState(project.root);
+  const report = await buildQualityReport(qualityPorts(runtime), {
+    projectId: project.id,
+    projectRoot: project.root,
+    thresholds: q,
+    markdownRules: q.markdownRules,
+    driftFloor: q.docDriftFloor / 100,
+    limit: Number.MAX_SAFE_INTEGER,
+    suppressionState: { ...loaded, baseline: new Set<string>() },
+  });
+  const pairs = report.files.flatMap((f) =>
+    f.findings.map((finding) => ({ rule: finding.ruleId, path: f.relPath })),
+  );
+  const outPath = join(project.root, BASELINE_FILE);
+  const serialized = serializeBaseline(pairs, new Date().toISOString());
+  writeFileSync(outPath, serialized);
+  const entries = (JSON.parse(serialized) as { entries: unknown[] }).entries.length;
+  return { path: outPath, entries, files: report.files.length };
+}
+
+/** Adapt the runtime onto the quality report's read-only ports. */
+function qualityPorts(runtime: Pick<Runtime, "config" | "state" | "vectors">): QualityReportPorts {
   const { state, vectors } = runtime;
-  const ports: QualityReportPorts = {
+  return {
     qualityEnrichments: (pid) => state.listQualityEnrichments(pid),
     duplicateGroups: (min, pid) => state.findDuplicateGroups(min, pid),
     fanInCounts: (pid) => state.fanInCounts(pid),
@@ -803,16 +858,6 @@ export async function runQualityReport(
       },
     },
   };
-  const q = runtime.config.analyzers.quality;
-  return buildQualityReport(ports, {
-    projectId: project.id,
-    projectRoot: project.root,
-    thresholds: q,
-    markdownRules: q.markdownRules,
-    driftFloor: q.docDriftFloor / 100,
-    limit: opts.limit,
-    ...(opts.rule !== undefined ? { ruleFilter: opts.rule } : {}),
-  });
 }
 
 /** Recursive on-disk size of a directory in bytes (best-effort). */

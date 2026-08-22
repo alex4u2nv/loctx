@@ -14,6 +14,7 @@ export function mountQuality(app: Hono, getRuntime: () => Promise<Runtime>): voi
     const limitRaw = Number(c.req.query("limit") ?? "20");
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(1, limitRaw), 100) : 20;
     const rule = c.req.query("rule");
+    const includeSuppressed = c.req.query("include_suppressed") === "true";
 
     const rt = await getRuntime();
     const project = rt.state.listProjects().find((p) => p.id === id && p.active);
@@ -29,7 +30,11 @@ export function mountQuality(app: Hono, getRuntime: () => Promise<Runtime>): voi
     const report = await runQualityReport(
       rt,
       { id: project.id, name: project.name, root: project.root },
-      { limit, ...(rule !== undefined && rule !== "" ? { rule } : {}) },
+      {
+        limit,
+        ...(rule !== undefined && rule !== "" ? { rule } : {}),
+        ...(includeSuppressed ? { includeSuppressed: true } : {}),
+      },
     );
     const payload: QualityReportPayload = {
       files: report.files,
