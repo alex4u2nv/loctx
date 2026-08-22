@@ -10,11 +10,11 @@ export function registerDaemonCommands(program: Command): void {
   program
     .command("start")
     .description(
-      "Run the integrated daemon: watcher + Next.js admin UI + MCP at /mcp on one port. " +
+      "Run the integrated daemon: watcher + admin UI + MCP at /mcp on one port. " +
         "Port and hostname come from `daemon.port` / `daemon.hostname` in config.",
     )
     .option("--no-watch", "Skip the filesystem watcher.")
-    .option("--no-web", "Skip the Next.js admin UI / MCP HTTP transport.")
+    .option("--no-web", "Skip the admin UI / MCP HTTP transport.")
     .option("--replace", "Stop any existing daemon for this data dir before starting.", false)
     .action(async (opts: { watch: boolean; web: boolean; replace: boolean }) => {
       const ctx = getCtx();
@@ -60,7 +60,7 @@ export function registerDaemonCommands(program: Command): void {
     .command("restart")
     .description("Stop any running daemon for this data dir, then start a new one.")
     .option("--no-watch", "Skip the filesystem watcher.")
-    .option("--no-web", "Skip the Next.js admin UI / MCP HTTP transport.")
+    .option("--no-web", "Skip the admin UI / MCP HTTP transport.")
     .action(async (opts: { watch: boolean; web: boolean }) => {
       const ctx = getCtx();
       const config = loadConfigOrFail(ctx);
