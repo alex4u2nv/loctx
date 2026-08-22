@@ -20,7 +20,7 @@ import { readActiveDaemon } from "./daemon-lock.js";
 import { inventoryProjects, WorkspaceDiscovery } from "./discovery.js";
 import { StateStore } from "./storage/state.js";
 import { isModelTrusted } from "./trusted-models.js";
-import { checkNofile } from "./ulimit.js";
+import { checkNofile, isHardLimitBound } from "./ulimit.js";
 import type { WatcherRegistry } from "./watcher/registry.js";
 
 export type DoctorStatus = "ok" | "warn" | "error";
@@ -405,13 +405,19 @@ function checkUlimitNofile(_ctx: DoctorContext): DoctorCheck[] {
   if (nofile.current === Number.POSITIVE_INFINITY) {
     return [{ name: "ulimit:nofile", status: "ok", detail: "unlimited" }];
   }
+  const hardStr = Number.isFinite(nofile.hard) ? String(nofile.hard) : "unlimited";
+  // When the HARD cap is below the floor, `ulimit -n` is a dead end —
+  // macOS launchd caps every session; only launchctl + re-login raises it.
+  const fix = isHardLimitBound(nofile)
+    ? "hard cap is the constraint — `sudo launchctl limit maxfiles 65536 200000`, then log out and back in"
+    : "bump with 'ulimit -n 10240'";
   return [
     {
       name: "ulimit:nofile",
       status: nofile.ok ? "ok" : "warn",
       detail: nofile.ok
         ? `${nofile.current} (>= ${nofile.recommended})`
-        : `${nofile.current} (< ${nofile.recommended} recommended) — bump with 'ulimit -n 10240'`,
+        : `soft ${nofile.current}, hard ${hardStr} (< ${nofile.recommended} recommended) — ${fix}`,
     },
   ];
 }

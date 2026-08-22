@@ -51,6 +51,20 @@ available and compile from source otherwise — the release tarball above
 skips that entirely, which is why it stays the recommended path. The
 standalone stdio MCP binary is `npm install -g @loctx/mcp`.
 
+### Supported platforms
+
+Prebuilt release tarballs cover **macOS arm64 (Apple Silicon)** and
+**Linux x64**, each for Node majors **22, 24, 25, 26** (the bundled
+native addons are ABI-specific). The npm path works on other
+platform/Node combinations by compiling the native modules from source
+(a compiler toolchain is required), but those combinations are not
+CI-tested. Intel Mac has no prebuilt tarball.
+
+On macOS, a large multi-project workspace can exhaust the default
+open-files budget; `loctx doctor` checks it and prints the exact fix
+(`ulimit`, or `launchctl` + re-login when the hard cap is the
+constraint).
+
 ### From source (contributors)
 
 This repo uses [pnpm](https://pnpm.io/) (>= 9). The fastest way to get it: `corepack enable && corepack prepare pnpm@9.15.9 --activate`.
