@@ -313,6 +313,7 @@ export const tools = {
     const limitRaw = v.getInt(data, "limit", { nonNegative: true }) ?? 20;
     const limit = Math.min(Math.max(1, limitRaw), 100);
     const rule = v.getStr(data, "rule");
+    const includeSuppressed = v.getBool(data, "include_suppressed") ?? false;
     const path = confinedPath(runtime, v.getStr(data, "path"));
 
     // The report is per-project (its vector scans and ref counts are
@@ -349,7 +350,11 @@ export const tools = {
     const report = await runQualityReport(
       runtime,
       { id: project.id, name: project.name, root: project.root },
-      { limit, ...(rule !== undefined ? { rule } : {}) },
+      {
+        limit,
+        ...(rule !== undefined ? { rule } : {}),
+        ...(includeSuppressed ? { includeSuppressed: true } : {}),
+      },
     );
     return Object.freeze({
       projectId: project.id as string,

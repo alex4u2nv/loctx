@@ -13,6 +13,7 @@ import { registerDaemonCommands } from "./commands/daemon.js";
 import { registerIndexingCommands } from "./commands/indexing.js";
 import { registerModelCommands } from "./commands/model.js";
 import { registerProjectActivation, registerProjectMaintenance } from "./commands/project.js";
+import { registerQualityCommands } from "./commands/quality.js";
 import { registerSearchCommands } from "./commands/search.js";
 import { registerSystemCommands } from "./commands/system.js";
 import { registerToolsCommands } from "./commands/tools.js";
@@ -37,6 +38,7 @@ program
 registerIndexingCommands(program); // index, refresh
 registerProjectActivation(program); // add, activate, deactivate
 registerSearchCommands(program); // search, find-usages
+registerQualityCommands(program); // quality report, quality baseline
 registerDaemonCommands(program); // start, stop, restart
 registerToolsCommands(program); // update, install-tools, watch
 registerProjectMaintenance(program); // pause, resume, rebuild, purge

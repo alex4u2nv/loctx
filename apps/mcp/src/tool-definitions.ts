@@ -91,7 +91,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "quality_report",
     description:
-      "**Use when you ask 'what should we refactor / where is the risky or rotting code in this project'** — one ranked view of every quality signal loctx computes. Stored per-file rules (god-file, long-params, deep-nesting, high-fan-out, stale markdown refs) merge with query-time cross-file rules (extract-candidate duplication across 3+ files, high-fan-in blast radius, low-cohesion mixed-concern files, doc-drift for markdown vs the code it cites). Files rank by severity-weighted finding count (error 3, warning 2, info 1). Per-project: pass `path`; defaults to the sole indexed project when only one exists. `rule` filters to one ruleId (e.g. `quality/god-file`); `limit` caps files (default 20, max 100). **Read `report.notes`** — every coverage cap hit is listed there; treat a capped report as partial. `disabled` names the config knobs when the stored rules haven't run (the cross-file rules run regardless, so the report is partial rather than empty). Heuristic prioritisation for refactoring, not a correctness audit — drill into hits with `find_duplicates`, `find_usages`, or `search_workspace`.",
+      "**Use when you ask 'what should we refactor / where is the risky or rotting code in this project'** — one ranked view of every quality signal loctx computes. Stored per-file rules (god-file, long-params, deep-nesting, high-fan-out, stale markdown refs) merge with query-time cross-file rules (extract-candidate duplication across 3+ files, high-fan-in blast radius, low-cohesion mixed-concern files, doc-drift for markdown vs the code it cites). Files rank by severity-weighted finding count (error 3, warning 2, info 1). Per-project: pass `path`; defaults to the sole indexed project when only one exists. `rule` filters to one ruleId (e.g. `quality/god-file`); `limit` caps files (default 20, max 100). **Read `report.notes`** — every coverage cap hit is listed there; treat a capped report as partial. Projects can suppress accepted debt via a committed `.loctx-quality.yaml` (rule + path glob + reason) or a `loctx quality baseline` snapshot; suppressed findings are excluded but counted in `report.totals.suppressed` (pass `include_suppressed` to see them). `disabled` names the config knobs when the stored rules haven't run (the cross-file rules run regardless, so the report is partial rather than empty). Heuristic prioritisation for refactoring, not a correctness audit — drill into hits with `find_duplicates`, `find_usages`, or `search_workspace`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -110,6 +110,12 @@ export const TOOL_DEFINITIONS = [
           maximum: 100,
           default: 20,
           description: "Max files in the report.",
+        },
+        include_suppressed: {
+          type: "boolean",
+          default: false,
+          description:
+            "Also show findings hidden by the project's .loctx-quality.yaml suppressions or its committed baseline (accepted debt). `report.totals.suppressed` counts them either way.",
         },
       },
     },

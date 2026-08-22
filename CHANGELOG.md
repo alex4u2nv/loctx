@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- Quality suppressions + baseline (#566): a committed
+  `.loctx-quality.yaml` (rule + path glob + required reason) and a
+  `loctx quality baseline` accepted-debt snapshot put calibration in
+  the user's hands. Suppressed findings are excluded from reports and
+  rollups but always counted (`totals.suppressed` + a note — no silent
+  caps); `include_suppressed` shows them. New CLI verbs
+  `loctx quality report` / `loctx quality baseline`; the MCP
+  `quality_report` tool and the web quality endpoint honor both files.
+
 ## [0.5.0] - 2026-08-21
 
 First release published to npm (`@loctx/core`, `@loctx/cli`,

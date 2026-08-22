@@ -218,3 +218,81 @@ describe("per-file display cap", () => {
     expect(report.notes.some((n) => n.includes("showing 50 of 60"))).toBe(true);
   });
 });
+
+describe("suppressions + baseline (#566)", () => {
+  const suppressionState = (
+    overrides: Partial<{
+      suppressions: Array<{ rule: string; path: string; reason: string }>;
+      baseline: Set<string>;
+      problems: string[];
+    }> = {},
+  ) => ({
+    suppressions: overrides.suppressions ?? [],
+    baseline: overrides.baseline ?? new Set<string>(),
+    problems: overrides.problems ?? [],
+  });
+
+  it("excludes suppressed findings from files, rollups, and totals — but counts them", async () => {
+    const report = await buildQualityReport(
+      ports({
+        qualityEnrichments: () => [{ fileId: "f1", payloadJson: storedPayload }],
+        fanInCounts: () => new Map([["f2", 30]]),
+      }),
+      opts({
+        suppressionState: suppressionState({
+          suppressions: [{ rule: "quality/god-file", path: "src/**", reason: "accepted" }],
+        }),
+      }),
+    );
+    expect(report.files.map((f) => f.fileId)).toEqual(["f2"]);
+    expect(report.rules.map((r) => r.ruleId)).toEqual(["quality/high-fan-in"]);
+    expect(report.totals.findings).toBe(1);
+    expect(report.totals.suppressed).toBe(1);
+    expect(report.notes.some((n) => n.includes("1 finding(s) suppressed"))).toBe(true);
+  });
+
+  it("baseline entries suppress exact (rule, path) pairs only", async () => {
+    const { baselineKey } = await import("../../src/analyzers/quality-suppressions.js");
+    const report = await buildQualityReport(
+      ports({
+        qualityEnrichments: () => [{ fileId: "f1", payloadJson: storedPayload }],
+        fanInCounts: () => new Map([["f2", 30]]),
+      }),
+      opts({
+        suppressionState: suppressionState({
+          baseline: new Set([baselineKey("quality/god-file", "src/a.ts")]),
+        }),
+      }),
+    );
+    expect(report.files.map((f) => f.fileId)).toEqual(["f2"]);
+    expect(report.totals.suppressed).toBe(1);
+    expect(report.notes.some((n) => n.includes("baseline"))).toBe(true);
+  });
+
+  it("includeSuppressed keeps the findings visible while still counting them", async () => {
+    const report = await buildQualityReport(
+      ports({ qualityEnrichments: () => [{ fileId: "f1", payloadJson: storedPayload }] }),
+      opts({
+        suppressionState: suppressionState({
+          suppressions: [{ rule: "*", path: "**", reason: "show me" }],
+        }),
+        includeSuppressed: true,
+      }),
+    );
+    expect(report.files.map((f) => f.fileId)).toEqual(["f1"]);
+    expect(report.totals.suppressed).toBe(1);
+    expect(report.notes.some((n) => n.includes("showing 1 suppressed"))).toBe(true);
+  });
+
+  it("loader problems surface as notes and totals.suppressed defaults to 0", async () => {
+    const report = await buildQualityReport(
+      ports({ qualityEnrichments: () => [{ fileId: "f1", payloadJson: storedPayload }] }),
+      opts({
+        suppressionState: suppressionState({ problems: [".loctx-quality.yaml: entry 1 bad"] }),
+      }),
+    );
+    expect(report.totals.suppressed).toBe(0);
+    expect(report.notes).toContain(".loctx-quality.yaml: entry 1 bad");
+    expect(report.files).toHaveLength(1);
+  });
+});

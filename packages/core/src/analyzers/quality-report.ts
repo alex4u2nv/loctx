@@ -34,6 +34,12 @@ import {
   type QualityThresholds,
 } from "./quality.js";
 import { isMarkdownPath, type MarkdownVectorPort, runDocDrift } from "./quality-markdown.js";
+import {
+  BASELINE_FILE,
+  buildSuppressionMatcher,
+  SUPPRESSIONS_FILE,
+  type SuppressionState,
+} from "./quality-suppressions.js";
 import type { RulePackFinding } from "./rule-pack.js";
 
 /** Read-only data access the report needs; adapted from the runtime. */
@@ -88,6 +94,14 @@ export interface QualityReportOptions {
   readonly scanCap?: number;
   /** Markdown docs examined for drift. */
   readonly maxDriftDocs?: number;
+  /**
+   * Per-project suppressions + baseline (#566). Suppressed findings
+   * are excluded from rollups and totals; the count is always stated
+   * in totals.suppressed + a note (no silent caps).
+   */
+  readonly suppressionState?: SuppressionState;
+  /** Show suppressed findings anyway (totals.suppressed still counts them). */
+  readonly includeSuppressed?: boolean;
 }
 
 export interface QualityReportFile {
@@ -122,6 +136,8 @@ export interface QualityReport {
     readonly errors: number;
     readonly warnings: number;
     readonly infos: number;
+    /** Findings matched by a suppression or the baseline (#566). */
+    readonly suppressed: number;
   };
   /** Coverage notes: caps hit, unreadable docs — never silent. */
   readonly notes: ReadonlyArray<string>;
@@ -239,6 +255,45 @@ export async function buildQualityReport(
     }
   }
 
+  // Suppressions + baseline (#566): applied to the merged set BEFORE
+  // rollups, so rule tiles and totals show actionable counts, not
+  // accepted debt. The count is always surfaced — never a silent cap.
+  let suppressedCount = 0;
+  if (opts.suppressionState !== undefined) {
+    const state = opts.suppressionState;
+    const verdict = buildSuppressionMatcher(state);
+    let byRule = 0;
+    let byBaseline = 0;
+    for (const [fileId, all] of byFile.entries()) {
+      const relPath = relPathById.get(fileId);
+      if (relPath === undefined) continue;
+      const kept: RulePackFinding[] = [];
+      for (const f of all) {
+        const why = verdict(f.ruleId, relPath);
+        if (why === null) kept.push(f);
+        else {
+          if (why === "rule") byRule += 1;
+          else byBaseline += 1;
+          if (opts.includeSuppressed === true) kept.push(f);
+        }
+      }
+      byFile.set(fileId, kept);
+    }
+    suppressedCount = byRule + byBaseline;
+    if (suppressedCount > 0) {
+      const parts = [
+        byRule > 0 ? `${byRule} by ${SUPPRESSIONS_FILE}` : null,
+        byBaseline > 0 ? `${byBaseline} by ${BASELINE_FILE}` : null,
+      ].filter((p): p is string => p !== null);
+      notes.push(
+        opts.includeSuppressed === true
+          ? `showing ${suppressedCount} suppressed finding(s) (${parts.join(", ")})`
+          : `${suppressedCount} finding(s) suppressed (${parts.join(", ")}) — include_suppressed shows them`,
+      );
+    }
+    notes.push(...state.problems);
+  }
+
   // Per-rule rollup over the FULL merge, before the rule filter.
   const ruleAgg = new Map<string, { count: number; fileIds: Set<string>; worst: number }>();
   for (const [fileId, all] of byFile.entries()) {
@@ -264,7 +319,14 @@ export async function buildQualityReport(
 
   // Rank: severity-weighted per file, findings sorted severity → line.
   const ranked: QualityReportFile[] = [];
-  const totals = { files: 0, findings: 0, errors: 0, warnings: 0, infos: 0 };
+  const totals = {
+    files: 0,
+    findings: 0,
+    errors: 0,
+    warnings: 0,
+    infos: 0,
+    suppressed: suppressedCount,
+  };
   for (const [fileId, all] of byFile.entries()) {
     const relPath = relPathById.get(fileId);
     if (relPath === undefined) continue;
