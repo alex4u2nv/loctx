@@ -1,0 +1,39 @@
+{
+  "name": "loctx",
+  "version": "0.5.0",
+  "description": "Local-first code-index daemon for coding agents. Convenience wrapper: installs @loctx/cli under the memorable name.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "author": "Alex Mahabir",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alex4u2nv/loctx.git",
+    "directory": "packages/loctx"
+  },
+  "homepage": "https://github.com/alex4u2nv/loctx",
+  "keywords": [
+    "loctx",
+    "cli",
+    "code-search",
+    "mcp",
+    "model-context-protocol",
+    "embeddings",
+    "local-first",
+    "indexing"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "loctx": "./bin/loctx.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@loctx/cli": "workspace:^"
+  }
+}
