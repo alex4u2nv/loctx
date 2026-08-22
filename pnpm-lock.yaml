@@ -206,12 +206,6 @@ importers:
         specifier: 'catalog:'
         version: 2.9.0
 
-  packages/loctx:
-    dependencies:
-      '@loctx/cli':
-        specifier: workspace:^
-        version: link:../../apps/cli
-
 packages:
 
   '@babel/code-frame@7.29.7':

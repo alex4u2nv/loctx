@@ -26,6 +26,20 @@ Once installed, update any time with **`loctx update`** (it fetches the latest r
 
 The installer drops `loctx` into `~/.local/bin` (override `LOCTX_BIN_DIR`) and the runtime into `~/.local/share/loctx` (override `LOCTX_HOME`). Releases are tagged per platform + Node major (e.g. `darwin-arm64-node25`); it picks the matching asset and refuses a mismatch with a clear message. Behind a TLS-intercepting proxy, pass your CA: `LOCTX_CA_CERT=/path/ca.pem ... | bash` (and set `network.ca_cert` afterwards so the model download trusts it too).
 
+### From npm
+
+```bash
+npm install -g @loctx/cli
+loctx --version
+```
+
+Installs the CLI plus its dependency tree (`@loctx/core`, `@loctx/web`,
+`@loctx/mcp`). The native modules (better-sqlite3, LanceDB, ONNX
+runtime, tree-sitter) use prebuilt binaries for your Node ABI where
+available and compile from source otherwise — the release tarball above
+skips that entirely, which is why it stays the recommended path. The
+standalone stdio MCP binary is `npm install -g @loctx/mcp`.
+
 ### From source (contributors)
 
 This repo uses [pnpm](https://pnpm.io/) (>= 9). The fastest way to get it: `corepack enable && corepack prepare pnpm@9.15.9 --activate`.

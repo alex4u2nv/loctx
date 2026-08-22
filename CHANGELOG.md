@@ -31,8 +31,10 @@ the project started — ships in this version.
 - Offline retrieval-quality eval harness (`packages/eval`): versioned
   gold sets, TREC run files, Markdown reports; CI runs it on PRs that
   touch retrieval paths.
-- Unscoped `loctx` npm package: a thin alias for `@loctx/cli` so the
-  install is `npm install -g loctx`.
+- npm distribution: `@loctx/core`, `@loctx/cli`, `@loctx/mcp`, and
+  `@loctx/web` published to the registry; `npm install -g @loctx/cli`
+  is the one-command install. (An unscoped `loctx` alias was attempted
+  and dropped: npm's name-similarity filter rejects it.)
 
 - Tree-sitter chunkers for Python, JavaScript, TypeScript/TSX, Go, Rust, Java. Markdown section chunker. Line-window fallback.
 - Hybrid retrieval: LanceDB vector + SQLite FTS5 lexical, fused via reciprocal rank fusion. Config-driven `retrieval.mode`.

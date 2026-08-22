@@ -12,8 +12,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Dependency order: mcp and web need core on the registry, cli needs
-# core + web, the unscoped alias needs cli. Publish downstream last.
-PACKAGES=(packages/core apps/mcp apps/web apps/cli packages/loctx)
+# core + web. Publish downstream last. (No unscoped alias: npm's
+# similarity filter rejects the name `loctx` — too close to lolex/docx.)
+PACKAGES=(packages/core apps/mcp apps/web apps/cli)
 
 OTP_ARG=()
 DRY_RUN=false
