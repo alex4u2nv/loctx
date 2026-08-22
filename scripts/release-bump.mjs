@@ -9,7 +9,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
-const PACKAGES = ["packages/core", "apps/cli", "apps/mcp", "apps/web", "packages/loctx"];
+const PACKAGES = ["packages/core", "apps/cli", "apps/mcp", "apps/web"];
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function fail(msg) {
