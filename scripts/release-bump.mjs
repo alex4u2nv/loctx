@@ -81,3 +81,4 @@ console.error("  1. Update CHANGELOG.md: move [Unreleased] under [" + target + "
   new Date().toISOString().slice(0, 10));
 console.error('  2. git commit -am "release: v' + target + '"');
 console.error("  3. git tag v" + target + " && git push origin main v" + target);
+console.error("  4. bash scripts/publish-npm.sh   (npm publish, idempotent)");
