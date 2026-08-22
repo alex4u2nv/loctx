@@ -1,11 +1,11 @@
 /**
  * File-descriptor budget probe.
  *
- * Chokidar opens roughly 1-2 file descriptors per watched directory.
- * On macOS the default `RLIMIT_NOFILE` is 256 (or 2560 with newer
- * defaults), which an installation with even a handful of mid-sized
- * projects burns through immediately, producing "EMFILE: too many
- * open files, watch" floods.
+ * The watcher (@parcel/watcher) holds open-file handles per watched
+ * project. On macOS the default `RLIMIT_NOFILE` is 256 (or 2560 with
+ * newer defaults), which an installation with even a handful of
+ * mid-sized projects burns through immediately, producing "EMFILE:
+ * too many open files, watch" floods.
  *
  * This helper reads the current soft limit and reports whether it's
  * comfortable for loctx's workload. Cross-platform: uses
@@ -21,15 +21,29 @@ export const RECOMMENDED_NOFILE = 4096;
 
 export interface NofileStatus {
   readonly current: number;
+  /** Hard ceiling — `ulimit -n` cannot raise the soft limit past it. */
+  readonly hard: number;
   readonly recommended: number;
   readonly ok: boolean;
 }
 
+export interface NofileLimits {
+  readonly soft: number;
+  readonly hard: number;
+}
+
+function parseUlimitOutput(out: string): number | null {
+  if (out === "unlimited") return Number.POSITIVE_INFINITY;
+  const parsed = Number.parseInt(out, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 /**
- * Read the current soft RLIMIT_NOFILE. Returns null on platforms where
- * the limit doesn't apply or can't be read (Windows, restricted shells).
+ * Read the current soft + hard RLIMIT_NOFILE. Returns null on platforms
+ * where the limit doesn't apply or can't be read (Windows, restricted
+ * shells).
  */
-export function readNofile(): number | null {
+export function readNofileLimits(): NofileLimits | null {
   // Prefer the native API where it's exposed (Node 24+).
   const native = (
     process as unknown as {
@@ -39,43 +53,85 @@ export function readNofile(): number | null {
   if (typeof native === "function") {
     try {
       const limit = native("nofile");
-      return limit.soft;
+      return { soft: limit.soft, hard: limit.hard };
     } catch {
       // fall through to shell
     }
   }
   if (process.platform === "win32") return null;
   try {
-    const out = execFileSync("/bin/sh", ["-c", "ulimit -n"], {
-      encoding: "utf-8",
-      timeout: 1000,
-    }).trim();
-    if (out === "unlimited") return Number.POSITIVE_INFINITY;
-    const parsed = Number.parseInt(out, 10);
-    return Number.isFinite(parsed) ? parsed : null;
+    const read = (flag: string): number | null =>
+      parseUlimitOutput(
+        execFileSync("/bin/sh", ["-c", `ulimit ${flag}`], {
+          encoding: "utf-8",
+          timeout: 1000,
+        }).trim(),
+      );
+    const soft = read("-n");
+    if (soft === null) return null;
+    const hard = read("-Hn");
+    return { soft, hard: hard ?? soft };
   } catch {
     return null;
   }
 }
 
+/** Read the current soft RLIMIT_NOFILE (see readNofileLimits). */
+export function readNofile(): number | null {
+  return readNofileLimits()?.soft ?? null;
+}
+
 /** Probe + classify against the recommended floor. */
 export function checkNofile(recommended = RECOMMENDED_NOFILE): NofileStatus | null {
-  const current = readNofile();
-  if (current === null) return null;
+  const limits = readNofileLimits();
+  if (limits === null) return null;
   return Object.freeze({
-    current,
+    current: limits.soft,
+    hard: limits.hard,
     recommended,
-    ok: current >= recommended,
+    ok: limits.soft >= recommended,
   });
 }
 
-/** Human-readable hint shown when the limit is too low. */
-export function nofileBumpHint(): string {
-  return [
-    "Increase the open-files limit so the filesystem watcher doesn't crash:",
+/**
+ * True when the HARD limit sits below the recommended floor — the case
+ * where `ulimit -n` alone cannot fix the budget (macOS launchd caps
+ * the hard limit for every session; raising it takes `launchctl` and a
+ * re-login).
+ */
+export function isHardLimitBound(status: NofileStatus): boolean {
+  return Number.isFinite(status.hard) && status.hard < status.recommended;
+}
+
+/**
+ * Human-readable hint shown when the limit is too low. Platform-aware:
+ * when the hard limit is the binding constraint on macOS, the ulimit
+ * advice alone is a dead end — the launchctl route is required first.
+ * The platform/status parameters exist for tests; callers use defaults.
+ */
+export function nofileBumpHint(
+  status: NofileStatus | null = checkNofile(),
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const lines = ["Increase the open-files limit so the filesystem watcher doesn't crash:"];
+  if (platform === "darwin" && status !== null && isHardLimitBound(status)) {
+    lines.push(
+      `  the hard limit (${status.hard}) is below the recommended ${status.recommended},`,
+      "  so `ulimit -n` alone cannot fix this:",
+      "  1. sudo launchctl limit maxfiles 65536 200000",
+      "  2. log out and back in (launchd applies the new cap to new sessions)",
+      "  3. then: ulimit -n 10240 (or add it to ~/.zshrc)",
+    );
+    return lines.join("\n");
+  }
+  lines.push(
     "  short-term:  ulimit -n 10240",
     "  permanent:   add `ulimit -n 10240` to your ~/.zshrc or ~/.bashrc",
-  ].join("\n");
+  );
+  if (platform === "linux") {
+    lines.push("  inotify watch limit (ENOSPC): sudo sysctl -w fs.inotify.max_user_watches=524288");
+  }
+  return lines.join("\n");
 }
 
 /**

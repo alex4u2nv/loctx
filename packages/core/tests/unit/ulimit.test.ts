@@ -7,7 +7,15 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { looksLikeFdExhaustion, nofileBumpHint } from "../../src/ulimit.js";
+import {
+  isHardLimitBound,
+  looksLikeFdExhaustion,
+  type NofileStatus,
+  nofileBumpHint,
+} from "../../src/ulimit.js";
+
+const status = (current: number, hard: number, recommended = 4096): NofileStatus =>
+  Object.freeze({ current, hard, recommended, ok: current >= recommended });
 
 describe("looksLikeFdExhaustion", () => {
   it("matches macOS EMFILE", () => {
@@ -35,10 +43,43 @@ describe("looksLikeFdExhaustion", () => {
   });
 });
 
+describe("isHardLimitBound", () => {
+  it("true when the hard cap sits below the recommended floor", () => {
+    expect(isHardLimitBound(status(256, 256))).toBe(true);
+  });
+
+  it("false when only the soft limit is low", () => {
+    expect(isHardLimitBound(status(256, 10240))).toBe(false);
+  });
+
+  it("false for an unlimited hard cap", () => {
+    expect(isHardLimitBound(status(256, Number.POSITIVE_INFINITY))).toBe(false);
+  });
+});
+
 describe("nofileBumpHint", () => {
   it("returns a multi-line hint mentioning ulimit -n", () => {
     const hint = nofileBumpHint();
     expect(hint).toContain("ulimit -n");
     expect(hint.split("\n").length).toBeGreaterThan(1);
+  });
+
+  it("darwin + hard-bound: leads with the launchctl route (#560)", () => {
+    // `ulimit -n` cannot exceed the hard cap, so plain ulimit advice is
+    // a dead end — the hint must say launchctl + re-login is required.
+    const hint = nofileBumpHint(status(256, 256), "darwin");
+    expect(hint).toContain("launchctl limit maxfiles");
+    expect(hint).toContain("log out and back in");
+  });
+
+  it("darwin with soft-only shortfall: plain ulimit advice suffices", () => {
+    const hint = nofileBumpHint(status(256, 10240), "darwin");
+    expect(hint).toContain("ulimit -n 10240");
+    expect(hint).not.toContain("launchctl");
+  });
+
+  it("linux: includes the inotify watch-limit escape hatch", () => {
+    const hint = nofileBumpHint(status(256, 10240), "linux");
+    expect(hint).toContain("fs.inotify.max_user_watches");
   });
 });
