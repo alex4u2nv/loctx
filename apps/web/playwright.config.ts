@@ -37,7 +37,12 @@ const DATA_DIR = process.env["LOCTX_PW_DATA"] ?? "/tmp/loctx-pw-data";
 const CONFIG_DIR = process.env["LOCTX_PW_CONFIG"] ?? "/tmp/loctx-pw-cfg";
 const FIXTURE_ROOT = process.env["LOCTX_PW_FIXTURE"] ?? "/tmp/loctx-pw-fixture";
 
-prepareFixture();
+// Playwright evaluates this config in the runner AND again in every
+// worker process. Only the runner may build the fixture: a worker
+// re-running it would wipe and re-index the data dir underneath the
+// daemon that is already serving the tests (Playwright sets
+// TEST_WORKER_INDEX in workers only).
+if (process.env["TEST_WORKER_INDEX"] === undefined) prepareFixture();
 
 function prepareFixture(): void {
   for (const dir of [DATA_DIR, CONFIG_DIR, FIXTURE_ROOT]) {
@@ -113,8 +118,36 @@ function prepareFixture(): void {
     "utf-8",
   );
 
-  // Index the fixture before the daemon boots so the search page has data.
-  const result = spawnSync(process.execPath, [CLI_PATH, "index", project], {
+  // Second project, "stale": indexed then deactivated before the daemon
+  // boots, so /projects lists it under Inactive as "deactivated" with
+  // data still on disk — the case the purge action exists for. Content
+  // is deliberately unrelated to the search-test queries.
+  const stale = join(FIXTURE_ROOT, "stale");
+  mkdirSync(join(stale, "src"), { recursive: true });
+  mkdirSync(join(stale, ".git"), { recursive: true });
+  writeFileSync(join(stale, ".git", "HEAD"), "ref: refs/heads/main\n", "utf-8");
+  writeFileSync(
+    join(stale, "src", "ledger.ts"),
+    [
+      "// Ledger formatter. Renders a balance sheet as fixed-width columns.",
+      "",
+      "export function formatLedger(rows: ReadonlyArray<[string, number]>) {",
+      "  return rows.map(([label, amount]) => `${label.padEnd(24)}${amount}`).join('\\n');",
+      "}",
+    ].join("\n"),
+    "utf-8",
+  );
+
+  // Index both fixtures before the daemon boots so the search page has
+  // data, then deactivate "stale" through the CLI's no-daemon path.
+  runCli("index", project);
+  runCli("index", stale);
+  runCli("deactivate", stale);
+}
+
+/** Run a `loctx` subcommand against the isolated fixture env; throws on non-zero exit. */
+function runCli(command: string, path: string): void {
+  const result = spawnSync(process.execPath, [CLI_PATH, command, path], {
     env: {
       ...process.env,
       LOCTX_DATA_DIR: DATA_DIR,
@@ -126,7 +159,7 @@ function prepareFixture(): void {
   });
   if (result.status !== 0) {
     throw new Error(
-      `[playwright config] loctx index failed (exit ${result.status})\n` +
+      `[playwright config] loctx ${command} failed (exit ${result.status})\n` +
         `stdout: ${result.stdout}\nstderr: ${result.stderr}`,
     );
   }

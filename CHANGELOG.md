@@ -15,6 +15,22 @@
   `loctx quality report` / `loctx quality baseline`; the MCP
   `quality_report` tool and the web quality endpoint honor both files.
 
+### Fixed
+
+- Purge for deactivated projects: the `/projects` Inactive table now
+  offers `purge` on deactivated rows, so the index a deactivated
+  project keeps on disk can be removed from the UI. The deactivate
+  dialog used to point at a purge action that only existed for
+  orphaned rows. Never-activated rows have nothing to purge and get no
+  menu; the Inactive copy now says which rows still hold data.
+- "Index all" (`POST /api/index` with no path) re-activated every
+  deactivated project: it indexed everything discovery found and the
+  indexer flips whatever it touches back to active. It now scopes to
+  active projects, matching `loctx index` and `/api/rebuild`.
+- Playwright config: the fixture build ran again inside the worker
+  process, wiping and re-indexing the data dir underneath the daemon
+  already serving the tests. Setup now runs in the runner only.
+
 ## [0.5.0] - 2026-08-21
 
 First release published to npm (`@loctx/core`, `@loctx/cli`,
