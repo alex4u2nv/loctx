@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-28
+
 ### Added
 
 - Quality suppressions + baseline (#566): a committed
@@ -120,5 +122,6 @@ the project started — ships in this version.
 - Privacy and security policy surface: [docs/PRIVACY.md](docs/PRIVACY.md), [SECURITY.md](SECURITY.md), and a "Security model" section in the README.
 - Outbound network calls require per-process opt-in via the egress gate. Trusted-models persistence means the daemon does not re-prompt for downloaded models.
 
-[Unreleased]: https://github.com/alex4u2nv/loctx/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/alex4u2nv/loctx/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/alex4u2nv/loctx/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/alex4u2nv/loctx/releases/tag/v0.5.0
