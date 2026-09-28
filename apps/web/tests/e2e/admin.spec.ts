@@ -180,7 +180,8 @@ test.describe("loctx admin UI", () => {
   test("projects page surfaces watcher state and per-project actions", async ({ page }) => {
     await page.goto("/projects");
     // Fixture runs --no-watch so the watcher cell shows "—". The active
-    // row exposes a single rebuild button (purge is only on orphan rows).
+    // row exposes a single rebuild button (purge lives on orphaned and
+    // deactivated rows — see the Inactive test below).
     // Pause/resume are hidden when no watcher is registered for the row.
     const row = page.getByRole("row").filter({ hasText: "demo" }).first();
     await expect(row).toBeVisible();
@@ -189,19 +190,52 @@ test.describe("loctx admin UI", () => {
     await expect(row.getByRole("link", { name: "inspect" })).toBeVisible();
     await row.getByRole("button", { name: "more actions" }).click();
     await expect(page.getByRole("menuitem", { name: "rebuild" })).toBeVisible();
-    // purge is orphan-only; pause needs a registered watcher (--no-watch here).
+    // purge is not offered on active rows; pause needs a registered watcher (--no-watch here).
     await expect(page.getByRole("menuitem", { name: "purge" })).toHaveCount(0);
     await expect(page.getByRole("menuitem", { name: "pause" })).toHaveCount(0);
   });
 
-  test("projects page renders a path under each project name", async ({ page }) => {
-    // Single-project fixture: no commonRoot aggregation, but the path
-    // sub-line should still render (either the absolute /tmp/.. form
-    // or a ~/-abbreviated form).
+  test("inactive table offers purge for a deactivated project and clears its data", async ({
+    page,
+  }) => {
+    // The "stale" fixture was indexed then deactivated before boot, so it
+    // lists as deactivated with its index still on disk. Tall viewport:
+    // the overflow menu closes on any scroll, and the Inactive table sits
+    // below the fold at the default height.
+    await page.setViewportSize({ width: 1400, height: 1800 });
     await page.goto("/projects");
+    const row = page.getByRole("row").filter({ hasText: "stale" }).first();
+    await expect(row).toBeVisible();
+    await expect(row.getByText("deactivated")).toBeVisible();
+    await row.getByRole("button", { name: "more actions" }).click();
+    await page.getByRole("menuitem", { name: "purge" }).click();
+    // Purge is destructive — a confirm dialog gates the request.
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes("/api/reset/project") && r.request().method() === "POST",
+      ),
+      dialog.getByRole("button", { name: "Purge" }).click(),
+    ]);
+    expect(response.status()).toBe(200);
+    // The directory is still under workspace_roots, so the project
+    // re-lists as never activated — and with nothing left on disk, the
+    // purge menu is gone.
+    await expect(row.getByText("never activated")).toBeVisible();
+    await expect(row.getByRole("button", { name: "more actions" })).toHaveCount(0);
+    await expect(row.getByRole("button", { name: "activate" })).toBeVisible();
+  });
+
+  test("projects page renders a path under each project name", async ({ page }) => {
+    // Two-project fixture: the shared prefix (…/loctx-pw-fixture) is
+    // hoisted into a single "under …" header and each row's path
+    // sub-line shows only the remainder.
+    await page.goto("/projects");
+    await expect(page.locator("p.summary code", { hasText: /loctx-pw-fixture$/ })).toBeVisible();
     const row = page.getByRole("row").filter({ hasText: "demo" }).first();
     await expect(row).toBeVisible();
-    await expect(row.getByText(/loctx-pw-fixture\/demo/)).toBeVisible();
+    await expect(row.locator(".dim", { hasText: /^demo$/ })).toBeVisible();
   });
 
   test("projects page rebuild button hits /api/rebuild and the row enters rebuilding state", async ({

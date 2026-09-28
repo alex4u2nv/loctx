@@ -133,37 +133,76 @@ describe("POST /api/rebuild", () => {
   });
 
   it("with no path, rebuilds ACTIVE projects only", async () => {
-    const activeProject = { id: demoId, name: "demo", root: demoRoot };
-    const otherRoot = join(root, "other");
-    mkdirSync(otherRoot, { recursive: true });
-    const inactiveProject = makeProject(otherRoot);
-    const { app } = opsApp({
-      discovery: {
-        discoverWithMarkers: () =>
-          [
-            { project: activeProject, marker: ".git", markerKind: "git" },
-            { project: inactiveProject, marker: ".git", markerKind: "git" },
-          ] as unknown as ReturnType<Runtime["discovery"]["discoverWithMarkers"]>,
-        findAbsorbedMarkers: () => [],
-      } as Partial<Runtime["discovery"]>,
-      state: {
-        listProjects: () =>
-          [
-            {
-              ...activeProject,
-              active: true,
-              lastIndexedAt: null,
-              lastReconciledAt: null,
-            },
-          ] as unknown as ReturnType<Runtime["state"]["listProjects"]>,
-      } as Partial<Runtime["state"]>,
-    });
+    const { app } = opsApp(activeAndInactiveRuntime());
     const { status, body } = await postJson(app, "/api/rebuild", {});
     expect(status).toBe(202);
     const accepted = (body as { accepted: Array<{ projectId: string }> }).accepted;
     expect(accepted.map((a) => a.projectId)).toEqual([demoId]);
   });
 });
+
+describe("POST /api/index", () => {
+  it("with no path, indexes ACTIVE projects only — a deactivated project stays deactivated", async () => {
+    // indexProject flips whatever it touches to active, so feeding it
+    // every discovered project would silently undo a deactivate.
+    const indexed: string[] = [];
+    const { app } = opsApp({
+      ...activeAndInactiveRuntime(),
+      indexer: {
+        indexProject: async (project: { id: string; name: string; root: string }) => {
+          indexed.push(project.id);
+          return {
+            project,
+            indexed: 0,
+            skipped: 0,
+            failed: 0,
+            elapsedSeconds: 0,
+            failures: [],
+            total: 0,
+          };
+        },
+      } as unknown as Partial<Runtime["indexer"]>,
+    });
+    const { status, body } = await postJson(app, "/api/index", {});
+    expect(status).toBe(200);
+    expect(indexed).toEqual([demoId]);
+    const summaries = (body as { summaries: Array<{ projectId: string }> }).summaries;
+    expect(summaries.map((s) => s.projectId)).toEqual([demoId]);
+  });
+});
+
+/**
+ * Discovery reports two marked projects (demo + other) but only demo has
+ * an active state row — the shape every "no path → active only" route
+ * must respect.
+ */
+function activeAndInactiveRuntime(): Parameters<typeof fakeRuntime>[0] {
+  const activeProject = { id: demoId, name: "demo", root: demoRoot };
+  const otherRoot = join(root, "other");
+  mkdirSync(otherRoot, { recursive: true });
+  const inactiveProject = makeProject(otherRoot);
+  return {
+    discovery: {
+      discoverWithMarkers: () =>
+        [
+          { project: activeProject, marker: ".git", markerKind: "git" },
+          { project: inactiveProject, marker: ".git", markerKind: "git" },
+        ] as unknown as ReturnType<Runtime["discovery"]["discoverWithMarkers"]>,
+      findAbsorbedMarkers: () => [],
+    } as Partial<Runtime["discovery"]>,
+    state: {
+      listProjects: () =>
+        [
+          {
+            ...activeProject,
+            active: true,
+            lastIndexedAt: null,
+            lastReconciledAt: null,
+          },
+        ] as unknown as ReturnType<Runtime["state"]["listProjects"]>,
+    } as Partial<Runtime["state"]>,
+  };
+}
 
 describe("reconcile write-guard (#207) on index / refresh / compact", () => {
   const inFlight = {

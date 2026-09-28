@@ -63,6 +63,7 @@ export function fakeRuntime(parts: FakeRuntimeParts = {}): Runtime {
     discovery: {
       discoverProjects: () => [],
       resolveProject: () => null,
+      invalidate: () => undefined,
       ...parts.discovery,
     },
     state: {

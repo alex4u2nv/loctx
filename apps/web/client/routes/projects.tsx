@@ -257,15 +257,18 @@ export function ProjectsPage() {
                     Inactive
                   </p>
                   <p className="summary">
-                    Discovered under <code>workspace_roots</code> but not yet indexed. Activating
-                    runs an initial index pass and registers the watcher.
+                    Discovered under <code>workspace_roots</code> but not active. Activating runs an
+                    initial index pass and registers the watcher. Deactivated projects keep their
+                    index on disk until purged.
                   </p>
                   <InactiveTable
                     rows={data.inactive}
                     homeDir={data.homeDir}
                     commonRoot={data.commonRoot}
                     onActivate={handlers.activate}
+                    onPurge={handlers.purge}
                     busy={ops.busy}
+                    purgingRoots={purgingRoots}
                   />
                 </div>
               ) : null}
@@ -666,7 +669,7 @@ function RowActionButtons({
         const ok = await confirm({
           title: `Deactivate ${row.name}?`,
           message:
-            "Watcher stops and indexing pauses. Indexed data stays — use purge to remove it.",
+            "Watcher stops and indexing pauses. Indexed data stays — purge it from the Inactive table to remove it.",
           confirmLabel: "Deactivate",
         });
         if (!ok) return;
@@ -697,15 +700,24 @@ function RowActionButtons({
           disabled={isBusy}
         />
       ) : null}
-      {isPurging ? (
-        <span
-          className="row-progress"
-          title="Purge in progress — clearing this project's vectors + state from disk. The row disappears once it completes."
-        >
-          purging…
-        </span>
-      ) : null}
+      {isPurging ? <PurgeProgress /> : null}
       <OverflowMenu items={items} disabled={isBusy} />
+    </span>
+  );
+}
+
+/**
+ * Inline "purging…" feedback shared by the active/orphan and inactive
+ * row actions. Rendered in place of the purge menu item while the
+ * reset request is in flight.
+ */
+function PurgeProgress() {
+  return (
+    <span
+      className="row-progress"
+      title="Purge in progress — clearing this project's vectors + state from disk. The row updates once it completes."
+    >
+      purging…
     </span>
   );
 }
@@ -716,13 +728,17 @@ const InactiveTable = memo(function InactiveTable({
   homeDir,
   commonRoot,
   onActivate,
+  onPurge,
   busy,
+  purgingRoots,
 }: {
   rows: ReadonlyArray<InactiveRow>;
   homeDir: string;
   commonRoot: string;
   onActivate: (root: string, name: string) => Promise<void>;
+  onPurge: (root: string, name: string) => Promise<void>;
   busy: string | null;
+  purgingRoots: ReadonlySet<string>;
 }) {
   const isBusy = busy !== null;
   return (
@@ -757,17 +773,18 @@ const InactiveTable = memo(function InactiveTable({
           key: "state",
           header: "state",
           dim: true,
-          cell: (row) => (row.known ? "deactivated" : "never activated"),
+          cell: (row) => (row.known ? "deactivated · data retained" : "never activated"),
         },
         {
           key: "actions",
           header: "actions",
           cell: (row) => (
-            <IconButton
-              icon="play"
-              label="activate"
-              onClick={() => void onActivate(row.root, row.name)}
+            <InactiveRowActions
+              row={row}
+              onActivate={onActivate}
+              onPurge={onPurge}
               disabled={isBusy}
+              isPurging={purgingRoots.has(row.root)}
             />
           ),
         },
@@ -775,6 +792,52 @@ const InactiveTable = memo(function InactiveTable({
     />
   );
 });
+
+/**
+ * Activate is the primary action for every inactive row. Purge is
+ * offered only for deactivated rows (`known`): those still hold chunks +
+ * vectors from before deactivation, which the deactivate dialog promises
+ * can be removed here. A never-activated project has nothing on disk to
+ * purge, so its menu is omitted entirely rather than shown empty.
+ */
+function InactiveRowActions({
+  row,
+  onActivate,
+  onPurge,
+  disabled,
+  isPurging,
+}: {
+  row: InactiveRow;
+  onActivate: (root: string, name: string) => Promise<void>;
+  onPurge: (root: string, name: string) => Promise<void>;
+  disabled: boolean;
+  isPurging: boolean;
+}) {
+  const items: OverflowItem[] =
+    row.known && !isPurging
+      ? [
+          {
+            label: "purge",
+            icon: "purge",
+            danger: true,
+            disabled,
+            onSelect: () => void onPurge(row.root, row.name),
+          },
+        ]
+      : [];
+  return (
+    <span className="row-actions">
+      <IconButton
+        icon="play"
+        label="activate"
+        onClick={() => void onActivate(row.root, row.name)}
+        disabled={disabled || isPurging}
+      />
+      {isPurging ? <PurgeProgress /> : null}
+      {items.length > 0 ? <OverflowMenu items={items} disabled={disabled} /> : null}
+    </span>
+  );
+}
 
 /**
  * Rebuild action button that reflects the per-row tracker state from

@@ -91,7 +91,12 @@ export function mountOps(
       const resolved = rt.discovery.resolveProject(confined);
       projects = resolved !== null ? [resolved] : [];
     } else {
-      projects = rt.discovery.discoverProjects();
+      // No path → index every ACTIVE project, the same scope as
+      // `loctx index` and /api/rebuild. discoverProjects() would also
+      // return deactivated ones, and indexProject flips whatever it
+      // touches back to active — so "index all" silently undid every
+      // deactivate. Explicit-path requests keep activating on purpose.
+      projects = inventoryProjects(rt.discovery, rt.state).active.map((a) => a.project);
     }
     const summaries: Array<{
       projectId: string;
