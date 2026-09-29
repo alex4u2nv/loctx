@@ -40,10 +40,10 @@
     "url": "git+https://github.com/alex4u2nv/loctx.git"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.0",
-    "@types/node": "^22.19.21",
-    "lefthook": "^2.1.9",
-    "tsx": "^4.22.4",
+    "@biomejs/biome": "^2.5.14",
+    "@types/node": "^22.20.4",
+    "lefthook": "^2.1.15",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^2.1.9"
   }

@@ -9,8 +9,8 @@ packages:
 catalog:
   commander: ^15.0.0
   yaml: ^2.9.0
-  "@modelcontextprotocol/sdk": ^1.29.0
-  "@hono/node-server": ^1.19.14
+  "@modelcontextprotocol/sdk": ^1.31.0
+  "@hono/node-server": ^1.19.17
 
 # pnpm 9.15+ moved settings out of package.json's "pnpm" field. Postinstall
 # scripts run only for explicitly trusted packages — anything else is

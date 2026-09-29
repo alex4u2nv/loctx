@@ -77,7 +77,8 @@ describe("POST /api/search — path confinement", () => {
     });
     expect(status).toBe(200);
     expect(search).toHaveBeenCalledTimes(1);
-    expect((search.mock.calls[0]?.[0] as { path?: string }).path).toContain("demo");
+    const [request] = search.mock.calls[0] as [{ path?: string }];
+    expect(request.path).toContain("demo");
   });
 });
 

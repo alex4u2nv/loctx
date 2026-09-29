@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+### Security
+
+- Dependency refresh: `pnpm audit --prod` went from 49 advisories (1
+  critical, 16 high) to zero. `@huggingface/transformers` 3.8 → 4.3 —
+  the 3.x line pins `sharp` to 0.34, which carries two high-severity
+  libvips/libheif advisories, so the patched 0.35 line was unreachable
+  for `npm install` users until the major bump; it also lifts
+  `onnxruntime-node` 1.21 → 1.30 (drops the vulnerable `tar` 7.5.16)
+  and `protobufjs`. In-range refresh for `undici`, `hono`,
+  `@hono/node-server` (path traversal, GHSA-frvp-7c67-39w9),
+  `react-router`, `@modelcontextprotocol/sdk` (`fast-uri`,
+  `ip-address`, `qs`). The feature-extraction pipeline surface loctx
+  uses (`pipeline()`, `pooling`/`normalize`/`truncation`, `tolist()`,
+  `dispose()`) is unchanged in v4; verified end to end with a real
+  model download, index, and search.
+
 ## [0.6.0] - 2026-09-28
 
 ### Added

@@ -44,7 +44,7 @@
   },
   "dependencies": {
     "@hono/node-server": "catalog:",
-    "@inquirer/prompts": "^8.5.2",
+    "@inquirer/prompts": "^8.7.2",
     "@loctx/core": "workspace:^",
     "@loctx/web": "workspace:*",
     "commander": "catalog:",
