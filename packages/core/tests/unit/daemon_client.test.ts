@@ -38,9 +38,10 @@ function listen(
   ) => void,
 ): Promise<number> {
   return new Promise((resolve) => {
-    server = createServer(handler);
-    server.listen(0, "127.0.0.1", () => {
-      const port = (server?.address() as AddressInfo).port;
+    const srv = createServer(handler);
+    server = srv;
+    srv.listen(0, "127.0.0.1", () => {
+      const port = (srv.address() as AddressInfo).port;
       resolve(port);
     });
   });
