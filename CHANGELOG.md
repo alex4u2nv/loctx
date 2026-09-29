@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-29
+
 ### Security
 
 - Dependency refresh: `pnpm audit --prod` went from 49 advisories (1
@@ -138,6 +140,7 @@ the project started — ships in this version.
 - Privacy and security policy surface: [docs/PRIVACY.md](docs/PRIVACY.md), [SECURITY.md](SECURITY.md), and a "Security model" section in the README.
 - Outbound network calls require per-process opt-in via the egress gate. Trusted-models persistence means the daemon does not re-prompt for downloaded models.
 
-[Unreleased]: https://github.com/alex4u2nv/loctx/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/alex4u2nv/loctx/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/alex4u2nv/loctx/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/alex4u2nv/loctx/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/alex4u2nv/loctx/releases/tag/v0.5.0
