@@ -779,6 +779,7 @@ export async function runCodeHealth(
     markdownRules: q.markdownRules,
     driftFloor: q.docDriftFloor / 100,
     limit: Number.MAX_SAFE_INTEGER,
+    maxFindingsPerFile: Number.MAX_SAFE_INTEGER,
     suppressionState: loadSuppressionState(project.root),
   });
   return computeCodeHealth({

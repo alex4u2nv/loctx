@@ -95,6 +95,12 @@ export interface QualityReportOptions {
   /** Markdown docs examined for drift. */
   readonly maxDriftDocs?: number;
   /**
+   * Per-file display cap on `findings` (default MAX_FINDINGS_PER_FILE).
+   * `weight` always counts every finding; the code-health scorer passes
+   * MAX_SAFE_INTEGER so its per-dimension tally sees them all too.
+   */
+  readonly maxFindingsPerFile?: number;
+  /**
    * Per-project suppressions + baseline (#566). Suppressed findings
    * are excluded from rollups and totals; the count is always stated
    * in totals.suppressed + a note (no silent caps).
@@ -348,16 +354,17 @@ export async function buildQualityReport(
       else if (f.severity === "warning") totals.warnings += 1;
       else totals.infos += 1;
     }
-    if (findings.length > MAX_FINDINGS_PER_FILE) {
+    const perFileCap = opts.maxFindingsPerFile ?? MAX_FINDINGS_PER_FILE;
+    if (findings.length > perFileCap) {
       notes.push(
-        `${relPath}: showing ${MAX_FINDINGS_PER_FILE} of ${findings.length} findings (weight counts all)`,
+        `${relPath}: showing ${perFileCap} of ${findings.length} findings (weight counts all)`,
       );
     }
     ranked.push({
       fileId,
       relPath,
       weight,
-      findings: Object.freeze(findings.slice(0, MAX_FINDINGS_PER_FILE)),
+      findings: Object.freeze(findings.slice(0, perFileCap)),
     });
   }
   totals.files = ranked.length;
