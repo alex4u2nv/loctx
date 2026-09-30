@@ -14,6 +14,7 @@ import {
 } from "@loctx/core";
 import type { Hono } from "hono";
 import type {
+  CodeHealthSummary,
   InactiveRow,
   OrphanRow,
   ProjectDetailPayload,
@@ -103,6 +104,8 @@ export function mountProjects(
       // visible next to its purge action.
       const totalIndexBytes = indexSizeBytes(config);
       const indexBytesByProject = attributeIndexBytes(totalIndexBytes, chunkCounts);
+      // Latest + previous code-health snapshot per project, one query.
+      const healthByProject = state.recentProjectHealth(2);
       // Files/errors/lastIndexed for every project in one GROUP BY —
       // this endpoint previously loaded every file row per project to
       // derive these three scalars (#455).
@@ -183,6 +186,7 @@ export function mountProjects(
           chunks: chunkCounts.get(project.id) ?? 0,
           errors,
           indexBytes: indexBytesByProject.get(project.id) ?? 0,
+          codeHealth: toHealthSummary(healthByProject.get(project.id as ProjectId)),
           lastIndexed: lastIndexed ?? null,
           lastReconciled,
           watcher: watcherState,
@@ -332,6 +336,7 @@ export function mountProjects(
         chunks: chunkCounts.get(project.id) ?? 0,
         errors,
         indexBytes: attributeIndexBytes(indexSizeBytes(config), chunkCounts).get(project.id) ?? 0,
+        codeHealth: toHealthSummary(state.listProjectHealth(project.id, 2)),
         lastIndexed: lastIndexed ?? null,
         lastReconciled: found.lastReconciledAt ?? null,
         watcher: watcherState,
@@ -753,4 +758,18 @@ function extensionOf(relPath: string): string {
   // either; require the dot to appear AFTER the last slash.
   if (lastDot <= lastSlash + 1) return "<none>";
   return relPath.slice(lastDot);
+}
+
+/** Newest-first snapshots → the compact row summary; null when never scored. */
+function toHealthSummary(
+  snapshots: ReadonlyArray<{ score: number; grade: string; computedAt: string }> | undefined,
+): CodeHealthSummary | null {
+  const [latest, previous] = snapshots ?? [];
+  if (latest === undefined) return null;
+  return {
+    score: latest.score,
+    grade: latest.grade,
+    computedAt: latest.computedAt,
+    previousScore: previous?.score ?? null,
+  };
 }

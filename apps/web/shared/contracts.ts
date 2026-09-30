@@ -12,6 +12,7 @@ export * from "./contracts/agent-setup.js";
 export * from "./contracts/config.js";
 export * from "./contracts/doctor.js";
 export * from "./contracts/duplicates.js";
+export * from "./contracts/health.js";
 export * from "./contracts/ops.js";
 export * from "./contracts/projects.js";
 export * from "./contracts/quality.js";

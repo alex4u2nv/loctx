@@ -235,6 +235,42 @@ test.describe("loctx admin UI", () => {
     await expect(row.getByRole("button", { name: "activate" })).toBeVisible();
   });
 
+  test("code health: recompute persists a score, the row shows the grade, the card breaks it down", async ({
+    page,
+    request,
+  }) => {
+    // Resolve the fixture project's id, then force a score through the
+    // POST (the daemon's debounced scorer may not have fired yet).
+    const projects = (await (await request.get("/api/projects")).json()) as {
+      active: Array<{ id: string; name: string }>;
+    };
+    const demo = projects.active.find((p) => p.name === "demo");
+    expect(demo).toBeDefined();
+    const res = await request.post(`/api/projects/${demo?.id}/health/recompute`);
+    expect(res.status()).toBe(200);
+    const payload = (await res.json()) as {
+      snapshot: { health: { score: number; grade: string } } | null;
+    };
+    expect(payload.snapshot).not.toBeNull();
+    const health = payload.snapshot?.health ?? { score: -1, grade: "?" };
+    expect(health.score).toBeGreaterThanOrEqual(0);
+    expect(health.score).toBeLessThanOrEqual(100);
+    // GET is read-only and now sees the persisted snapshot.
+    const read = (await (await request.get(`/api/projects/${demo?.id}/health`)).json()) as {
+      snapshot: { health: { score: number } } | null;
+    };
+    expect(read.snapshot?.health.score).toBe(health.score);
+
+    await page.goto("/projects");
+    const row = page.getByRole("row").filter({ hasText: "demo" }).first();
+    await expect(row.getByText(new RegExp(`^${health.grade} ${health.score}`))).toBeVisible();
+
+    await page.goto(`/projects/${demo?.id}`);
+    await expect(page.getByRole("heading", { name: "Code health" })).toBeVisible();
+    await expect(page.getByText(`${health.grade} · ${health.score}/100`)).toBeVisible();
+    await expect(page.getByText("Complexity", { exact: true })).toBeVisible();
+  });
+
   test("projects page renders a path under each project name", async ({ page }) => {
     // Two-project fixture: the shared prefix (…/loctx-pw-fixture) is
     // hoisted into a single "under …" header and each row's path

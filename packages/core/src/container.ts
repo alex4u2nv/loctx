@@ -17,6 +17,8 @@ import { join, relative } from "node:path";
 import {
   AST_GREP_VERSION,
   bundledAstGrepRulesDir,
+  type CodeHealth,
+  computeCodeHealth,
   computeDuplicateWindows,
   DEFINITIONS_VERSION,
   DUPLICATES_VERSION,
@@ -24,6 +26,8 @@ import {
   detectLizard,
   detectSemgrep,
   EnrichmentQueue,
+  HEALTH_VERSION,
+  HealthScheduler,
   isLicenseLikePath,
   LIZARD_VERSION,
   matchesDefinitionGlobs,
@@ -66,7 +70,12 @@ import { ProjectIndexer, Reconciler } from "./indexing/index.js";
 import type { FileId, Project, ProjectId } from "./models.js";
 import { applyNetworkSettings } from "./network.js";
 import { WorkspaceSearcher } from "./retrieval/index.js";
-import { createVectorStore, StateStore, type VectorStore } from "./storage/index.js";
+import {
+  createVectorStore,
+  type ProjectHealthSnapshot,
+  StateStore,
+  type VectorStore,
+} from "./storage/index.js";
 import { AnalyzerEventCoalescer, watcherBus } from "./watcher/index.js";
 
 /**
@@ -538,6 +547,30 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
     },
   };
 
+  // Code-health scoring (#health): debounced per project and fed by both
+  // the index pass (afterFileIndexed) and analyzer completions
+  // (onResult), so a project is scored once a pass has fully settled
+  // rather than once per file. Failures log; they never block indexing.
+  const health = new HealthScheduler(
+    async (project) => {
+      const r = await scoreProjectHealth({ config, state, vectors }, project);
+      if (r === null) return; // nothing indexed yet — nothing to score
+      watcherBus.publish({
+        type: "health",
+        projectId: project.id,
+        projectName: project.name,
+        score: r.health.score,
+        grade: r.health.grade,
+        changed: r.changed,
+        at: Date.now(),
+      });
+    },
+    {
+      onError: (project, err) =>
+        console.error(`[health] scoring ${project.name} failed: ${err.message}`),
+    },
+  );
+
   // Coalesced analyzer completion events (#526): the admin UI's SSE
   // stream gets one event per (analyzer, project) batch instead of one
   // per file, so backfills don't flood it.
@@ -569,6 +602,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
         enqueuedAt: r.enqueuedAt,
         completedAt: r.completedAt,
       });
+      health.schedule(meta.project);
       // Precision catch-up (#522): quality's pure-JS pass usually beats
       // the lizard subprocess, runs degraded (no CCN escalation, coarse
       // param counts), and would stay cached under this contentSha. When
@@ -600,6 +634,7 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
 
   const indexer = new ProjectIndexer(state, vectors, embeddings, filterFor, {
     afterFileIndexed: (p) => {
+      health.schedule(p.project);
       enqueueFileAnalyzers(
         config,
         enrichments,
@@ -622,6 +657,18 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
     lastRunAt: null as string | null,
     lastFreedBytes: null as number | null,
   };
+
+  // Backfill (#health): active projects indexed before this scoring
+  // model — no snapshot, or one from an older HEALTH_VERSION — get
+  // scored once the runtime is up. Same debounce as everything else and
+  // unref'd, so a one-shot CLI runtime exits before it fires.
+  for (const p of state.listProjects()) {
+    if (!p.active) continue;
+    const latest = state.listProjectHealth(p.id, 1)[0];
+    if (latest === undefined || latest.version !== HEALTH_VERSION) {
+      health.schedule({ id: p.id, name: p.name, root: p.root });
+    }
+  }
 
   return Object.freeze({
     config,
@@ -705,10 +752,89 @@ export async function buildRuntime(config: Config): Promise<Runtime> {
       // (its shutdown SIGKILLs without runtime.close()) — losing the
       // final window there is fine; its SSE clients are gone too.
       analyzerEvents.flush();
+      // Waits for an in-flight score so it never reads a closed store.
+      await health.dispose();
       await embeddings.dispose?.();
       state.close();
     },
   });
+}
+
+/**
+ * Code Health (#health): score a project from a FULL quality report —
+ * every file, not the display-capped view — so the number reflects the
+ * whole project. Same ports, thresholds, and suppressions as the report
+ * the user reads, so the two never disagree about what counts.
+ */
+export async function runCodeHealth(
+  runtime: Pick<Runtime, "config" | "state" | "vectors">,
+  project: Project,
+): Promise<CodeHealth> {
+  const an = runtime.config.analyzers;
+  const q = an.quality;
+  const report = await buildQualityReport(qualityPorts(runtime), {
+    projectId: project.id,
+    projectRoot: project.root,
+    thresholds: q,
+    markdownRules: q.markdownRules,
+    driftFloor: q.docDriftFloor / 100,
+    limit: Number.MAX_SAFE_INTEGER,
+    maxFindingsPerFile: Number.MAX_SAFE_INTEGER,
+    suppressionState: loadSuppressionState(project.root),
+  });
+  return computeCodeHealth({
+    report,
+    indexedFiles: runtime.state.fileStatsForProject(project.id).files,
+    storedRulesAvailable: an.backgroundEnabled && q.enabled,
+  });
+}
+
+export interface HealthScoreResult {
+  readonly health: CodeHealth;
+  readonly computedAt: string;
+  /** False when the snapshot matched the previous one and nothing was written. */
+  readonly changed: boolean;
+}
+
+/**
+ * Score and persist (change-log semantics: identical snapshots aren't
+ * re-written). Null when the project has no indexed files — an empty
+ * project is "not scored", never a flattering A.
+ */
+export async function scoreProjectHealth(
+  runtime: Pick<Runtime, "config" | "state" | "vectors">,
+  project: Project,
+): Promise<HealthScoreResult | null> {
+  if (runtime.state.fileStatsForProject(project.id).files === 0) return null;
+  const health = await runCodeHealth(runtime, project);
+  const computedAt = new Date().toISOString();
+  const changed = runtime.state.recordProjectHealth({
+    projectId: project.id,
+    computedAt,
+    version: health.version,
+    score: health.score,
+    grade: health.grade,
+    payloadJson: JSON.stringify(health),
+  });
+  return { health, computedAt, changed };
+}
+
+/**
+ * Inflate a stored snapshot back into the typed model. Null when the row
+ * was written by a different scoring model (HEALTH_VERSION) or its
+ * payload doesn't parse — callers treat null as "not scored yet"; the
+ * boot-time backfill rescores such projects.
+ */
+export function decodeHealthSnapshot(snapshot: ProjectHealthSnapshot): CodeHealth | null {
+  if (snapshot.version !== HEALTH_VERSION) return null;
+  try {
+    const parsed = JSON.parse(snapshot.payloadJson) as Partial<CodeHealth>;
+    return typeof parsed.score === "number" && Array.isArray(parsed.dimensions)
+      ? (parsed as CodeHealth)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

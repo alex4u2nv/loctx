@@ -15,6 +15,7 @@ import { mountDuplicates } from "./duplicates.js";
 import { mountEvents } from "./events.js";
 import { mountFindLiteral } from "./find-literal.js";
 import { mountFindUsages } from "./find-usages.js";
+import { mountHealth } from "./health.js";
 import { mountLogs } from "./logs.js";
 import { mountMcpTools } from "./mcp-tools.js";
 import { mountModels } from "./models.js";
@@ -54,5 +55,6 @@ export function mountApi(
   mountAgentSetup(app, config, getRuntime);
   mountDefinitions(app, config, getRuntime);
   mountQuality(app, getRuntime);
+  mountHealth(app, getRuntime);
   mountDuplicates(app, getRuntime);
 }

@@ -12,6 +12,7 @@ import {
   makeProject,
   type Project,
   readActiveDaemon,
+  scoreProjectHealth,
 } from "@loctx/core";
 import type { Command } from "commander";
 import { maybeNudgeAgentSetup } from "../lib/agent-setup.js";
@@ -100,6 +101,27 @@ export function registerIndexingCommands(program: Command): void {
           }
           if (summary.failures.length > 5) {
             console.log(`    ... and ${summary.failures.length - 5} more`);
+          }
+        }
+        // Let the analyzer work this pass queued (lizard, quality, …)
+        // land before the store closes — otherwise those results are
+        // dropped on the floor ("result sink threw … not open") and the
+        // score below would be computed from the previous pass.
+        const pending = runtime.enrichments.status().depth;
+        if (pending > 0) console.error(`[loctx index] waiting for ${pending} analyzer task(s)…`);
+        await runtime.enrichments.drainAll();
+        for (const project of projects) {
+          try {
+            const scored = await scoreProjectHealth(runtime, project);
+            if (scored !== null) {
+              const { health } = scored;
+              console.log(`  code health: ${health.grade} ${health.score}/100  (${project.name})`);
+            }
+          } catch (err) {
+            // A scoring failure must not fail a pass that already indexed.
+            console.error(
+              `[loctx index] code health for ${project.name} failed: ${errorMessage(err)}`,
+            );
           }
         }
       } finally {

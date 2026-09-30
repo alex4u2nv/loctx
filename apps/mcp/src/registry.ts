@@ -15,6 +15,7 @@
 import { join } from "node:path";
 import {
   assertNotReconciling,
+  decodeHealthSnapshot,
   effectiveSettings,
   estimateQueryValue,
   FIND_LITERAL_COVERAGE_NOTE,
@@ -356,11 +357,23 @@ export const tools = {
         ...(includeSuppressed ? { includeSuppressed: true } : {}),
       },
     );
+    const latestHealth = runtime.state.listProjectHealth(project.id, 1)[0];
+    const decoded = latestHealth === undefined ? null : decodeHealthSnapshot(latestHealth);
+    const health =
+      latestHealth !== undefined && decoded !== null
+        ? { ...decoded, computedAt: latestHealth.computedAt }
+        : null;
+    if (health === null) {
+      warnings.push(
+        "health: not scored yet — the daemon scores a project once an index pass settles; `loctx quality health` scores it now.",
+      );
+    }
     return Object.freeze({
       projectId: project.id as string,
       projectName: project.name,
       report,
       disabled,
+      health,
       indexHealth: currentIndexHealth(runtime),
       ...(warnings.length > 0 ? { warnings: Object.freeze(warnings) } : {}),
     });

@@ -2,6 +2,7 @@ export { AnalyzerEventCoalescer } from "./analyzer-events.js";
 export {
   type AnalyzerBatch,
   type AnalyzerBusEvent,
+  type HealthBusEvent,
   type RebuildBusEvent,
   type WatcherEvent,
   type WatcherEventKind,

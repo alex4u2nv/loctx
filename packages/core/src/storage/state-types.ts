@@ -177,3 +177,17 @@ export interface McpRequestLogEntry extends McpRequestLogInput {
  * JSON.stringify (RangeError: Invalid string length). Cap each stored field
  * so one big call can't wedge the log or bloat the DB.
  */
+
+/**
+ * One persisted code-health snapshot (#health). `payloadJson` is the
+ * serialised CodeHealth; storage stays agnostic of the analyzer type so
+ * the dependency keeps pointing inward.
+ */
+export interface ProjectHealthSnapshot {
+  readonly projectId: ProjectId;
+  readonly computedAt: string;
+  readonly version: number;
+  readonly score: number;
+  readonly grade: string;
+  readonly payloadJson: string;
+}

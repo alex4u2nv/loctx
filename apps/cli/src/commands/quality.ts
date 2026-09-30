@@ -18,6 +18,7 @@ import {
   type Runtime,
   runQualityBaseline,
   runQualityReport,
+  scoreProjectHealth,
 } from "@loctx/core";
 import type { Command } from "commander";
 import {
@@ -47,8 +48,50 @@ export function registerQualityCommands(program: Command): void {
   const quality = program
     .command("quality")
     .description(
-      "Project quality report and accepted-debt baseline. Requires a subcommand: report, baseline.",
+      "Project quality report, code-health score, and accepted-debt baseline. Requires a subcommand: report, health, baseline.",
     );
+
+  quality
+    .command("health [path]")
+    .description(
+      "Code Health score (0–100, graded A–F) for the project at PATH (or containing cwd): " +
+        "the quality report rolled up by dimension — complexity, coupling, duplication, " +
+        "cohesion, documentation — weighted and normalised by file count. Suppressions and " +
+        "the baseline apply. Persists a snapshot when the score changed.",
+    )
+    .option("--json", "Print the full CodeHealth JSON.", false)
+    .action(async (path: string | undefined, opts: { json: boolean }) => {
+      const project = resolveCommandPath(path);
+      if (project === null) noProjectMarkerError("quality health", path);
+      await withRuntime(async (runtime) => {
+        const scored = await scoreProjectHealth(runtime, project);
+        if (scored === null) {
+          console.log(`${project.name}: not scored — no indexed files. Run \`loctx index\` first.`);
+          return;
+        }
+        const { health, changed } = scored;
+        if (opts.json) {
+          console.log(JSON.stringify(health, null, 2));
+          return;
+        }
+        console.log(
+          `${project.name}: ${health.grade} ${health.score}/100${changed ? "" : " (unchanged)"}`,
+        );
+        for (const d of health.dimensions) {
+          const coverage = d.coverage === "full" ? "" : `  [${d.coverage} coverage]`;
+          console.log(
+            `  ${d.label.padEnd(14)} ${String(d.score).padStart(3)}  ${d.findings} finding(s)${coverage}`,
+          );
+        }
+        const history = runtime.state.listProjectHealth(project.id, 5);
+        if (history.length > 1) {
+          console.log(
+            `# history: ${history.map((h) => `${h.grade} ${h.score} @ ${h.computedAt.slice(0, 10)}`).join(" ← ")}`,
+          );
+        }
+        for (const note of health.notes) console.log(`# note: ${note}`);
+      });
+    });
 
   quality
     .command("report [path]")

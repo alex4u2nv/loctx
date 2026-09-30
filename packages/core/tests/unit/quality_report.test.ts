@@ -217,6 +217,24 @@ describe("per-file display cap", () => {
     expect(f1?.weight).toBe(120); // 60 warnings x 2 — all counted
     expect(report.notes.some((n) => n.includes("showing 50 of 60"))).toBe(true);
   });
+
+  it("maxFindingsPerFile lifts the cap so a scorer sees every finding", async () => {
+    const groups = Array.from({ length: 60 }, (_, i) => ({
+      hash: `h${i}`,
+      members: [
+        { fileId: "f1", startLine: i + 1, endLine: i + 10 },
+        { fileId: "f2", startLine: 1, endLine: 10 },
+        { fileId: "f3", startLine: 1, endLine: 10 },
+      ],
+    }));
+    const report = await buildQualityReport(
+      ports({ duplicateGroups: () => groups }),
+      opts({ maxFindingsPerFile: Number.MAX_SAFE_INTEGER }),
+    );
+    const f1 = report.files.find((f) => f.fileId === "f1");
+    expect(f1?.findings).toHaveLength(60);
+    expect(report.notes.some((n) => n.includes("showing"))).toBe(false);
+  });
 });
 
 describe("suppressions + baseline (#566)", () => {

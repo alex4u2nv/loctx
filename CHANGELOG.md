@@ -6,6 +6,33 @@
 
 ### Added
 
+- Code Health score (#health): one 0–100 score per project, graded
+  A–F, rolled up from the quality report by dimension — complexity,
+  coupling, duplication, cohesion, documentation — each a
+  severity-weighted finding density normalised by file count on a
+  curve where a clean dimension is 100. Suppressions and the baseline
+  apply, so accepting debt moves the score without moving the
+  goalposts. Dimensions whose stored rules never ran (quality analyzer
+  off) are dropped from the overall and said so in `notes`.
+  - Scored automatically by the daemon once an index pass and its
+    analyzers settle (debounced per project), persisted as a change-log
+    of snapshots (schema v11 `project_health`), and published on the
+    event bus so the UI refreshes.
+  - `/projects` gains a code-health column ("B 84" with trend vs the
+    previous snapshot); the inspect view gains a Code health card with
+    per-dimension bars, history, and a "score now" button.
+    `GET /api/projects/:id/health` (read-only) and
+    `POST /api/projects/:id/health/recompute` back both; snapshots
+    from an older scoring model read as unscored and are rescored at
+    boot.
+  - `loctx quality health [path]` prints the breakdown (`--json` for the
+    model); `loctx index` now prints each project's score.
+  - The MCP `quality_report` output carries `health`: the latest
+    snapshot stamped `computedAt`, null (with a warning) until scored —
+    the read-only tool never scores as a side effect.
+- `loctx index` waits for the analyzer queue to drain before closing
+  the store, so lizard/quality results from the pass are persisted
+  instead of dropped ("result sink threw … not open").
 - Per-project index size on `/projects`: each row shows its slice of
   the on-disk index as a human-readable size and a share of the total
   ("1.2 GB · 34% of index"), the page header shows the measured total,

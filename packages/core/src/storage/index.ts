@@ -16,6 +16,7 @@ export {
   StateStore,
   type SymbolRefHit,
 } from "./state.js";
+export type { ProjectHealthSnapshot } from "./state-types.js";
 export {
   collectionNameFor,
   createVectorStore,
