@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-30
+
 ### Added
 
 - Code Health score (#health): one 0–100 score per project, graded
@@ -177,7 +179,8 @@ the project started — ships in this version.
 - Privacy and security policy surface: [docs/PRIVACY.md](docs/PRIVACY.md), [SECURITY.md](SECURITY.md), and a "Security model" section in the README.
 - Outbound network calls require per-process opt-in via the egress gate. Trusted-models persistence means the daemon does not re-prompt for downloaded models.
 
-[Unreleased]: https://github.com/alex4u2nv/loctx/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/alex4u2nv/loctx/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/alex4u2nv/loctx/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/alex4u2nv/loctx/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/alex4u2nv/loctx/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/alex4u2nv/loctx/releases/tag/v0.5.0
