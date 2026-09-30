@@ -26,6 +26,7 @@ import type {
 } from "../../shared/contracts.js";
 import { confinedPath } from "../lib/confined-path.js";
 import { jsonBody } from "../lib/http-errors.js";
+import { attributeIndexBytes, indexSizeBytes } from "../lib/index-size.js";
 import type { RebuildJob, RebuildTracker } from "../lib/rebuild-tracker.js";
 
 export function mountProjects(
@@ -96,6 +97,12 @@ export function mountProjects(
     {
       const inventory = inventoryProjects(discovery, state);
       const chunkCounts = state.chunkCountsByProject();
+      // On-disk bytes split across every project that holds chunks —
+      // active, orphaned, and deactivated alike — so the shares sum to
+      // the measured total and a deactivated project's leftover is
+      // visible next to its purge action.
+      const totalIndexBytes = indexSizeBytes(config);
+      const indexBytesByProject = attributeIndexBytes(totalIndexBytes, chunkCounts);
       // Files/errors/lastIndexed for every project in one GROUP BY —
       // this endpoint previously loaded every file row per project to
       // derive these three scalars (#455).
@@ -175,6 +182,7 @@ export function mountProjects(
           files: filesCount,
           chunks: chunkCounts.get(project.id) ?? 0,
           errors,
+          indexBytes: indexBytesByProject.get(project.id) ?? 0,
           lastIndexed: lastIndexed ?? null,
           lastReconciled,
           watcher: watcherState,
@@ -210,6 +218,7 @@ export function mountProjects(
         marker: i.marker,
         markerKind: i.markerKind,
         known: i.known,
+        indexBytes: i.known ? (indexBytesByProject.get(i.project.id) ?? 0) : null,
       }));
       const orphaned: OrphanRow[] = inventory.orphaned.map((o) => ({
         ...buildRow(o.project, o.lastReconciledAt, null, null, true),
@@ -226,6 +235,7 @@ export function mountProjects(
           ...inactive.map((i) => i.root),
         ]),
         homeDir: homedir(),
+        indexSizeBytes: totalIndexBytes,
       };
       return c.json(payload);
     }
@@ -321,6 +331,7 @@ export function mountProjects(
         files: fileStats.files,
         chunks: chunkCounts.get(project.id) ?? 0,
         errors,
+        indexBytes: attributeIndexBytes(indexSizeBytes(config), chunkCounts).get(project.id) ?? 0,
         lastIndexed: lastIndexed ?? null,
         lastReconciled: found.lastReconciledAt ?? null,
         watcher: watcherState,

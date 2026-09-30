@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- Per-project index size on `/projects`: each row shows its slice of
+  the on-disk index as a human-readable size and a share of the total
+  ("1.2 GB · 34% of index"), the page header shows the measured total,
+  and deactivated rows show the bytes they still hold next to purge.
+  Vectors live in shared per-model tables, so the per-project figure
+  is the measured total attributed by chunk count; the shares sum to
+  the total. Also on the project detail payload.
+
 ## [0.6.1] - 2026-09-29
 
 ### Security

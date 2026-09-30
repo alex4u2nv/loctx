@@ -56,6 +56,16 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
+ * Fraction (0..1) as a whole-number percentage: 0.337 → "34%". Tiny but
+ * non-zero shares read "<1%" rather than a misleading "0%".
+ */
+export function formatPercent(fraction: number): string {
+  if (!Number.isFinite(fraction) || fraction <= 0) return "0%";
+  const pct = Math.round(fraction * 100);
+  return pct === 0 ? "<1%" : `${pct}%`;
+}
+
+/**
  * Compact count for big, approximate figures: 812 → "812", 5_400 →
  * "5.4k", 1_240_000 → "1.2M". Used for the estimated tokens-saved tile,
  * where exact digits would imply false precision.

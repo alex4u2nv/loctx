@@ -1,5 +1,3 @@
-import { readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
 import {
   type Config,
   type Runtime,
@@ -9,6 +7,7 @@ import {
 } from "@loctx/core";
 import type { Hono } from "hono";
 import type { StatusPayload, ValueMetrics } from "../../shared/contracts.js";
+import { indexSizeBytes } from "../lib/index-size.js";
 
 const ZERO_VALUE: ValueMetrics = {
   queries: 0,
@@ -20,44 +19,6 @@ const ZERO_VALUE: ValueMetrics = {
   zeroHitPct: 0,
   avgLatencyMs: 0,
 };
-
-/**
- * Recursively sum the byte size of a file or directory. Best-effort:
- * any path that can't be stat'd (vanished mid-walk, permission denied)
- * contributes 0 rather than throwing, so the dashboard always renders.
- */
-function pathSizeBytes(path: string): number {
-  let stat: ReturnType<typeof statSync>;
-  try {
-    stat = statSync(path);
-  } catch {
-    return 0;
-  }
-  if (stat.isFile()) return stat.size;
-  if (!stat.isDirectory()) return 0;
-  try {
-    return readdirSync(path, { withFileTypes: true }).reduce(
-      (total, entry) => total + pathSizeBytes(join(path, entry.name)),
-      0,
-    );
-  } catch {
-    return 0;
-  }
-}
-
-/**
- * On-disk index size: the LanceDB vector store plus the SQLite state DB
- * and its WAL/SHM sidecars. `vectorDir` and `stateDb` are siblings under
- * `dataDir`, so summing them double-counts nothing.
- */
-function indexSizeBytes(config: Config): number {
-  return [
-    config.paths.vectorDir,
-    config.paths.stateDb,
-    `${config.paths.stateDb}-wal`,
-    `${config.paths.stateDb}-shm`,
-  ].reduce((total, path) => total + pathSizeBytes(path), 0);
-}
 
 export function mountStatus(app: Hono, config: Config, getRuntime: () => Promise<Runtime>): void {
   // One discovery instance for the server's lifetime instead of one per

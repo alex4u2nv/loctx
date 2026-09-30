@@ -26,8 +26,12 @@ test.describe("loctx admin UI", () => {
     await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
     const activeRow = page.getByRole("row").filter({ hasText: "demo" });
     await expect(activeRow.first()).toBeVisible();
-    // The combined-stats column says "N files".
+    // The combined-stats column says "N files" and the row's attributed
+    // slice of the on-disk index ("12 KB · 80% of index").
     await expect(activeRow.first().getByText(/\d+ files/)).toBeVisible();
+    await expect(
+      activeRow.first().getByText(/\d+(\.\d+)? (B|KB|MB|GB) · \d+% of index/),
+    ).toBeVisible();
     // Activity column renders relative time.
     await expect(activeRow.first().getByText(/indexed/)).toBeVisible();
   });
@@ -207,6 +211,9 @@ test.describe("loctx admin UI", () => {
     const row = page.getByRole("row").filter({ hasText: "stale" }).first();
     await expect(row).toBeVisible();
     await expect(row.getByText("deactivated")).toBeVisible();
+    // A deactivated project still occupies index bytes — shown beside
+    // the state so the purge action has a visible payoff.
+    await expect(row.getByText(/of index/)).toBeVisible();
     await row.getByRole("button", { name: "more actions" }).click();
     await page.getByRole("menuitem", { name: "purge" }).click();
     // Purge is destructive — a confirm dialog gates the request.
@@ -223,6 +230,7 @@ test.describe("loctx admin UI", () => {
     // re-lists as never activated — and with nothing left on disk, the
     // purge menu is gone.
     await expect(row.getByText("never activated")).toBeVisible();
+    await expect(row.getByText(/of index/)).toHaveCount(0);
     await expect(row.getByRole("button", { name: "more actions" })).toHaveCount(0);
     await expect(row.getByRole("button", { name: "activate" })).toBeVisible();
   });
