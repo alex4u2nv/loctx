@@ -48,6 +48,12 @@ export interface ProjectsRow {
   readonly files: number;
   readonly chunks: number;
   readonly errors: number;
+  /**
+   * This project's share of the on-disk index, in bytes. Vectors live in
+   * shared per-model tables, so this is the measured total attributed by
+   * chunk count — an estimate that sums to `ProjectsPayload.indexSizeBytes`.
+   */
+  readonly indexBytes: number;
   readonly lastIndexed: string | null;
   readonly lastReconciled: string | null;
   /**
@@ -135,6 +141,12 @@ export interface InactiveRow {
   readonly markerKind: string | null;
   /** True when a state row already exists with active=0; false for never-recorded projects. */
   readonly known: boolean;
+  /**
+   * Index bytes a deactivated project still occupies (same attribution
+   * as `ProjectsRow.indexBytes`). Null for never-activated projects,
+   * which have nothing on disk.
+   */
+  readonly indexBytes: number | null;
 }
 
 export interface ProjectsPayload {
@@ -150,6 +162,8 @@ export interface ProjectsPayload {
   readonly commonRoot: string;
   /** OS home directory; client renders `~` in its place when present. */
   readonly homeDir: string;
+  /** Measured on-disk index size (vector store + state DB), in bytes. */
+  readonly indexSizeBytes: number;
 }
 
 /**

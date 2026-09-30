@@ -18,7 +18,14 @@ import { useLiveRefreshEvent } from "../components/live-refresh";
 import { type OverflowItem, OverflowMenu } from "../components/overflow-menu";
 import { type NavSection, SectionNav } from "../components/section-nav";
 import { api } from "../lib/api";
-import { applyHomeAbbrev, compressPath, formatCompact, relativeTime } from "../lib/format";
+import {
+  applyHomeAbbrev,
+  compressPath,
+  formatBytes,
+  formatCompact,
+  formatPercent,
+  relativeTime,
+} from "../lib/format";
 import { useFetch } from "../lib/use-fetch";
 import { useOpRunner } from "../lib/use-op-runner";
 
@@ -198,7 +205,8 @@ export function ProjectsPage() {
             <p className="summary">
               {data.active.length} active<span className="sep">·</span>
               {totals.files} files<span className="sep">·</span>
-              {totals.chunks} chunks
+              {totals.chunks} chunks<span className="sep">·</span>
+              {formatBytes(data.indexSizeBytes)} on disk
               {totals.errors > 0 ? (
                 <>
                   <span className="sep">·</span>
@@ -240,6 +248,7 @@ export function ProjectsPage() {
                   rows={data.active}
                   homeDir={data.homeDir}
                   commonRoot={data.commonRoot}
+                  indexSizeBytes={data.indexSizeBytes}
                   emptyMessage={
                     data.inactive.length > 0
                       ? "No projects activated yet — see Inactive below."
@@ -265,6 +274,7 @@ export function ProjectsPage() {
                     rows={data.inactive}
                     homeDir={data.homeDir}
                     commonRoot={data.commonRoot}
+                    indexSizeBytes={data.indexSizeBytes}
                     onActivate={handlers.activate}
                     onPurge={handlers.purge}
                     busy={ops.busy}
@@ -286,6 +296,7 @@ export function ProjectsPage() {
                     rows={data.orphaned}
                     homeDir={data.homeDir}
                     commonRoot={data.commonRoot}
+                    indexSizeBytes={data.indexSizeBytes}
                     emptyMessage=""
                     showReason
                     actions={orphanActions}
@@ -368,6 +379,7 @@ const ProjectsTable = memo(function ProjectsTable({
   rows,
   homeDir,
   commonRoot,
+  indexSizeBytes,
   emptyMessage,
   showReason,
   actions,
@@ -377,6 +389,8 @@ const ProjectsTable = memo(function ProjectsTable({
   rows: ReadonlyArray<AnyRow>;
   homeDir: string;
   commonRoot: string;
+  /** Measured total; each row's `indexBytes` is rendered as a share of it. */
+  indexSizeBytes: number;
   emptyMessage: string;
   showReason?: boolean;
   actions?: RowActions;
@@ -428,6 +442,7 @@ const ProjectsTable = memo(function ProjectsTable({
             {row.chunks} chunks
             {row.errors > 0 ? <span className="err"> · {row.errors} errors</span> : null}
           </div>
+          <IndexShare bytes={row.indexBytes} totalBytes={indexSizeBytes} />
         </>
       ),
     },
@@ -727,6 +742,7 @@ const InactiveTable = memo(function InactiveTable({
   rows,
   homeDir,
   commonRoot,
+  indexSizeBytes,
   onActivate,
   onPurge,
   busy,
@@ -735,6 +751,7 @@ const InactiveTable = memo(function InactiveTable({
   rows: ReadonlyArray<InactiveRow>;
   homeDir: string;
   commonRoot: string;
+  indexSizeBytes: number;
   onActivate: (root: string, name: string) => Promise<void>;
   onPurge: (root: string, name: string) => Promise<void>;
   busy: string | null;
@@ -773,7 +790,17 @@ const InactiveTable = memo(function InactiveTable({
           key: "state",
           header: "state",
           dim: true,
-          cell: (row) => (row.known ? "deactivated · data retained" : "never activated"),
+          cell: (row) =>
+            row.known ? (
+              <>
+                deactivated · data retained
+                {row.indexBytes !== null ? (
+                  <IndexShare bytes={row.indexBytes} totalBytes={indexSizeBytes} />
+                ) : null}
+              </>
+            ) : (
+              "never activated"
+            ),
         },
         {
           key: "actions",
@@ -836,6 +863,25 @@ function InactiveRowActions({
       {isPurging ? <PurgeProgress /> : null}
       {items.length > 0 ? <OverflowMenu items={items} disabled={disabled} /> : null}
     </span>
+  );
+}
+
+/**
+ * "1.2 GB · 34%" — a project's attributed slice of the on-disk index and
+ * its share of the measured total. Hidden when the project holds no
+ * bytes, so never-indexed rows don't advertise "0 B".
+ */
+function IndexShare({ bytes, totalBytes }: { bytes: number; totalBytes: number }) {
+  if (bytes <= 0) return null;
+  const share = totalBytes > 0 ? bytes / totalBytes : 0;
+  return (
+    <div
+      className="num dim"
+      style={{ fontSize: "0.85em" }}
+      title="Estimated: the measured on-disk index (vectors + state DB) split across projects by chunk count."
+    >
+      {formatBytes(bytes)} · {formatPercent(share)} of index
+    </div>
   );
 }
 
