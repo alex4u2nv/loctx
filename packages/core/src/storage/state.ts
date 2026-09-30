@@ -34,6 +34,8 @@ import {
   lexicalMatchFromRow,
   type McpRequestRow,
   mcpRequestEntryFromRow,
+  type ProjectHealthDbRow,
+  rowToProjectHealth,
   type SymbolRefRow,
   symbolRefHitFromRow,
   type UsageStatDbRow,
@@ -50,10 +52,14 @@ import type {
   McpRequestLogEntry,
   McpRequestLogInput,
   ProjectFileStats,
+  ProjectHealthSnapshot,
   SymbolRefHit,
 } from "./state-types.js";
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
+
+/** Snapshots kept per project by recordProjectHealth (#health). */
+export const HEALTH_HISTORY_KEEP = 100;
 
 /**
  * Raised when the on-disk schema version is newer than this build's
@@ -124,6 +130,8 @@ const MIGRATIONS: ReadonlyArray<Migration> = [
   { version: 9, section: "schema_v9" },
   // usage_stats value-served accounting (IF NOT EXISTS, safe to re-run).
   { version: 10, section: "schema_v10" },
+  // project_health code-health snapshots (#health; IF NOT EXISTS, safe to re-run).
+  { version: 11, section: "schema_v11" },
 ];
 
 export class CollectionIdentityMismatch extends Error {}
@@ -384,6 +392,7 @@ export class StateStore {
       this.write("delete_symbol_refs_for_project", [id]);
       this.write("delete_file_links_for_project", [id]);
       this.write("delete_files_for_project", [id]);
+      this.write("delete_project_health_for_project", [id]);
       this.write("delete_project", [id]);
     });
     tx();
@@ -405,6 +414,7 @@ export class StateStore {
       this.write("delete_symbol_refs_for_project", [id]);
       this.write("delete_file_links_for_project", [id]);
       this.write("delete_files_for_project", [id]);
+      this.write("delete_project_health_for_project", [id]);
     });
     tx();
   }
@@ -1053,6 +1063,60 @@ export class StateStore {
       }
     });
     tx();
+  }
+
+  // ---- code-health snapshots (#health) --------------------------------
+
+  /**
+   * Append a snapshot unless it is identical to the project's latest one
+   * (same model version and payload), then prune the project's history
+   * to HEALTH_HISTORY_KEEP rows. Returns whether a row was written, so
+   * callers can distinguish "rescored, unchanged" from "changed".
+   */
+  recordProjectHealth(row: ProjectHealthSnapshot): boolean {
+    const latest = this.listProjectHealth(row.projectId, 1)[0];
+    if (
+      latest !== undefined &&
+      latest.version === row.version &&
+      latest.payloadJson === row.payloadJson
+    ) {
+      return false;
+    }
+    const tx = this.db.transaction(() => {
+      this.write("insert_project_health", [
+        row.projectId,
+        row.computedAt,
+        row.version,
+        row.score,
+        row.grade,
+        row.payloadJson,
+      ]);
+      this.write("prune_project_health", [row.projectId, row.projectId, HEALTH_HISTORY_KEEP]);
+    });
+    tx();
+    return true;
+  }
+
+  /** Newest-first snapshots for one project. */
+  listProjectHealth(projectId: ProjectId, limit: number): ProjectHealthSnapshot[] {
+    return this.readAll<ProjectHealthDbRow>("list_project_health", [projectId, limit]).map(
+      rowToProjectHealth,
+    );
+  }
+
+  /**
+   * Newest-first snapshots for every project, capped per project in SQL.
+   * One query for the projects table (latest score + the one before it).
+   */
+  recentProjectHealth(perProject: number): ReadonlyMap<ProjectId, ProjectHealthSnapshot[]> {
+    const grouped = new Map<ProjectId, ProjectHealthSnapshot[]>();
+    for (const row of this.readAll<ProjectHealthDbRow>("list_project_health_recent", [
+      perProject,
+    ])) {
+      const snapshot = rowToProjectHealth(row);
+      grouped.set(snapshot.projectId, [...(grouped.get(snapshot.projectId) ?? []), snapshot]);
+    }
+    return grouped;
   }
 
   /** All accumulated usage rows (the `""` roll-up plus one per project). */

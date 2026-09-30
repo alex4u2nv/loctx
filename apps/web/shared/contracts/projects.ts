@@ -2,6 +2,8 @@
  * projects contracts (split from the 687-line contracts.ts, #542).
  */
 
+import type { CodeHealthSummary } from "./health.js";
+
 import type { ProjectValue } from "./status.js";
 
 export type WatcherState = "active" | "paused" | "failed";
@@ -54,6 +56,8 @@ export interface ProjectsRow {
    * chunk count — an estimate that sums to `ProjectsPayload.indexSizeBytes`.
    */
   readonly indexBytes: number;
+  /** Latest persisted code-health snapshot (#health); null until scored. */
+  readonly codeHealth: CodeHealthSummary | null;
   readonly lastIndexed: string | null;
   readonly lastReconciled: string | null;
   /**

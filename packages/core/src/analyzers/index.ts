@@ -41,6 +41,22 @@ export {
   isLicenseLikePath,
 } from "./duplicates.js";
 export {
+  HEALTH_QUIET_MS,
+  HealthScheduler,
+  type HealthSchedulerOptions,
+} from "./health-scheduler.js";
+export {
+  type CodeHealth,
+  computeCodeHealth,
+  gradeFor,
+  HEALTH_VERSION,
+  type HealthCoverage,
+  type HealthDimension,
+  type HealthDimensionId,
+  type HealthGrade,
+  type HealthInput,
+} from "./health-score.js";
+export {
   detectLizard,
   LIZARD_VERSION,
   type LizardFileResult,

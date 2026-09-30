@@ -22,6 +22,7 @@ where loctx beats `grep` (and where it doesn't).
 | "Where do we debounce websocket reconnects?" / "Where does this feature get documented?" (semantic) | `search_workspace` | Surfaces relevant chunks that contain **no token match** with the query — a doc that *describes* the feature without naming it. `grep` can't do that. |
 | "Find code about X for a refactor — also include callers" | `search_workspace` with `coverage: true` | Top hits expand via the symbol cross-ref graph; each expansion carries a `coverageReason`. |
 | "Every file containing the literal string `agents/<name>.md`" (audit, exhaustive) | `find_literal` **+ cross-check with `rg`** | Structured per-line hits + chunk metadata. **Does NOT** beat `grep` for safety-critical audits — chunker gaps and excluded-by-default dirs (`.git`, `node_modules`, build outputs) are blind spots. Read the `coverageNote` in the response. |
+| "How healthy is this codebase / what should we refactor first?" | `quality_report` | Every quality signal in one ranked view, plus `health`: a 0–100 Code Health score with sub-scores for complexity, coupling, duplication, cohesion and documentation. Read `notes` for coverage caveats. |
 | "Are there duplicate code blocks across the workspace?" | `find_duplicates` | Hash-based on token windows, finds duplicates that aren't byte-identical. `grep` can't do that. Requires `analyzers.background_enabled` + `analyzers.duplicates.enabled`. |
 | "Walk the index now" | `refresh_workspace` | Slow on a cold workspace. Usually unnecessary — the watcher catches changes live. |
 

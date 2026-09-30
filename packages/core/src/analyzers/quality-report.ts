@@ -151,11 +151,14 @@ const DEFAULT_MAX_DRIFT_DOCS = 50;
  * signal stays honest), but the response stays bounded.
  */
 const MAX_FINDINGS_PER_FILE = 50;
-const SEVERITY_WEIGHT: Readonly<Record<RulePackFinding["severity"], number>> = Object.freeze({
-  error: 3,
-  warning: 2,
-  info: 1,
-});
+/** Severity → weight used for file ranking and the code-health score. */
+export const SEVERITY_WEIGHT: Readonly<Record<RulePackFinding["severity"], number>> = Object.freeze(
+  {
+    error: 3,
+    warning: 2,
+    info: 1,
+  },
+);
 const SEVERITY_ORDER: Readonly<Record<RulePackFinding["severity"], number>> = Object.freeze({
   error: 0,
   warning: 1,

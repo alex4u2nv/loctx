@@ -146,6 +146,7 @@ export function ProjectDetailPage() {
         <ScopedSearchPanel projectRoot={project.root} />
       </div>
 
+      <CodeHealthCard projectId={project.id} />
       <QualitySection projectId={project.id} />
 
       <h2 id="pd-files">Recently indexed</h2>
@@ -628,6 +629,109 @@ function UsageTable({ hits }: { hits: ReadonlyArray<UsageHit> }) {
           }
         />
       ) : null}
+    </>
+  );
+}
+
+/**
+ * Code Health (#health): the quality report rolled up to one 0–100
+ * score with a per-dimension breakdown. Reads the latest persisted
+ * snapshot; "score now" posts a recompute — the same computation the
+ * daemon runs after an index pass settles.
+ */
+function CodeHealthCard({ projectId }: { projectId: string }) {
+  const fetched = useFetch(() => api.projectHealth(projectId), [projectId]);
+  const [scoring, setScoring] = useState(false);
+  const [scoreError, setScoreError] = useState<string | null>(null);
+  const data = fetched.data;
+  if (fetched.loading && data === null) return null;
+  if (fetched.error !== null || data === null) return null;
+  const rescore = async (): Promise<void> => {
+    setScoring(true);
+    setScoreError(null);
+    try {
+      await api.recomputeHealth(projectId);
+      fetched.reload();
+    } catch (err) {
+      setScoreError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setScoring(false);
+    }
+  };
+  const button = (
+    <button
+      type="button"
+      className="btn btn-small"
+      onClick={() => void rescore()}
+      disabled={scoring}
+    >
+      {scoring ? "scoring…" : "score now"}
+    </button>
+  );
+  const errorLine =
+    scoreError !== null ? (
+      <p className="err" style={{ fontSize: "0.85rem", marginBottom: 0 }}>
+        scoring failed: {scoreError}
+      </p>
+    ) : null;
+  if (data.snapshot === null) {
+    return (
+      <>
+        <h2 id="pd-health">Code health</h2>
+        <SurfaceCard
+          eyebrow="Score"
+          title="Not scored yet"
+          subtitle="The daemon scores a project once an index pass and its analyzers settle."
+        >
+          <p className="dim" style={{ fontSize: "0.85rem", marginBottom: 0 }}>
+            {button}
+          </p>
+          {errorLine}
+        </SurfaceCard>
+      </>
+    );
+  }
+  const h = data.snapshot.health;
+  const rows: BarRow[] = h.dimensions.map((d) => ({
+    key: d.id,
+    label: d.label,
+    value: d.score,
+    hint: `${d.findings} finding${d.findings === 1 ? "" : "s"}${
+      d.coverage === "full" ? "" : ` · ${d.coverage} coverage`
+    }`,
+    title: `${d.label}: ${d.score}/100 — ${d.weightedFindings} weighted findings over ${h.basis.indexedFiles} files (${Math.round(d.weight * 100)}% of overall)`,
+  }));
+  const suppressed = h.basis.suppressed > 0 ? ` · ${h.basis.suppressed} suppressed` : "";
+  return (
+    <>
+      <h2 id="pd-health">Code health</h2>
+      <SurfaceCard
+        eyebrow="Score"
+        title={`${h.grade} · ${h.score}/100`}
+        subtitle={`scored ${relativeTime(data.snapshot.computedAt)} · ${h.basis.findings} findings over ${h.basis.indexedFiles} files${suppressed}`}
+      >
+        <BarChart rows={rows} />
+        <p className="dim" style={{ fontSize: "0.85rem", marginBottom: 0 }}>
+          Weighted findings per file, per dimension: a clean dimension is 100, the overall is the
+          weighted mean. {button}
+          {data.history.length > 1 ? (
+            <span>
+              {" "}
+              · history:{" "}
+              {data.history
+                .slice(0, 5)
+                .map((pt) => `${pt.grade} ${pt.score} (${relativeTime(pt.computedAt)})`)
+                .join(" ← ")}
+            </span>
+          ) : null}
+        </p>
+        {errorLine}
+        {h.notes.map((n) => (
+          <p key={n} className="dim" style={{ fontSize: "0.85rem", marginBottom: 0 }}>
+            {n}
+          </p>
+        ))}
+      </SurfaceCard>
     </>
   );
 }

@@ -1,4 +1,5 @@
 import type {
+  CodeHealthSummary,
   InactiveRow,
   OrphanRow,
   ProjectHealth,
@@ -433,6 +434,11 @@ const ProjectsTable = memo(function ProjectsTable({
       cell: (row) => <HealthBadge health={row.health} hint={row.healthHint} />,
     },
     {
+      key: "code-health",
+      header: "code health",
+      cell: (row) => <CodeHealthBadge summary={row.codeHealth} />,
+    },
+    {
       key: "indexed",
       header: "indexed",
       cell: (row) => (
@@ -862,6 +868,42 @@ function InactiveRowActions({
       />
       {isPurging ? <PurgeProgress /> : null}
       {items.length > 0 ? <OverflowMenu items={items} disabled={disabled} /> : null}
+    </span>
+  );
+}
+
+const GRADE_CLASS: Readonly<Record<string, string>> = Object.freeze({
+  A: "dot-ok",
+  B: "dot-ok",
+  C: "dot-warn",
+  D: "dot-bad",
+  F: "dot-bad",
+});
+
+/**
+ * "B 84" with a trend against the previous snapshot. Dash until the
+ * daemon has scored the project (it does so once an index pass and its
+ * analyzers settle; the inspect view can force it).
+ */
+function CodeHealthBadge({ summary }: { summary: CodeHealthSummary | null | undefined }) {
+  if (summary === null || summary === undefined) {
+    return (
+      <span className="dim" title="Not scored yet — scored once indexing and analyzers settle">
+        —
+      </span>
+    );
+  }
+  const delta = summary.previousScore === null ? null : summary.score - summary.previousScore;
+  const trend = delta === null || delta === 0 ? "" : delta > 0 ? ` ↑${delta}` : ` ↓${-delta}`;
+  const title = `Code health ${summary.score}/100 · scored ${relativeTime(summary.computedAt)}${
+    summary.previousScore === null ? "" : ` · was ${summary.previousScore}`
+  }`;
+  return (
+    <span className={`dot ${GRADE_CLASS[summary.grade] ?? "dot-warn"}`} title={title}>
+      <span>
+        {summary.grade} {summary.score}
+        {trend !== "" ? <span className="dim">{trend}</span> : null}
+      </span>
     </span>
   );
 }

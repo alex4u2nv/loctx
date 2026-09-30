@@ -70,7 +70,19 @@ export interface AnalyzerBusEvent {
   readonly at: number; // epoch ms
 }
 
-export type WatcherEvent = WatcherFsEvent | RebuildBusEvent | AnalyzerBusEvent;
+/** A project's code-health score was (re)computed (#health). */
+export interface HealthBusEvent {
+  readonly type: "health";
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly score: number;
+  readonly grade: string;
+  /** False when the rescore produced the same snapshot as before. */
+  readonly changed: boolean;
+  readonly at: number; // epoch ms
+}
+
+export type WatcherEvent = WatcherFsEvent | RebuildBusEvent | AnalyzerBusEvent | HealthBusEvent;
 
 /**
  * Closure-bound bus over a private EventEmitter. Exposes a typed

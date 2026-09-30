@@ -16,6 +16,7 @@ import type {
   LexicalMatch,
   McpRequestLogEntry,
   ProjectFileStats,
+  ProjectHealthSnapshot,
   SymbolRefHit,
 } from "./state-types.js";
 
@@ -239,4 +240,24 @@ export function extractLineMatches(
     });
   }
   return out;
+}
+
+export interface ProjectHealthDbRow {
+  project_id: string;
+  computed_at: string;
+  version: number;
+  score: number;
+  grade: string;
+  payload_json: string;
+}
+
+export function rowToProjectHealth(row: ProjectHealthDbRow): ProjectHealthSnapshot {
+  return {
+    projectId: toProjectId(row.project_id),
+    computedAt: row.computed_at,
+    version: Number(row.version),
+    score: Number(row.score),
+    grade: row.grade,
+    payloadJson: row.payload_json,
+  };
 }

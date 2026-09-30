@@ -239,6 +239,27 @@ CREATE TABLE IF NOT EXISTS usage_stats (
     updated_at TEXT NOT NULL
 );
 
+-- :name schema_v11
+-- Code-health snapshots (#health). One row per (project, computed_at),
+-- written only when the score or a dimension changed since the latest
+-- row, so the table stays small and history reads as a change log.
+--
+--   version       — HEALTH_VERSION of the scoring model that produced it.
+--   score / grade — denormalised from payload_json for cheap list reads.
+--   payload_json  — the full CodeHealth (dimensions, basis, notes).
+--
+-- IF NOT EXISTS so the block is safe to re-run on a sandbox that walks
+-- user_version backwards.
+CREATE TABLE IF NOT EXISTS project_health (
+    project_id TEXT NOT NULL,
+    computed_at TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    score INTEGER NOT NULL,
+    grade TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    PRIMARY KEY (project_id, computed_at)
+);
+
 -- :name pragma_enable_foreign_keys
 PRAGMA foreign_keys = ON;
 
@@ -778,3 +799,41 @@ SELECT COUNT(DISTINCT from_file_id) AS n FROM file_links WHERE to_path = ?;
 -- :name delete_file_links_for_project
 DELETE FROM file_links
 WHERE from_file_id IN (SELECT file_id FROM files WHERE project_id = ?);
+
+-- :name insert_project_health
+INSERT INTO project_health (project_id, computed_at, version, score, grade, payload_json)
+VALUES (?, ?, ?, ?, ?, ?);
+
+-- :name list_project_health
+SELECT project_id, computed_at, version, score, grade, payload_json
+FROM project_health
+WHERE project_id = ?
+ORDER BY computed_at DESC
+LIMIT ?;
+
+-- :name list_project_health_recent
+-- The newest N snapshots per project in one query (window function), so
+-- the projects table pays for what it shows, not the whole history.
+SELECT project_id, computed_at, version, score, grade, payload_json
+FROM (
+  SELECT project_id, computed_at, version, score, grade, payload_json,
+         ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY computed_at DESC) AS rn
+  FROM project_health
+)
+WHERE rn <= ?
+ORDER BY project_id, computed_at DESC;
+
+-- :name prune_project_health
+-- Keep the newest N snapshots for a project; the change log is bounded
+-- even for a project that flaps between two scores forever.
+DELETE FROM project_health
+WHERE project_id = ?
+  AND computed_at NOT IN (
+    SELECT computed_at FROM project_health
+    WHERE project_id = ?
+    ORDER BY computed_at DESC
+    LIMIT ?
+  );
+
+-- :name delete_project_health_for_project
+DELETE FROM project_health WHERE project_id = ?;

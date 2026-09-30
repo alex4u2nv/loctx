@@ -70,6 +70,7 @@ export function fakeRuntime(parts: FakeRuntimeParts = {}): Runtime {
       findSymbol: () => ({ defs: [], refs: [] }),
       findLiteralMatches: () => [],
       listProjects: () => [],
+      listProjectHealth: () => [],
       // Write-path no-ops so ops/projects lifecycle routes run against
       // the fake without every test stubbing the full mutation surface.
       upsertProjectWithActive: () => undefined,

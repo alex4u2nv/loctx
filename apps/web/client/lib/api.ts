@@ -7,6 +7,7 @@ import type {
   AgentRefreshResponse,
   AgentSetupApplyResponse,
   AgentSetupPayload,
+  CodeHealthPayload,
   ConfigPayload,
   ConfigWriteError,
   ConfigWriteRequest,
@@ -72,6 +73,10 @@ export const api = {
   projects: () => getJson<ProjectsPayload>("/api/projects"),
   search: (body: SearchRequestBody) => postJson<SearchPayload>("/api/search", body),
   doctor: () => getJson<DoctorPayload>("/api/doctor"),
+  projectHealth: (id: string) =>
+    getJson<CodeHealthPayload>(`/api/projects/${encodeURIComponent(id)}/health`),
+  recomputeHealth: (id: string) =>
+    postJson<CodeHealthPayload>(`/api/projects/${encodeURIComponent(id)}/health/recompute`, {}),
   projectQuality: (id: string, limit = 20, rule = "") =>
     getJson<QualityReportPayload>(
       `/api/projects/${encodeURIComponent(id)}/quality?limit=${limit}${rule !== "" ? `&rule=${encodeURIComponent(rule)}` : ""}`,

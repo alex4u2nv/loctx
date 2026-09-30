@@ -4,6 +4,7 @@
  */
 
 import type {
+  CodeHealth,
   DuplicateGroup,
   ProjectId,
   QualityReport,
@@ -204,6 +205,15 @@ export interface QualityReportOutput {
    * non-null value means the report is PARTIAL, not empty.
    */
   readonly disabled: string | null;
+  /**
+   * Code Health (#health): the latest persisted snapshot of the report
+   * rolled up to one 0–100 score with per-dimension sub-scores, stamped
+   * with when it was computed. Null until the daemon has scored the
+   * project (it does so once an index pass settles) — this read-only
+   * tool never scores or persists as a side effect, so `health` can lag
+   * `report` by one pass; `computedAt` says by how much.
+   */
+  readonly health: (CodeHealth & { readonly computedAt: string }) | null;
   readonly indexHealth: IndexHealth;
   readonly warnings?: ReadonlyArray<string>;
 }
